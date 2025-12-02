@@ -1,743 +1,579 @@
 """
 Visual Block Diagram Editor
 
-This module provides a drag-and-drop canvas for defining how schematic sheets
-are connected in reliability terms (series, parallel, k-of-n redundancy).
+Drag-and-drop canvas for defining reliability topology.
 """
 
 import wx
-import json
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Tuple, Any
-from enum import Enum
-
-
-class ConnectionType(Enum):
-    """Types of reliability connections between blocks."""
-    SERIES = "series"
-    PARALLEL = "parallel"
-    K_OF_N = "k_of_n"
+from typing import Dict, List, Optional, Tuple
+from reliability_core import ConnectionType
 
 
 @dataclass
-class BlockNode:
-    """Represents a sheet/block in the reliability diagram."""
+class Block:
+    """A block in the reliability diagram."""
     id: str
-    name: str
-    display_name: str
+    name: str  # Full sheet path
+    label: str  # Display name
     x: int = 0
     y: int = 0
-    width: int = 160
-    height: int = 60
+    width: int = 150
+    height: int = 55
     reliability: float = 1.0
     lambda_val: float = 0.0
     is_group: bool = False
     children: List[str] = field(default_factory=list)
     connection_type: ConnectionType = ConnectionType.SERIES
-    k_value: int = 2  # For k-of-n connections
-    color: wx.Colour = field(default_factory=lambda: wx.Colour(200, 220, 255))
+    k_value: int = 2
     
-    def contains_point(self, px: int, py: int) -> bool:
-        """Check if point is inside this block."""
-        return (self.x <= px <= self.x + self.width and
-                self.y <= py <= self.y + self.height)
+    def contains(self, px: int, py: int) -> bool:
+        return self.x <= px <= self.x + self.width and self.y <= py <= self.y + self.height
     
-    def get_center(self) -> Tuple[int, int]:
-        """Get center point of block."""
+    def center(self) -> Tuple[int, int]:
         return (self.x + self.width // 2, self.y + self.height // 2)
-    
-    def get_input_point(self) -> Tuple[int, int]:
-        """Get left connection point."""
-        return (self.x, self.y + self.height // 2)
-    
-    def get_output_point(self) -> Tuple[int, int]:
-        """Get right connection point."""
-        return (self.x + self.width, self.y + self.height // 2)
 
 
-class BlockEditorCanvas(wx.Panel):
-    """
-    Visual canvas for editing reliability block diagrams.
+class BlockEditor(wx.Panel):
+    """Visual editor for reliability block diagrams."""
     
-    Users can:
-    - Drag blocks from a palette
-    - Arrange blocks to indicate series/parallel connections
-    - Create groups for redundancy configurations
-    - See real-time reliability calculations
-    """
-    
-    # Layout constants
-    GRID_SIZE = 20
-    BLOCK_WIDTH = 160
-    BLOCK_HEIGHT = 60
-    GROUP_PADDING = 20
+    GRID = 20
+    BLOCK_W = 150
+    BLOCK_H = 55
+    PAD = 15
     
     # Colors
-    COLOR_BACKGROUND = wx.Colour(250, 250, 250)
-    COLOR_GRID = wx.Colour(230, 230, 230)
-    COLOR_BLOCK = wx.Colour(200, 220, 255)
-    COLOR_BLOCK_SELECTED = wx.Colour(150, 180, 255)
-    COLOR_GROUP_SERIES = wx.Colour(220, 255, 220)
-    COLOR_GROUP_PARALLEL = wx.Colour(255, 220, 220)
-    COLOR_GROUP_KN = wx.Colour(255, 255, 200)
-    COLOR_CONNECTION = wx.Colour(100, 100, 100)
-    COLOR_TEXT = wx.Colour(30, 30, 30)
+    BG = wx.Colour(248, 248, 248)
+    GRID_COLOR = wx.Colour(230, 230, 230)
+    BLOCK_COLOR = wx.Colour(200, 220, 255)
+    BLOCK_SEL = wx.Colour(150, 180, 255)
+    SERIES_COLOR = wx.Colour(220, 255, 220)
+    PARALLEL_COLOR = wx.Colour(255, 220, 220)
+    KN_COLOR = wx.Colour(255, 255, 200)
     
     def __init__(self, parent):
         super().__init__(parent, style=wx.BORDER_SIMPLE)
-        
         self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
-        self.SetMinSize((800, 400))
+        self.SetMinSize((700, 350))
         
-        # State
-        self.blocks: Dict[str, BlockNode] = {}
-        self.root_group: Optional[str] = None
-        self.selected_block: Optional[str] = None
-        self.dragging: bool = False
-        self.drag_offset: Tuple[int, int] = (0, 0)
-        self.hover_block: Optional[str] = None
+        self.blocks: Dict[str, Block] = {}
+        self.root_id: Optional[str] = None
+        self.selected: Optional[str] = None
+        self.hover: Optional[str] = None
         
-        # For creating new groups
-        self.selection_rect: Optional[Tuple[int, int, int, int]] = None
-        self.selecting: bool = False
-        self.selection_start: Tuple[int, int] = (0, 0)
+        self.dragging = False
+        self.drag_offset = (0, 0)
+        self.selecting = False
+        self.sel_start = (0, 0)
+        self.sel_rect: Optional[Tuple[int, int, int, int]] = None
         
-        # Mission time for calculations
-        self.mission_hours: float = 5 * 365 * 24  # 5 years default
+        self.mission_hours = 5 * 365 * 24
         
         # Callbacks
         self.on_selection_change = None
         self.on_structure_change = None
         
-        # Bind events
-        self.Bind(wx.EVT_PAINT, self.on_paint)
-        self.Bind(wx.EVT_LEFT_DOWN, self.on_left_down)
-        self.Bind(wx.EVT_LEFT_UP, self.on_left_up)
-        self.Bind(wx.EVT_LEFT_DCLICK, self.on_double_click)
-        self.Bind(wx.EVT_RIGHT_DOWN, self.on_right_click)
-        self.Bind(wx.EVT_MOTION, self.on_motion)
-        self.Bind(wx.EVT_SIZE, self.on_size)
-        self.Bind(wx.EVT_KEY_DOWN, self.on_key_down)
+        # Events
+        self.Bind(wx.EVT_PAINT, self._on_paint)
+        self.Bind(wx.EVT_LEFT_DOWN, self._on_left_down)
+        self.Bind(wx.EVT_LEFT_UP, self._on_left_up)
+        self.Bind(wx.EVT_LEFT_DCLICK, self._on_dclick)
+        self.Bind(wx.EVT_RIGHT_DOWN, self._on_right_click)
+        self.Bind(wx.EVT_MOTION, self._on_motion)
+        self.Bind(wx.EVT_KEY_DOWN, self._on_key)
+        self.Bind(wx.EVT_SIZE, lambda e: self.Refresh())
         
         self.SetFocus()
     
-    def add_block(self, block_id: str, name: str, display_name: str = None,
-                  x: int = None, y: int = None) -> BlockNode:
-        """Add a new block to the canvas."""
-        if display_name is None:
-            # Extract short name from path
-            display_name = name.rstrip('/').split('/')[-1] or name
+    def add_block(self, block_id: str, name: str, label: str = None) -> Block:
+        """Add a sheet block."""
+        if label is None:
+            label = name.rstrip('/').split('/')[-1] or name
         
-        # Auto-position if not specified
-        if x is None or y is None:
-            x, y = self._find_free_position()
+        x, y = self._find_position()
         
-        block = BlockNode(
-            id=block_id,
-            name=name,
-            display_name=display_name,
-            x=x,
-            y=y,
-            width=self.BLOCK_WIDTH,
-            height=self.BLOCK_HEIGHT,
-        )
+        block = Block(id=block_id, name=name, label=label, x=x, y=y,
+                      width=self.BLOCK_W, height=self.BLOCK_H)
         self.blocks[block_id] = block
         
-        # If no root, this becomes the root series group
-        if self.root_group is None:
-            root = BlockNode(
-                id="__root__",
-                name="System",
-                display_name="System",
-                x=0, y=0,
-                is_group=True,
-                connection_type=ConnectionType.SERIES,
-                color=self.COLOR_GROUP_SERIES,
-            )
+        # Create root group if needed
+        if self.root_id is None:
+            root = Block(id="__root__", name="System", label="System",
+                        is_group=True, connection_type=ConnectionType.SERIES)
             self.blocks["__root__"] = root
-            self.root_group = "__root__"
+            self.root_id = "__root__"
         
+        # Add to root
+        root = self.blocks.get(self.root_id)
+        if root and block_id not in root.children:
+            root.children.append(block_id)
+        
+        self._update_group_bounds()
         self.Refresh()
         return block
     
     def remove_block(self, block_id: str):
-        """Remove a block from the canvas."""
-        if block_id in self.blocks:
-            # Remove from any parent groups
-            for block in self.blocks.values():
-                if block.is_group and block_id in block.children:
-                    block.children.remove(block_id)
-            
-            del self.blocks[block_id]
-            
-            if self.selected_block == block_id:
-                self.selected_block = None
-            
-            self.Refresh()
-            self._notify_structure_change()
+        """Remove a block."""
+        if block_id not in self.blocks:
+            return
+        
+        # Remove from parents
+        for b in self.blocks.values():
+            if b.is_group and block_id in b.children:
+                b.children.remove(block_id)
+        
+        del self.blocks[block_id]
+        if self.selected == block_id:
+            self.selected = None
+        
+        self._update_group_bounds()
+        self.Refresh()
+        self._notify_change()
     
-    def create_group(self, block_ids: List[str], connection_type: ConnectionType,
-                     k_value: int = 2) -> Optional[str]:
-        """Create a group from selected blocks."""
+    def create_group(self, block_ids: List[str], conn_type: ConnectionType, k: int = 2) -> Optional[str]:
+        """Group blocks together."""
         if len(block_ids) < 2:
             return None
         
-        # Generate unique group ID
-        group_id = f"__group_{len([b for b in self.blocks.values() if b.is_group])}__"
+        gid = f"__grp_{sum(1 for b in self.blocks.values() if b.is_group)}__"
         
-        # Calculate bounding box
+        # Bounds
         min_x = min(self.blocks[bid].x for bid in block_ids)
         min_y = min(self.blocks[bid].y for bid in block_ids)
         max_x = max(self.blocks[bid].x + self.blocks[bid].width for bid in block_ids)
         max_y = max(self.blocks[bid].y + self.blocks[bid].height for bid in block_ids)
         
-        # Set color based on connection type
-        if connection_type == ConnectionType.SERIES:
-            color = self.COLOR_GROUP_SERIES
-            name = "Series"
-        elif connection_type == ConnectionType.PARALLEL:
-            color = self.COLOR_GROUP_PARALLEL
-            name = "Parallel"
-        else:
-            color = self.COLOR_GROUP_KN
-            name = f"{k_value}-of-{len(block_ids)}"
+        label = {
+            ConnectionType.SERIES: "SERIES",
+            ConnectionType.PARALLEL: "PARALLEL",
+            ConnectionType.K_OF_N: f"{k}-of-{len(block_ids)}"
+        }[conn_type]
         
-        group = BlockNode(
-            id=group_id,
-            name=name,
-            display_name=name,
-            x=min_x - self.GROUP_PADDING,
-            y=min_y - self.GROUP_PADDING,
-            width=max_x - min_x + 2 * self.GROUP_PADDING,
-            height=max_y - min_y + 2 * self.GROUP_PADDING,
-            is_group=True,
-            children=list(block_ids),
-            connection_type=connection_type,
-            k_value=k_value,
-            color=color,
+        group = Block(
+            id=gid, name=label, label=label,
+            x=min_x - self.PAD, y=min_y - self.PAD,
+            width=max_x - min_x + 2*self.PAD,
+            height=max_y - min_y + 2*self.PAD,
+            is_group=True, children=list(block_ids),
+            connection_type=conn_type, k_value=k
         )
+        self.blocks[gid] = group
         
-        self.blocks[group_id] = group
-        
-        # Remove blocks from root if they were there
-        root = self.blocks.get(self.root_group)
+        # Move blocks from root to this group
+        root = self.blocks.get(self.root_id)
         if root:
             for bid in block_ids:
                 if bid in root.children:
                     root.children.remove(bid)
-            root.children.append(group_id)
+            root.children.append(gid)
         
         self.Refresh()
-        self._notify_structure_change()
-        return group_id
+        self._notify_change()
+        return gid
     
     def ungroup(self, group_id: str):
-        """Dissolve a group, returning children to parent."""
+        """Dissolve a group."""
         if group_id not in self.blocks or not self.blocks[group_id].is_group:
             return
         
         group = self.blocks[group_id]
         children = group.children.copy()
         
-        # Find parent group
-        parent_id = None
-        for block in self.blocks.values():
-            if block.is_group and group_id in block.children:
-                parent_id = block.id
+        # Find parent
+        parent = None
+        for b in self.blocks.values():
+            if b.is_group and group_id in b.children:
+                parent = b
                 break
         
-        if parent_id:
-            parent = self.blocks[parent_id]
+        if parent:
             parent.children.remove(group_id)
             parent.children.extend(children)
         
         del self.blocks[group_id]
-        
+        self._update_group_bounds()
         self.Refresh()
-        self._notify_structure_change()
+        self._notify_change()
     
-    def _find_free_position(self) -> Tuple[int, int]:
-        """Find a free position for a new block."""
-        # Simple grid-based placement
-        x = self.GROUP_PADDING + self.GRID_SIZE
-        y = self.GROUP_PADDING + self.GRID_SIZE
+    def _find_position(self) -> Tuple[int, int]:
+        """Find free position for new block."""
+        x, y = self.PAD + self.GRID, self.PAD + self.GRID
         
         while True:
             collision = False
-            for block in self.blocks.values():
-                if (abs(block.x - x) < self.BLOCK_WIDTH + 20 and
-                    abs(block.y - y) < self.BLOCK_HEIGHT + 20):
-                    collision = True
-                    break
+            for b in self.blocks.values():
+                if not b.is_group:
+                    if abs(b.x - x) < self.BLOCK_W + 20 and abs(b.y - y) < self.BLOCK_H + 20:
+                        collision = True
+                        break
             
             if not collision:
                 return (x, y)
             
-            x += self.BLOCK_WIDTH + 40
-            if x > 600:
-                x = self.GROUP_PADDING + self.GRID_SIZE
-                y += self.BLOCK_HEIGHT + 40
+            x += self.BLOCK_W + 30
+            if x > 500:
+                x = self.PAD + self.GRID
+                y += self.BLOCK_H + 30
     
-    def _snap_to_grid(self, x: int, y: int) -> Tuple[int, int]:
-        """Snap coordinates to grid."""
-        return (
-            round(x / self.GRID_SIZE) * self.GRID_SIZE,
-            round(y / self.GRID_SIZE) * self.GRID_SIZE
-        )
+    def _snap(self, x: int, y: int) -> Tuple[int, int]:
+        return (round(x / self.GRID) * self.GRID, round(y / self.GRID) * self.GRID)
     
-    def _get_block_at(self, x: int, y: int) -> Optional[str]:
-        """Get block ID at position, preferring non-groups."""
-        # First check non-group blocks (higher z-order)
-        for block_id, block in self.blocks.items():
-            if not block.is_group and block.contains_point(x, y):
-                return block_id
-        
-        # Then check groups
-        for block_id, block in self.blocks.items():
-            if block.is_group and block.contains_point(x, y):
-                return block_id
-        
+    def _block_at(self, x: int, y: int) -> Optional[str]:
+        """Get block at position (prefer non-groups)."""
+        for bid, b in self.blocks.items():
+            if not b.is_group and b.contains(x, y):
+                return bid
+        for bid, b in self.blocks.items():
+            if b.is_group and b.contains(x, y):
+                return bid
         return None
     
-    def _notify_selection_change(self):
-        """Notify listeners of selection change."""
-        if self.on_selection_change:
-            self.on_selection_change(self.selected_block)
+    def _update_group_bounds(self):
+        """Update group boundaries."""
+        for g in self.blocks.values():
+            if g.is_group and g.children:
+                min_x = min_y = float('inf')
+                max_x = max_y = float('-inf')
+                
+                for cid in g.children:
+                    c = self.blocks.get(cid)
+                    if c:
+                        min_x = min(min_x, c.x)
+                        min_y = min(min_y, c.y)
+                        max_x = max(max_x, c.x + c.width)
+                        max_y = max(max_y, c.y + c.height)
+                
+                if min_x != float('inf'):
+                    g.x = int(min_x - self.PAD)
+                    g.y = int(min_y - self.PAD)
+                    g.width = int(max_x - min_x + 2*self.PAD)
+                    g.height = int(max_y - min_y + 2*self.PAD)
     
-    def _notify_structure_change(self):
-        """Notify listeners of structure change."""
+    def _notify_change(self):
         if self.on_structure_change:
             self.on_structure_change()
     
-    # =========================================================================
-    # Event Handlers
-    # =========================================================================
+    def _notify_selection(self):
+        if self.on_selection_change:
+            self.on_selection_change(self.selected)
     
-    def on_paint(self, event):
-        """Paint the canvas."""
+    # === Event handlers ===
+    
+    def _on_paint(self, event):
         dc = wx.AutoBufferedPaintDC(self)
         gc = wx.GraphicsContext.Create(dc)
-        
-        width, height = self.GetSize()
+        w, h = self.GetSize()
         
         # Background
-        gc.SetBrush(wx.Brush(self.COLOR_BACKGROUND))
-        gc.DrawRectangle(0, 0, width, height)
+        gc.SetBrush(wx.Brush(self.BG))
+        gc.DrawRectangle(0, 0, w, h)
         
         # Grid
-        gc.SetPen(wx.Pen(self.COLOR_GRID, 1))
-        for x in range(0, width, self.GRID_SIZE):
-            gc.StrokeLine(x, 0, x, height)
-        for y in range(0, height, self.GRID_SIZE):
-            gc.StrokeLine(0, y, width, y)
+        gc.SetPen(wx.Pen(self.GRID_COLOR, 1))
+        for x in range(0, w, self.GRID):
+            gc.StrokeLine(x, 0, x, h)
+        for y in range(0, h, self.GRID):
+            gc.StrokeLine(0, y, w, y)
         
-        # Draw groups first (background)
-        for block in sorted(self.blocks.values(), key=lambda b: (not b.is_group, b.y)):
-            if block.is_group:
-                self._draw_group(gc, block)
+        # Groups (back)
+        for b in sorted(self.blocks.values(), key=lambda x: not x.is_group):
+            if b.is_group:
+                self._draw_group(gc, b)
         
-        # Draw regular blocks
-        for block in self.blocks.values():
-            if not block.is_group:
-                self._draw_block(gc, block)
+        # Blocks (front)
+        for b in self.blocks.values():
+            if not b.is_group:
+                self._draw_block(gc, b)
         
-        # Draw selection rectangle if selecting
-        if self.selecting and self.selection_rect:
-            x, y, w, h = self.selection_rect
+        # Selection rectangle
+        if self.selecting and self.sel_rect:
+            x, y, w, h = self.sel_rect
             gc.SetBrush(wx.Brush(wx.Colour(100, 150, 255, 50)))
             gc.SetPen(wx.Pen(wx.Colour(100, 150, 255), 2, wx.PENSTYLE_DOT))
             gc.DrawRectangle(x, y, w, h)
     
-    def _draw_block(self, gc: wx.GraphicsContext, block: BlockNode):
-        """Draw a single block."""
-        # Block rectangle
-        if block.id == self.selected_block:
-            gc.SetBrush(wx.Brush(self.COLOR_BLOCK_SELECTED))
+    def _draw_block(self, gc, b: Block):
+        if b.id == self.selected:
+            gc.SetBrush(wx.Brush(self.BLOCK_SEL))
             gc.SetPen(wx.Pen(wx.Colour(50, 100, 200), 3))
-        elif block.id == self.hover_block:
-            gc.SetBrush(wx.Brush(self.COLOR_BLOCK))
+        elif b.id == self.hover:
+            gc.SetBrush(wx.Brush(self.BLOCK_COLOR))
             gc.SetPen(wx.Pen(wx.Colour(100, 150, 200), 2))
         else:
-            gc.SetBrush(wx.Brush(block.color))
+            gc.SetBrush(wx.Brush(self.BLOCK_COLOR))
             gc.SetPen(wx.Pen(wx.Colour(100, 100, 100), 1))
         
-        gc.DrawRoundedRectangle(block.x, block.y, block.width, block.height, 8)
+        gc.DrawRoundedRectangle(b.x, b.y, b.width, b.height, 6)
         
-        # Block name
-        font = wx.Font(10, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
-        gc.SetFont(font, self.COLOR_TEXT)
+        # Label
+        font = wx.Font(9, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
+        gc.SetFont(font, wx.Colour(30, 30, 30))
         
-        # Truncate name if too long
-        name = block.display_name
-        if len(name) > 18:
-            name = name[:15] + "..."
+        label = b.label[:18] + "..." if len(b.label) > 18 else b.label
+        tw = gc.GetTextExtent(label)[0]
+        gc.DrawText(label, b.x + (b.width - tw)/2, b.y + 8)
         
-        text_width, text_height = gc.GetTextExtent(name)[:2]
-        text_x = block.x + (block.width - text_width) / 2
-        text_y = block.y + 10
-        gc.DrawText(name, text_x, text_y)
-        
-        # Reliability value
-        font = wx.Font(9, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
+        # Reliability
+        font = wx.Font(8, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
         gc.SetFont(font, wx.Colour(60, 60, 60))
         
-        r_text = f"R = {block.reliability:.4f}"
-        text_width, text_height = gc.GetTextExtent(r_text)[:2]
-        gc.DrawText(r_text, block.x + (block.width - text_width) / 2, block.y + 32)
+        r_text = f"R = {b.reliability:.4f}"
+        tw = gc.GetTextExtent(r_text)[0]
+        gc.DrawText(r_text, b.x + (b.width - tw)/2, b.y + 24)
         
-        # Lambda value
-        lambda_text = f"λ = {block.lambda_val:.2e}"
-        text_width, text_height = gc.GetTextExtent(lambda_text)[:2]
-        gc.DrawText(lambda_text, block.x + (block.width - text_width) / 2, block.y + 46)
+        l_text = f"λ = {b.lambda_val:.2e}"
+        tw = gc.GetTextExtent(l_text)[0]
+        gc.DrawText(l_text, b.x + (b.width - tw)/2, b.y + 38)
     
-    def _draw_group(self, gc: wx.GraphicsContext, group: BlockNode):
-        """Draw a group container."""
-        # Background
-        gc.SetBrush(wx.Brush(wx.Colour(group.color.Red(), group.color.Green(),
-                                        group.color.Blue(), 100)))
+    def _draw_group(self, gc, g: Block):
+        color = {
+            ConnectionType.SERIES: self.SERIES_COLOR,
+            ConnectionType.PARALLEL: self.PARALLEL_COLOR,
+            ConnectionType.K_OF_N: self.KN_COLOR,
+        }.get(g.connection_type, self.SERIES_COLOR)
         
-        if group.id == self.selected_block:
+        gc.SetBrush(wx.Brush(wx.Colour(color.Red(), color.Green(), color.Blue(), 80)))
+        
+        if g.id == self.selected:
             gc.SetPen(wx.Pen(wx.Colour(50, 100, 200), 3, wx.PENSTYLE_DOT))
         else:
             gc.SetPen(wx.Pen(wx.Colour(150, 150, 150), 2, wx.PENSTYLE_DOT))
         
-        gc.DrawRoundedRectangle(group.x, group.y, group.width, group.height, 12)
+        gc.DrawRoundedRectangle(g.x, g.y, g.width, g.height, 10)
         
         # Label
-        font = wx.Font(9, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
+        font = wx.Font(8, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
         gc.SetFont(font, wx.Colour(80, 80, 80))
         
-        if group.connection_type == ConnectionType.SERIES:
-            label = "SERIES"
-        elif group.connection_type == ConnectionType.PARALLEL:
-            label = "PARALLEL"
-        else:
-            label = f"{group.k_value}-of-{len(group.children)}"
+        label = g.label
+        gc.DrawText(label, g.x + 6, g.y + 3)
         
-        gc.DrawText(label, group.x + 8, group.y + 4)
-        
-        # Group reliability
-        r_text = f"R = {group.reliability:.4f}"
-        text_width = gc.GetTextExtent(r_text)[0]
-        gc.DrawText(r_text, group.x + group.width - text_width - 8, group.y + 4)
+        r_text = f"R={g.reliability:.4f}"
+        tw = gc.GetTextExtent(r_text)[0]
+        gc.DrawText(r_text, g.x + g.width - tw - 6, g.y + 3)
     
-    def on_left_down(self, event):
-        """Handle left mouse button down."""
+    def _on_left_down(self, event):
         x, y = event.GetPosition()
         self.SetFocus()
         
-        block_id = self._get_block_at(x, y)
+        bid = self._block_at(x, y)
         
-        if block_id:
-            self.selected_block = block_id
+        if bid:
+            self.selected = bid
             self.dragging = True
-            block = self.blocks[block_id]
-            self.drag_offset = (x - block.x, y - block.y)
+            b = self.blocks[bid]
+            self.drag_offset = (x - b.x, y - b.y)
         else:
-            # Start selection rectangle
             self.selecting = True
-            self.selection_start = (x, y)
-            self.selection_rect = (x, y, 0, 0)
-            self.selected_block = None
+            self.sel_start = (x, y)
+            self.sel_rect = (x, y, 0, 0)
+            self.selected = None
         
-        self._notify_selection_change()
+        self._notify_selection()
         self.Refresh()
     
-    def on_left_up(self, event):
-        """Handle left mouse button up."""
+    def _on_left_up(self, event):
         if self.dragging:
             self.dragging = False
-            self._notify_structure_change()
+            self._update_group_bounds()
+            self._notify_change()
         
         if self.selecting:
             self.selecting = False
-            # Check if selection is large enough and contains blocks
-            if self.selection_rect:
-                x, y, w, h = self.selection_rect
+            if self.sel_rect:
+                x, y, w, h = self.sel_rect
                 if w > 20 and h > 20:
-                    # Find blocks in selection
                     selected = []
-                    for bid, block in self.blocks.items():
-                        if not block.is_group:
-                            cx, cy = block.get_center()
-                            if x <= cx <= x + w and y <= cy <= y + h:
+                    for bid, b in self.blocks.items():
+                        if not b.is_group:
+                            cx, cy = b.center()
+                            if x <= cx <= x+w and y <= cy <= y+h:
                                 selected.append(bid)
                     
                     if len(selected) >= 2:
-                        # Show context menu for group creation
                         self._show_group_menu(selected)
             
-            self.selection_rect = None
+            self.sel_rect = None
         
         self.Refresh()
     
-    def on_double_click(self, event):
-        """Handle double click - edit group properties."""
+    def _on_dclick(self, event):
         x, y = event.GetPosition()
-        block_id = self._get_block_at(x, y)
+        bid = self._block_at(x, y)
         
-        if block_id and self.blocks[block_id].is_group:
-            self._show_group_properties(block_id)
+        if bid and self.blocks[bid].is_group:
+            self._edit_group(bid)
     
-    def on_right_click(self, event):
-        """Handle right click - context menu."""
+    def _on_right_click(self, event):
         x, y = event.GetPosition()
-        block_id = self._get_block_at(x, y)
+        bid = self._block_at(x, y)
         
-        if block_id:
-            self.selected_block = block_id
-            self._notify_selection_change()
+        if bid:
+            self.selected = bid
+            self._notify_selection()
             self.Refresh()
             
             menu = wx.Menu()
+            b = self.blocks[bid]
             
-            block = self.blocks[block_id]
-            if block.is_group:
-                menu.Append(wx.ID_ANY, "Edit Group Properties...")
+            if b.is_group:
+                item = menu.Append(wx.ID_ANY, "Edit Group Type...")
+                self.Bind(wx.EVT_MENU, lambda e: self._edit_group(bid), item)
                 menu.AppendSeparator()
-                menu.Append(wx.ID_ANY, "Ungroup")
+                item = menu.Append(wx.ID_ANY, "Ungroup")
+                self.Bind(wx.EVT_MENU, lambda e: self.ungroup(bid), item)
             else:
-                menu.Append(wx.ID_ANY, "Edit Parameters...")
-                menu.AppendSeparator()
-                menu.Append(wx.ID_ANY, "Remove Block")
+                item = menu.Append(wx.ID_ANY, "Remove from Diagram")
+                self.Bind(wx.EVT_MENU, lambda e: self.remove_block(bid), item)
             
             self.PopupMenu(menu, event.GetPosition())
             menu.Destroy()
     
-    def on_motion(self, event):
-        """Handle mouse motion."""
+    def _on_motion(self, event):
         x, y = event.GetPosition()
         
-        if self.dragging and self.selected_block:
-            block = self.blocks[self.selected_block]
-            new_x, new_y = self._snap_to_grid(
-                x - self.drag_offset[0],
-                y - self.drag_offset[1]
-            )
-            block.x = max(0, new_x)
-            block.y = max(0, new_y)
-            
-            # Update parent group bounds if in a group
+        if self.dragging and self.selected:
+            b = self.blocks[self.selected]
+            b.x, b.y = self._snap(x - self.drag_offset[0], y - self.drag_offset[1])
+            b.x = max(0, b.x)
+            b.y = max(0, b.y)
             self._update_group_bounds()
-            
             self.Refresh()
         
         elif self.selecting:
-            sx, sy = self.selection_start
-            w = x - sx
-            h = y - sy
-            
-            # Normalize for negative dimensions
+            sx, sy = self.sel_start
+            w, h = x - sx, y - sy
             if w < 0:
                 sx, w = x, -w
             if h < 0:
                 sy, h = y, -h
-            
-            self.selection_rect = (sx, sy, w, h)
+            self.sel_rect = (sx, sy, w, h)
             self.Refresh()
         
         else:
-            # Hover effect
-            old_hover = self.hover_block
-            self.hover_block = self._get_block_at(x, y)
-            if old_hover != self.hover_block:
+            old_hover = self.hover
+            self.hover = self._block_at(x, y)
+            if old_hover != self.hover:
                 self.Refresh()
     
-    def on_size(self, event):
-        """Handle resize."""
-        self.Refresh()
+    def _on_key(self, event):
+        if event.GetKeyCode() == wx.WXK_DELETE and self.selected:
+            b = self.blocks.get(self.selected)
+            if b and b.is_group:
+                self.ungroup(self.selected)
+            elif b:
+                self.remove_block(self.selected)
         event.Skip()
-    
-    def on_key_down(self, event):
-        """Handle keyboard input."""
-        keycode = event.GetKeyCode()
-        
-        if keycode == wx.WXK_DELETE and self.selected_block:
-            block = self.blocks.get(self.selected_block)
-            if block and block.is_group:
-                self.ungroup(self.selected_block)
-            elif block:
-                self.remove_block(self.selected_block)
-        
-        event.Skip()
-    
-    def _update_group_bounds(self):
-        """Update group boundaries to contain all children."""
-        for group in self.blocks.values():
-            if group.is_group and group.children:
-                # Calculate bounds from children
-                min_x = float('inf')
-                min_y = float('inf')
-                max_x = float('-inf')
-                max_y = float('-inf')
-                
-                for child_id in group.children:
-                    child = self.blocks.get(child_id)
-                    if child:
-                        min_x = min(min_x, child.x)
-                        min_y = min(min_y, child.y)
-                        max_x = max(max_x, child.x + child.width)
-                        max_y = max(max_y, child.y + child.height)
-                
-                if min_x != float('inf'):
-                    group.x = min_x - self.GROUP_PADDING
-                    group.y = min_y - self.GROUP_PADDING
-                    group.width = max_x - min_x + 2 * self.GROUP_PADDING
-                    group.height = max_y - min_y + 2 * self.GROUP_PADDING
     
     def _show_group_menu(self, block_ids: List[str]):
-        """Show menu for creating a group."""
+        """Show menu to create group."""
         menu = wx.Menu()
         
-        id_series = wx.NewId()
-        id_parallel = wx.NewId()
-        id_kn = wx.NewId()
+        id_s = wx.NewId()
+        id_p = wx.NewId()
+        id_k = wx.NewId()
         
-        menu.Append(id_series, "Group as Series")
-        menu.Append(id_parallel, "Group as Parallel")
-        menu.Append(id_kn, f"Group as K-of-{len(block_ids)}...")
+        menu.Append(id_s, "Group as SERIES (all must work)")
+        menu.Append(id_p, "Group as PARALLEL (any can work)")
+        menu.Append(id_k, f"Group as K-of-{len(block_ids)} (redundancy)...")
         
-        def on_series(evt):
-            self.create_group(block_ids, ConnectionType.SERIES)
+        self.Bind(wx.EVT_MENU, lambda e: self.create_group(block_ids, ConnectionType.SERIES), id=id_s)
+        self.Bind(wx.EVT_MENU, lambda e: self.create_group(block_ids, ConnectionType.PARALLEL), id=id_p)
         
-        def on_parallel(evt):
-            self.create_group(block_ids, ConnectionType.PARALLEL)
-        
-        def on_kn(evt):
-            dlg = wx.NumberEntryDialog(
-                self, f"How many must work out of {len(block_ids)}?",
-                "K value:", "K-of-N Redundancy",
-                2, 1, len(block_ids)
-            )
+        def on_kn(e):
+            dlg = wx.NumberEntryDialog(self, f"How many must work?", "K:", 
+                                       "K-of-N Redundancy", 2, 1, len(block_ids))
             if dlg.ShowModal() == wx.ID_OK:
                 self.create_group(block_ids, ConnectionType.K_OF_N, dlg.GetValue())
             dlg.Destroy()
         
-        self.Bind(wx.EVT_MENU, on_series, id=id_series)
-        self.Bind(wx.EVT_MENU, on_parallel, id=id_parallel)
-        self.Bind(wx.EVT_MENU, on_kn, id=id_kn)
+        self.Bind(wx.EVT_MENU, on_kn, id=id_k)
         
         self.PopupMenu(menu)
         menu.Destroy()
     
-    def _show_group_properties(self, group_id: str):
-        """Show dialog to edit group properties."""
-        group = self.blocks.get(group_id)
-        if not group or not group.is_group:
+    def _edit_group(self, group_id: str):
+        """Edit group properties."""
+        g = self.blocks.get(group_id)
+        if not g or not g.is_group:
             return
         
-        dlg = wx.SingleChoiceDialog(
-            self,
-            "Select connection type:",
-            "Group Properties",
-            ["Series", "Parallel", f"K-of-{len(group.children)}"]
-        )
+        choices = ["SERIES (all must work)", "PARALLEL (any can work)", 
+                   f"K-of-{len(g.children)} (redundancy)"]
         
-        # Set current selection
-        if group.connection_type == ConnectionType.SERIES:
-            dlg.SetSelection(0)
-        elif group.connection_type == ConnectionType.PARALLEL:
-            dlg.SetSelection(1)
-        else:
-            dlg.SetSelection(2)
+        dlg = wx.SingleChoiceDialog(self, "Select connection type:", "Group Type", choices)
+        
+        idx = {ConnectionType.SERIES: 0, ConnectionType.PARALLEL: 1, ConnectionType.K_OF_N: 2}
+        dlg.SetSelection(idx.get(g.connection_type, 0))
         
         if dlg.ShowModal() == wx.ID_OK:
             sel = dlg.GetSelection()
             if sel == 0:
-                group.connection_type = ConnectionType.SERIES
-                group.color = self.COLOR_GROUP_SERIES
-                group.display_name = "Series"
+                g.connection_type = ConnectionType.SERIES
+                g.label = "SERIES"
             elif sel == 1:
-                group.connection_type = ConnectionType.PARALLEL
-                group.color = self.COLOR_GROUP_PARALLEL
-                group.display_name = "Parallel"
+                g.connection_type = ConnectionType.PARALLEL
+                g.label = "PARALLEL"
             else:
-                # Ask for K value
-                k_dlg = wx.NumberEntryDialog(
-                    self, f"How many must work out of {len(group.children)}?",
-                    "K value:", "K-of-N Redundancy",
-                    group.k_value, 1, len(group.children)
-                )
-                if k_dlg.ShowModal() == wx.ID_OK:
-                    group.k_value = k_dlg.GetValue()
-                k_dlg.Destroy()
-                
-                group.connection_type = ConnectionType.K_OF_N
-                group.color = self.COLOR_GROUP_KN
-                group.display_name = f"{group.k_value}-of-{len(group.children)}"
+                kdlg = wx.NumberEntryDialog(self, "How many must work?", "K:",
+                                            "K-of-N", g.k_value, 1, len(g.children))
+                if kdlg.ShowModal() == wx.ID_OK:
+                    g.k_value = kdlg.GetValue()
+                kdlg.Destroy()
+                g.connection_type = ConnectionType.K_OF_N
+                g.label = f"{g.k_value}-of-{len(g.children)}"
             
             self.Refresh()
-            self._notify_structure_change()
+            self._notify_change()
         
         dlg.Destroy()
     
-    # =========================================================================
-    # Data Access
-    # =========================================================================
+    # === Data access ===
     
     def get_structure(self) -> Dict:
-        """Get the current structure as a serializable dictionary."""
+        """Get serializable structure."""
         return {
             "blocks": {
                 bid: {
-                    "name": b.name,
-                    "display_name": b.display_name,
-                    "x": b.x,
-                    "y": b.y,
-                    "is_group": b.is_group,
-                    "children": b.children,
+                    "name": b.name, "label": b.label,
+                    "x": b.x, "y": b.y,
+                    "is_group": b.is_group, "children": b.children,
                     "connection_type": b.connection_type.value,
                     "k_value": b.k_value,
                 }
                 for bid, b in self.blocks.items()
             },
-            "root": self.root_group,
+            "root": self.root_id,
             "mission_hours": self.mission_hours,
         }
     
     def load_structure(self, data: Dict):
-        """Load structure from a dictionary."""
+        """Load structure from dict."""
         self.blocks.clear()
         
-        for bid, bdata in data.get("blocks", {}).items():
-            block = BlockNode(
-                id=bid,
-                name=bdata["name"],
-                display_name=bdata["display_name"],
-                x=bdata["x"],
-                y=bdata["y"],
-                is_group=bdata["is_group"],
-                children=bdata.get("children", []),
-                connection_type=ConnectionType(bdata.get("connection_type", "series")),
-                k_value=bdata.get("k_value", 2),
+        for bid, bd in data.get("blocks", {}).items():
+            b = Block(
+                id=bid, name=bd["name"], label=bd["label"],
+                x=bd["x"], y=bd["y"],
+                is_group=bd["is_group"], children=bd.get("children", []),
+                connection_type=ConnectionType(bd.get("connection_type", "series")),
+                k_value=bd.get("k_value", 2)
             )
-            
-            # Set color based on type
-            if block.is_group:
-                if block.connection_type == ConnectionType.SERIES:
-                    block.color = self.COLOR_GROUP_SERIES
-                elif block.connection_type == ConnectionType.PARALLEL:
-                    block.color = self.COLOR_GROUP_PARALLEL
-                else:
-                    block.color = self.COLOR_GROUP_KN
-            
-            self.blocks[bid] = block
+            self.blocks[bid] = b
         
-        self.root_group = data.get("root")
-        self.mission_hours = data.get("mission_hours", 5 * 365 * 24)
-        
+        self.root_id = data.get("root")
+        self.mission_hours = data.get("mission_hours", 5*365*24)
         self.Refresh()
     
-    def update_reliability(self, block_id: str, reliability: float, lambda_val: float):
-        """Update reliability values for a block."""
+    def update_block(self, block_id: str, r: float, lam: float):
+        """Update block reliability values."""
         if block_id in self.blocks:
-            self.blocks[block_id].reliability = reliability
-            self.blocks[block_id].lambda_val = lambda_val
-            self.Refresh()
+            self.blocks[block_id].reliability = r
+            self.blocks[block_id].lambda_val = lam
     
     def clear(self):
         """Clear all blocks."""
         self.blocks.clear()
-        self.root_group = None
-        self.selected_block = None
+        self.root_id = None
+        self.selected = None
         self.Refresh()

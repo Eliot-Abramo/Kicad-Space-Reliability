@@ -1,222 +1,191 @@
-# KiCad Reliability Calculator Plugin
+# ⚡ KiCad Reliability Calculator
 
-A comprehensive reliability analysis plugin for KiCad 9 that calculates component and system reliability based on FIDES methodology.
+Calculate component and system reliability for your KiCad projects.
 
-## Features
+![Screenshot](screenshot.png)
 
-- **Visual Block Diagram Editor**: Drag-and-drop interface to define how schematic sheets are connected (series, parallel, k-of-n redundancy)
-- **Automatic Schematic Parsing**: Reads KiCad 9 schematic hierarchy and component fields
-- **Real-time Calculations**: Instant reliability updates as you modify the system structure
-- **Component-level Analysis**: Detailed failure rates for resistors, capacitors, transistors, diodes, ICs, inductors, converters, and batteries
-- **Table Injection**: Generate reliability tables directly in your schematic sheets
-- **Report Export**: Export analysis to HTML, Markdown, or CSV
+## ✨ Features
 
-## Installation
+- **Visual Block Diagram Editor** - Drag & drop to define series/parallel/k-of-n redundancy
+- **Automatic Schematic Parsing** - Reads your KiCad 9 hierarchy automatically
+- **Component-Level Analysis** - FIDES-based failure rates for all component types
+- **Real-Time Calculations** - See reliability update as you modify the topology
+- **Export Reports** - HTML, Markdown, or CSV formats
 
-### KiCad Plugin Installation
+---
 
-1. Copy the entire `kicad_reliability_plugin` folder to your KiCad plugins directory:
-   - **Linux**: `~/.local/share/kicad/9.0/scripting/plugins/`
-   - **Windows**: `%APPDATA%\kicad\9.0\scripting\plugins\`
-   - **macOS**: `~/Library/Preferences/kicad/9.0/scripting/plugins/`
+## 🚀 Installation (KiCad 9)
 
-2. Restart KiCad
+### Step 1: Copy Files
 
-3. The plugin will appear in **Tools → External Plugins → Reliability Calculator**
+Copy the **entire `kicad_reliability_plugin` folder** to your KiCad plugins directory:
 
-### Standalone Usage (for testing)
+| OS | Location |
+|----|----------|
+| **Linux** | `~/.local/share/kicad/9.0/scripting/plugins/` |
+| **Windows** | `%APPDATA%\kicad\9.0\scripting\plugins\` |
+| **macOS** | `~/Library/Preferences/kicad/9.0/scripting/plugins/` |
 
-```bash
-cd kicad_reliability_plugin
-python run_standalone.py [optional_project_path]
-```
+### Step 2: Register as BOM Generator
 
-## Setting Up Your Schematic
+1. Open **Eeschema** (schematic editor)
+2. Go to **Tools → Generate Bill of Materials**
+3. Click **+ (Add Plugin)**
+4. Browse to: `kicad_reliability_plugin/bom_reliability.py`
+5. Set the **Command line** to:
+   ```
+   python3 "%P/bom_reliability.py" "%I" "%O"
+   ```
+   Or on Windows:
+   ```
+   python "%P/bom_reliability.py" "%I" "%O"
+   ```
+6. Set **Nickname** to: `Reliability Calculator`
+7. Click **OK**
 
-For the plugin to calculate reliability, you need to add custom fields to your component symbols. The plugin looks for these fields:
+### Step 3: Use It!
+
+1. Open your schematic in Eeschema
+2. Go to **Tools → Generate Bill of Materials**
+3. Select **"Reliability Calculator"**
+4. Click **Generate**
+5. The Reliability Calculator window opens with your project loaded! 🎉
+
+---
+
+## 🎯 Quick Start
+
+### 1. Add Sheets to the Diagram
+
+- Select sheets from the left panel
+- Click **Add Selected** or double-click
+- Sheets appear as blocks in the diagram
+
+### 2. Define System Topology
+
+- **Drag a rectangle** around multiple blocks to select them
+- **Right-click** → Choose connection type:
+  - **SERIES** - All blocks must work (R = R₁ × R₂ × ...)
+  - **PARALLEL** - At least one must work (R = 1 - (1-R₁)(1-R₂)...)
+  - **K-of-N** - K out of N must work (redundancy)
+
+### 3. View Results
+
+- Click **Calculate System Reliability**
+- See per-block and system reliability
+- Export reports as needed
+
+---
+
+## 📋 Component Fields
+
+For accurate calculations, add these custom fields to your symbols:
 
 ### Required Field
 
-| Field Name | Description | Example |
-|------------|-------------|---------|
-| `Reliability_Class` or `Class` | Component classification | `Resistor (11.1)` |
+| Field | Description | Examples |
+|-------|-------------|----------|
+| `Reliability_Class` | Component type | `Resistor`, `Ceramic Capacitor`, `Integrated Circuit` |
 
-### Supported Component Classes
+### Supported Classes
 
-- `Resistor (11.1)`
-- `Ceramic Capacitor (10.3)`
-- `Tantalum Capacitor (10.4)`
-- `Low Power Transistor (8.4)`
-- `Power Transistor (8.5)`
-- `Low Power Diode (8.2)`
-- `Power Diode (8.3)`
-- `Integrated Circuit (7)`
-- `Inductor (12)`
-- `Converter <10W (19.6)`
-- `Primary Battery (19.1)`
+- `Resistor`
+- `Ceramic Capacitor` / `Tantalum Capacitor`
+- `Low Power Transistor` / `Power Transistor`
+- `Low Power Diode` / `Power Diode`
+- `Integrated Circuit` / `MCU`
+- `Inductor` / `Transformer`
+- `DC-DC Converter` / `LDO Regulator`
+- `Crystal` / `Connector` / `Primary Battery`
 
-### Optional Fields (for more accurate calculations)
+### Optional Fields (for better accuracy)
 
-| Field Name | Description | Default | Unit |
-|------------|-------------|---------|------|
-| `Temperature_Ambient` / `T_Ambient` | Ambient temperature | 25 | °C |
-| `Temperature_Junction` / `T_Junction` | Junction temperature | 85 | °C |
-| `Operating_Power` / `P_Operating` | Operating power | 0.01 | W |
-| `Rated_Power` / `P_Rated` | Rated power | 0.125 | W |
-| `Package` | Package type | (varies) | - |
-| `Transistor_Type` | MOS or Bipolar | MOS | - |
-| `Diode_Type` | signal, zener, etc. | signal | - |
-| `IC_Type` | IC classification | (varies) | - |
-| `Construction_Year` | Year of manufacture | 2020 | - |
-| `Power_Loss` | Inductor power loss | 0.1 | W |
-| `Surface_Area` | Radiating surface | 100 | mm² |
+| Field | Default | Description |
+|-------|---------|-------------|
+| `T_Junction` | 85°C | Junction temperature |
+| `T_Ambient` | 25°C | Ambient temperature |
+| `Operating_Power` | 0.01W | Operating power (resistors) |
+| `Rated_Power` | 0.125W | Rated power (resistors) |
+| `Package` | auto | Package type (from footprint) |
+| `IC_Type` | auto | IC classification |
+| `Construction_Year` | 2020 | Year of manufacture |
 
-### Example Symbol Fields
+---
 
-For a resistor:
-```
-Reliability_Class: Resistor (11.1)
-Temperature_Ambient: 25
-Operating_Power: 0.005
-Rated_Power: 0.1
+## 🖥️ Standalone Mode
+
+You can also run the calculator without KiCad:
+
+```bash
+cd ~/.local/share/kicad/9.0/scripting/plugins/kicad_reliability_plugin
+python3 reliability_launcher.py
 ```
 
-For an IC:
-```
-Reliability_Class: Integrated Circuit (7)
-Temperature_Junction: 85
-IC_Type: MOS Standard, Digital circuits, 20000 transistors
-Package: TQFP,10x10
-Construction_Year: 2022
+Or with a specific project:
+```bash
+python3 reliability_launcher.py /path/to/your/kicad/project
 ```
 
-## Using the Plugin
+---
 
-### 1. Loading Your Project
+## 📊 Calculation Methodology
 
-Click **Load Project...** and select your KiCad project directory. The plugin will parse all schematic sheets and their hierarchy.
-
-### 2. Adding Sheets to the Block Diagram
-
-- Select sheets from the left panel
-- Click **Add to Diagram** or double-click to add them to the visual editor
-- Use **Add All** to add all sheets at once
-
-### 3. Defining System Topology
-
-The block diagram editor lets you define how subsystems are connected:
-
-- **Drag blocks** to arrange them visually
-- **Select multiple blocks** by dragging a rectangle around them
-- **Right-click the selection** to group as:
-  - **Series**: All blocks must work (reliability = R₁ × R₂ × ...)
-  - **Parallel**: At least one must work (reliability = 1 - (1-R₁)(1-R₂)...)
-  - **K-of-N**: K out of N must work (for redundancy)
-
-- **Double-click a group** to change its type
-- **Press Delete** to ungroup or remove blocks
-
-### 4. Calculating Results
-
-Click **Calculate System Reliability** to compute:
-- Individual sheet reliability
-- Group reliability (series/parallel/k-of-n)
-- Overall system reliability
-- Failure rates (λ)
-- Mean Time To Failure (MTTF)
-
-### 5. Configuring Parameters
-
-Use the Settings panel to adjust:
-- **Mission Time**: How long the system needs to operate (years)
-- **Thermal Cycles/Year**: Number of temperature cycles per year
-- **Temperature Swing (ΔT)**: Temperature variation during cycles (°C)
-
-### 6. Exporting Results
-
-**Inject Tables**: Adds reliability tables directly into your schematic files. After injection, reload the schematic in KiCad to see the tables.
-
-**Export Report**: Generate a standalone report in:
-- HTML (with styling)
-- Markdown
-- CSV (for spreadsheet analysis)
-
-### 7. Saving/Loading Configurations
-
-Use **Save Config** and **Load Config** to save and restore:
-- Block diagram layout
-- Group connections
-- Settings
-
-Configurations are saved as JSON files alongside your project.
-
-## Reliability Calculations
-
-The plugin implements reliability calculations based on FIDES methodology (similar to MIL-HDBK-217):
+Based on FIDES 2009 reliability prediction methodology:
 
 ### Component Failure Rate (λ)
 
-Each component type has a specific failure rate model considering:
-- **Base failure rate** (component type dependent)
-- **Temperature acceleration** (Arrhenius model)
-- **Thermal cycling stress**
-- **Electrical stress factors**
-- **Package type**
+Each component type has a model considering:
+- Base failure rate (component-specific)
+- Temperature acceleration (Arrhenius model)
+- Thermal cycling stress
+- Electrical stress factors
+- Package type
 
 ### System Reliability
 
-System reliability is calculated from the block diagram:
+- **Series**: R_sys = R₁ × R₂ × R₃ × ...
+- **Parallel**: R_sys = 1 - (1-R₁)(1-R₂)(1-R₃)...
+- **K-of-N**: Binomial probability
 
-- **Series**: R_system = R₁ × R₂ × R₃ × ...
-- **Parallel**: R_system = 1 - (1-R₁)(1-R₂)(1-R₃)...
-- **K-of-N**: Binomial probability that at least K of N work
+### Output
 
-### Output Values
+- **R** - Reliability (0 to 1)
+- **λ** - Failure rate (failures/hour)
+- **MTTF** - Mean Time To Failure = 1/λ
 
-- **R** (Reliability): Probability of survival for mission time (0 to 1)
-- **λ** (Lambda): Failure rate in failures per hour
-- **MTTF**: Mean Time To Failure = 1/λ
+---
 
-## Troubleshooting
-
-### "No components found"
-- Check that your symbols have the `Reliability_Class` field
-- Verify the field values match supported component classes
-
-### Tables not appearing in schematic
-- After injection, reload the schematic in KiCad (close and reopen)
-- Check the schematic file for the text box (search for "Reliability Analysis")
-
-### Parser errors
-- Ensure you're using KiCad 9 format schematics
-- Check that .kicad_sch files are not corrupted
-
-## File Structure
+## 📁 Files
 
 ```
 kicad_reliability_plugin/
-├── __init__.py           # Plugin registration
-├── plugin.py             # KiCad action plugin interface
-├── reliability_core.py   # Failure rate calculations
-├── block_editor.py       # Visual block diagram editor
-├── schematic_parser.py   # KiCad schematic parser
-├── table_generator.py    # Table/report generation
-├── reliability_dialog.py # Main UI dialog
-├── run_standalone.py     # Standalone launcher
-├── icon.png              # Toolbar icon
-└── README.md             # This file
+├── bom_reliability.py      # KiCad BOM generator entry point
+├── reliability_launcher.py # Main launcher with project selector
+├── reliability_dialog.py   # Main UI
+├── reliability_core.py     # Calculation engine
+├── schematic_parser.py     # KiCad file parser
+├── block_editor.py         # Visual diagram editor
+└── README.md               # This file
 ```
 
-## Contributing
+---
 
-This plugin was developed for space system reliability analysis but can be adapted for other applications. Contributions welcome!
+## ❓ Troubleshooting
 
-## License
+### "Plugin not showing in BOM list"
+- Make sure you added it via Tools → Generate BOM → Add Plugin
+- Check the command line path is correct
 
-MIT License - Feel free to use and modify for your projects.
+### "No sheets found"
+- Ensure your .kicad_sch files are in the project directory
+- Check for a .kicad_pro file in the same directory
 
-## References
+### "Wrong reliability values"
+- Add `Reliability_Class` field to your symbols
+- Check temperature and power fields for accuracy
 
-- FIDES Guide 2009 (Reliability Methodology)
-- MIL-HDBK-217F (Reliability Prediction)
-- ECSS-Q-ST-30-02C (Space Product Assurance)
+---
+
+## 📄 License
+
+MIT License - Use freely in your projects!
