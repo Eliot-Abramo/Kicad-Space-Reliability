@@ -18,6 +18,8 @@ from reliability_core import (
 )
 from schematic_parser import SchematicParser, create_test_data
 
+from ecss_fields import ECSS_FIELDS, get_category_fields, infer_category_from_class
+
 
 class SheetPanel(wx.Panel):
     """Panel listing available sheets."""
@@ -71,18 +73,19 @@ class SheetPanel(wx.Panel):
         self._on_add(event)
 
 
+
 class ComponentPanel(scrolled.ScrolledPanel):
     """Panel showing component details."""
-    
+
     def __init__(self, parent):
         super().__init__(parent)
-        
+
         self.sizer = wx.BoxSizer(wx.VERTICAL)
-        
+
         self.header = wx.StaticText(self, label="📦 Components")
         self.header.SetFont(self.header.GetFont().Bold())
         self.sizer.Add(self.header, 0, wx.ALL, 5)
-        
+
         self.list = wx.ListCtrl(self, style=wx.LC_REPORT | wx.BORDER_SIMPLE)
         self.list.InsertColumn(0, "Ref", width=50)
         self.list.InsertColumn(1, "Value", width=70)
@@ -90,27 +93,201 @@ class ComponentPanel(scrolled.ScrolledPanel):
         self.list.InsertColumn(3, "λ", width=70)
         self.list.InsertColumn(4, "R", width=60)
         self.sizer.Add(self.list, 1, wx.EXPAND | wx.ALL, 5)
-        
+
         self.summary = wx.StaticText(self, label="")
         self.summary.SetFont(self.summary.GetFont().Bold())
         self.sizer.Add(self.summary, 0, wx.ALL, 5)
-        
+
+        # Keep track of current data for callbacks
+        self.current_sheet: Optional[str] = None
+        self.components: List[Dict] = []
+        # Callback: function(sheet: str, index: int)
+        self.on_edit_component = None
+
+        # Double-click on a component to open ECSS editor (handled in main dialog)
+        self.list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self._on_item_activated)
+
         self.SetSizer(self.sizer)
         self.SetupScrolling()
-    
+
     def set_data(self, sheet: str, components: List[Dict], total_lam: float, r: float):
+        """Update the component list for a given sheet."""
+        self.current_sheet = sheet
+        self.components = components or []
+
         self.header.SetLabel(f"📦 {sheet}")
-        
+
         self.list.DeleteAllItems()
-        for i, c in enumerate(components):
+        for i, c in enumerate(self.components):
             idx = self.list.InsertItem(i, c.get("ref", "?"))
             self.list.SetItem(idx, 1, c.get("value", "")[:10])
-            self.list.SetItem(idx, 2, c.get("class", "")[:15])
+
+            cls_label = c.get("class", "")[:15]
+            # If ECSS data is missing, mark with a small warning
+            if not c.get("ecss_ok", True):
+                cls_label = cls_label + " ⚠"
+            self.list.SetItem(idx, 2, cls_label)
+
             self.list.SetItem(idx, 3, f"{c.get('lambda', 0):.1e}")
             self.list.SetItem(idx, 4, f"{c.get('r', 1):.4f}")
-        
+
         self.summary.SetLabel(f"Total: λ = {total_lam:.2e}, R = {r:.6f}")
         self.Layout()
+
+    def _on_item_activated(self, event):
+        """Row double-click → delegate to main dialog callback if present."""
+        if self.on_edit_component and self.current_sheet is not None:
+            index = event.GetIndex()
+            self.on_edit_component(self.current_sheet, index)
+
+
+
+
+class ComponentEcssDialog(wx.Dialog):
+    """Dialog to edit ECSS-related fields for one component."""
+
+    def __init__(self, parent, component, initial_ecss: dict = None):
+        """
+        component: SchematicParser.Component (or equivalent dict-like object)
+        initial_ecss: dict coming from self.ecss_data[(sheet, ref)] if present
+        """
+        super().__init__(parent, title=f"ECSS Parameters – {component.reference}", size=(520, 520))
+
+        self.component = component
+        self.initial_ecss = initial_ecss or {}
+
+        # Infer category if not already stored
+        comp_class = component.get_field("Reliability_Class", component.get_field("Class", ""))
+        self.category = self.initial_ecss.get("category") or infer_category_from_class(
+            comp_class,
+            component.footprint or "",
+        )
+
+        self.field_defs = get_category_fields(self.category)
+        self.controls = {}
+
+        main = wx.BoxSizer(wx.VERTICAL)
+
+        # Header info
+        info = wx.StaticText(
+            self,
+            label=f"Ref: {component.reference}    Value: {component.value}\n"
+                  f"Class: {comp_class}    Footprint: {component.footprint or ''}"
+        )
+        main.Add(info, 0, wx.ALL, 10)
+
+        # Category choice
+        cat_box = wx.BoxSizer(wx.HORIZONTAL)
+        cat_box.Add(wx.StaticText(self, label="Category:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        self.cmb_category = wx.ComboBox(
+            self,
+            choices=sorted(ECSS_FIELDS.keys()),
+            style=wx.CB_READONLY,
+        )
+        if self.category in ECSS_FIELDS:
+            self.cmb_category.SetStringSelection(self.category)
+        elif ECSS_FIELDS:
+            self.cmb_category.SetStringSelection(sorted(ECSS_FIELDS.keys())[0])
+            self.category = self.cmb_category.GetStringSelection()
+        self.cmb_category.Bind(wx.EVT_COMBOBOX, self._on_category_change)
+        cat_box.Add(self.cmb_category, 1, wx.RIGHT, 5)
+        main.Add(cat_box, 0, wx.EXPAND | wx.ALL, 10)
+
+        # Fields panel
+        self.fields_panel = wx.Panel(self)
+        self.fields_sizer = wx.FlexGridSizer(cols=3, vgap=4, hgap=4)
+        self.fields_sizer.AddGrowableCol(1, 1)
+        self.fields_panel.SetSizer(self.fields_sizer)
+        main.Add(self.fields_panel, 1, wx.EXPAND | wx.ALL, 10)
+
+        self._build_fields()
+
+        # Buttons
+        btn_sizer = self.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL)
+        main.Add(btn_sizer, 0, wx.EXPAND | wx.ALL, 10)
+
+        self.SetSizer(main)
+
+    def _on_category_change(self, event):
+        self.category = self.cmb_category.GetStringSelection()
+        self.field_defs = get_category_fields(self.category)
+        self._build_fields()
+
+    def _build_fields(self):
+        # Clear
+        for child in self.fields_panel.GetChildren():
+            child.Destroy()
+        self.fields_sizer.Clear()
+
+        self.controls = {}
+        fields = self.field_defs.get("fields", {})
+
+        stored_fields = self.initial_ecss.get("fields", {})
+
+        for name, meta in fields.items():
+            label = wx.StaticText(self.fields_panel, label=meta.get("label", name))
+            self.fields_sizer.Add(label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+
+            typ = meta.get("type", "string")
+            default = meta.get("default")
+            prev = stored_fields.get(name, default)
+
+            if typ == "enum":
+                ctrl = wx.ComboBox(
+                    self.fields_panel,
+                    choices=[str(v) for v in meta.get("values", [])],
+                    style=wx.CB_READONLY,
+                )
+                choices = [str(v) for v in meta.get("values", [])]
+                if prev is not None and str(prev) in choices:
+                    ctrl.SetStringSelection(str(prev))
+                elif choices:
+                    ctrl.SetStringSelection(choices[0])
+            else:
+                if prev is None and default is not None:
+                    prev = default
+                if prev is None:
+                    prev = ""
+                ctrl = wx.TextCtrl(self.fields_panel, value=str(prev))
+
+            ctrl.SetToolTip(meta.get("help", ""))
+            self.fields_sizer.Add(ctrl, 1, wx.EXPAND | wx.RIGHT, 5)
+            self.controls[name] = (ctrl, meta)
+
+            unit = meta.get("unit")
+            unit_lbl = wx.StaticText(self.fields_panel, label=unit or "")
+            self.fields_sizer.Add(unit_lbl, 0, wx.ALIGN_CENTER_VERTICAL)
+
+        self.fields_panel.Layout()
+        self.Layout()
+
+    def get_data(self) -> dict:
+        """
+        Returns:
+            {
+               "category": ...,
+               "fields": { name: value, ... }
+            }
+        """
+        data = {"category": self.category, "fields": {}}
+        for name, (ctrl, meta) in self.controls.items():
+            typ = meta.get("type", "string")
+            txt = ctrl.GetValue().strip()
+            if typ == "enum":
+                data["fields"][name] = txt
+            elif typ == "float":
+                try:
+                    data["fields"][name] = float(txt)
+                except ValueError:
+                    data["fields"][name] = float(meta.get("default", 0.0) or 0.0)
+            elif typ == "int":
+                try:
+                    data["fields"][name] = int(txt)
+                except ValueError:
+                    data["fields"][name] = int(meta.get("default", 0) or 0)
+            else:
+                data["fields"][name] = txt
+        return data
 
 
 class SettingsPanel(wx.Panel):
@@ -183,6 +360,8 @@ class ReliabilityMainDialog(wx.Dialog):
         self.project_path = project_path
         self.parser: Optional[SchematicParser] = None
         self.sheet_data: Dict[str, Dict] = {}
+        # ECSS field data per component: (sheet, ref) -> dict
+        self.ecss_data: Dict[Tuple[str, str], dict] = {}
         
         self._create_ui()
         self._bind_events()
@@ -300,17 +479,41 @@ class ReliabilityMainDialog(wx.Dialog):
         panel.SetSizer(sizer)
         return panel
     
+        
     def _bind_events(self):
         self.sheet_panel.on_add = self._add_sheet
         self.editor.on_selection_change = self._on_block_select
         self.editor.on_structure_change = self._on_calculate
         self.settings_panel.on_change = self._recalculate_all
-    
+        # Double-click on a component row → open ECSS editor
+        self.comp_panel.on_edit_component = self._on_edit_component
+
+    def _on_edit_component(self, sheet: str, index: int):
+        """Open ECSS editor for the selected component."""
+        if not self.parser:
+            return
+
+        components = self.parser.get_sheet_components(sheet)
+        if index < 0 or index >= len(components):
+            return
+
+        c = components[index]
+        key = (sheet, c.reference)
+        current = self.ecss_data.get(key, {})
+
+        dlg = ComponentEcssDialog(self, c, current)
+        if dlg.ShowModal() == wx.ID_OK:
+            new_data = dlg.get_data()
+            self.ecss_data[key] = new_data
+            # Recompute using new ECSS data
+            self._calculate_sheets()
+        dlg.Destroy()
+
     def _load_project(self, path: str):
         """Load a KiCad project."""
         self.project_path = path
         self.txt_project.SetValue(path)
-        
+
         self.parser = SchematicParser(path)
         if self.parser.parse():
             sheets = self.parser.get_sheet_paths()
@@ -318,9 +521,13 @@ class ReliabilityMainDialog(wx.Dialog):
             self._calculate_sheets()
             self.status.SetLabel(f"Loaded {len(sheets)} sheets from {path}")
         else:
-            wx.MessageBox(f"Could not parse schematics in:\n{path}", 
-                         "Parse Error", wx.OK | wx.ICON_WARNING)
-    
+            wx.MessageBox(
+                f"Could not parse schematics in:\n{path}",
+                "Parse Error",
+                wx.OK | wx.ICON_WARNING,
+            )
+
+
     def _load_test_data(self):
         """Load test data."""
         sheets = [
@@ -356,24 +563,25 @@ class ReliabilityMainDialog(wx.Dialog):
         self._calculate_sheets()
         self.status.SetLabel("Loaded test data")
     
+    
     def _calculate_sheets(self):
         """Calculate reliability for all sheets."""
         if not self.parser:
             return
-        
+
         hours = self.settings_panel.get_hours()
         cycles = self.settings_panel.get_cycles()
         dt = self.settings_panel.get_dt()
-        
+
         for path in self.parser.get_sheet_paths():
             components = self.parser.get_sheet_components(path)
-            
-            comp_data = []
+
+            comp_data: List[Dict] = []
             total_lam = 0.0
-            
-            for c in components:
+
+            for idx, c in enumerate(components):
                 cls = c.get_field("Reliability_Class", c.get_field("Class", ""))
-                
+
                 params = {
                     "n_cycles": cycles,
                     "delta_t": dt,
@@ -390,27 +598,77 @@ class ReliabilityMainDialog(wx.Dialog):
                     "power_loss": c.get_float("Power_Loss", 0.1),
                     "surface_area": c.get_float("Surface_Area", 100),
                 }
-                
+
+                key = (path, c.reference)
+                ecss_cfg = self.ecss_data.get(key)
+                ecss_ok = False
+
+                if ecss_cfg:
+                    ecss_ok = True
+                    cat = ecss_cfg.get("category")
+                    fields = ecss_cfg.get("fields", {}) or {}
+
+                    params["ecss_category"] = cat
+                    params["ecss_subtype"] = (
+                        fields.get("technology")
+                        or fields.get("dielectric_class")
+                        or fields.get("construction")
+                        or fields.get("type", "default")
+                    )
+                    params["ecss_quality"] = fields.get("quality_level", "B")
+                    params["ecss_environment"] = fields.get("environment", "GB")
+
+                    # Stress ratio depending on category
+                    stress_ratio = None
+                    if cat == "resistor":
+                        p_rated = fields.get("power_rating_w") or params.get("rated_power", 0.0)
+                        p_applied = fields.get("applied_power_w") or params.get("operating_power", 0.0)
+                        if p_rated:
+                            stress_ratio = p_applied / p_rated
+                    elif cat in ("capacitor_ceramic", "capacitor_tantalum"):
+                        v_rated = fields.get("rated_voltage_v")
+                        v_applied = fields.get("applied_voltage_v")
+                        if v_rated:
+                            stress_ratio = (v_applied or 0.0) / v_rated
+                    elif cat == "diode":
+                        i_rated = fields.get("rated_current_a")
+                        i_applied = fields.get("applied_current_a")
+                        if i_rated:
+                            stress_ratio = (i_applied or 0.0) / i_rated
+
+                    if stress_ratio is not None:
+                        params["ecss_stress_ratio"] = stress_ratio
+
+                    # Temperature
+                    temp = (
+                        fields.get("temperature_c")
+                        or fields.get("junction_temperature_c")
+                        or params.get("t_ambient", 25.0)
+                    )
+                    params["ecss_temperature"] = temp
+
                 lam = calculate_lambda(cls or "Resistor", params)
                 r = reliability(lam, hours)
                 total_lam += lam
-                
+
                 comp_data.append({
                     "ref": c.reference,
                     "value": c.value,
                     "class": cls or "Unknown",
                     "lambda": lam,
                     "r": r,
+                    "ecss_ok": ecss_ok,
                 })
-            
+
             sheet_r = reliability(total_lam, hours)
-            
+
             self.sheet_data[path] = {
                 "components": comp_data,
                 "lambda": total_lam,
                 "r": sheet_r,
             }
-    
+
+
     def _recalculate_all(self):
         """Recalculate everything."""
         self._calculate_sheets()
@@ -490,7 +748,7 @@ class ReliabilityMainDialog(wx.Dialog):
                     data.get("r", 1)
                 )
     
-    def _on_calculate(self, event):
+    def _on_calculate(self, event=None):
         """Calculate and display results."""
         sys_r, sys_lam = self._calculate_system()
         hours = self.settings_panel.get_hours()
@@ -556,6 +814,12 @@ class ReliabilityMainDialog(wx.Dialog):
                            style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT)
         
         if dlg.ShowModal() == wx.ID_OK:
+            # Serialize ECSS data: (sheet, ref) -> dict  →  "sheet::ref": dict
+            ecss_serialized = {
+                f"{sheet}::{ref}": data
+                for (sheet, ref), data in self.ecss_data.items()
+            }
+
             config = {
                 "project": self.project_path,
                 "structure": self.editor.get_structure(),
@@ -563,7 +827,8 @@ class ReliabilityMainDialog(wx.Dialog):
                     "years": self.settings_panel.years.GetValue(),
                     "cycles": self.settings_panel.cycles.GetValue(),
                     "dt": self.settings_panel.dt.GetValue(),
-                }
+                },
+                "ecss": ecss_serialized,
             }
             
             with open(dlg.GetPath(), 'w') as f:
@@ -588,7 +853,17 @@ class ReliabilityMainDialog(wx.Dialog):
                 self.settings_panel.years.SetValue(settings.get("years", 5))
                 self.settings_panel.cycles.SetValue(settings.get("cycles", 5256))
                 self.settings_panel.dt.SetValue(settings.get("dt", 3.0))
-                
+
+                # Restore ECSS data if present
+                ecss_serialized = config.get("ecss", {})
+                self.ecss_data = {}
+                for key, data in ecss_serialized.items():
+                    try:
+                        sheet, ref = key.split("::", 1)
+                        self.ecss_data[(sheet, ref)] = data
+                    except ValueError:
+                        continue
+
                 self.editor.load_structure(config.get("structure", {}))
                 self._recalculate_all()
                 
