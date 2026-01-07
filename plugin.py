@@ -63,7 +63,21 @@ class ReliabilityPlugin(pcbnew.ActionPlugin):
         
         # Try to get project path from KiCad
         project_path = get_kicad_project_path()
-        
+
+# 
+        parent = None
+        try:
+            # ActionPlugin usually provides this
+            if hasattr(self, "GetPcbnewFrame"):
+                parent = self.GetPcbnewFrame()
+        except Exception:
+            parent = None
+
+        if parent is None:
+            # Fallback: choose a shown top-level window (better than index 0)
+            tops = [w for w in wx.GetTopLevelWindows() if w and w.IsShown()]
+            parent = tops[1] if tops else None
+
         # Import dialog here to avoid issues during plugin registration
         try:
             from .reliability_dialog import ReliabilityMainDialog
