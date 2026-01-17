@@ -1,56 +1,87 @@
-# KiCad Reliability Calculator Plugin
+# KiCad Space Reliability Calculator
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![KiCad: 9.0+](https://img.shields.io/badge/KiCad-9.0+-green.svg)](https://www.kicad.org/)
+[![Python: 3.8+](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 
 **IEC TR 62380 Reliability Prediction for Electronic Assemblies**
 
-A professional-grade KiCad plugin for calculating system reliability based on the IEC TR 62380 standard (Reliability data handbook – Universal model for reliability prediction of electronics components, PCBs and equipment).
+A professional-grade KiCad plugin for calculating system reliability based on the IEC TR 62380 standard. Designed for space, aerospace, and high-reliability electronics applications.
 
 ## Features
 
-### 1. Integrated Component Field Editor
-- **No ECSS Reference Required**: All component parameters accessible via dropdown menus with help text
-- **Auto-Classification**: Automatically determines component type from reference designators (R*, C*, U*, Q*, D*, etc.)
+### Visual Block Diagram Editor
+- **Zoomable Canvas**: Mouse wheel zoom (25%-300%), centered on cursor
+- **Pan Navigation**: Middle-mouse-button drag or arrow keys
+- **Fit to View**: Automatically fit all blocks (F key)
+- **Drag-and-Drop**: Organize blocks visually on a grid
+- **Selection Grouping**: Drag-select multiple blocks, right-click to group
+- **Redundancy Configurations**: Series, Parallel, or K-of-N grouping
+
+### Component Field Editor
+- **No ECSS Reference Required**: All parameters via dropdown menus with help text
+- **Auto-Classification**: Determines component type from reference designators (R*, C*, U*, Q*, D*, etc.)
 - **Real-time Preview**: See calculated failure rates as you edit parameters
 - **Batch Editing**: Edit all components at once or by schematic sheet
 
-### 2. IEC TR 62380 Calculations
+### IEC TR 62380 Calculations
 All formulas implemented per the standard:
 - **Temperature Factors (πt)**: Arrhenius model with correct activation energies
 - **Thermal Cycling Factors (πn)**: Based on annual cycle count
 - **Package Factors**: Complete Table 17a/17b implementation
 - **Interface/Overstress (λEOS)**: Environment-specific overstress rates
 
-### 3. Centralized Math Module (`reliability_math.py`)
-All calculations in one place for easy tuning:
+### Centralized Math Module
+All calculations in `reliability_math.py` for easy tuning:
 - Modify failure rate constants
 - Adjust activation energies
 - Tune package stress factors
 - Add new component types
 
-### 4. System Block Diagram Editor
-- Visual reliability block diagram
-- Series/Parallel/K-of-N redundancy
-- Drag-and-drop organization
-- Automatic system reliability calculation
-
 ## Installation
 
-1. Copy the plugin folder to your KiCad plugins directory:
-   - Windows: `%APPDATA%\kicad\8.0\scripting\plugins\`
-   - Linux: `~/.local/share/kicad/8.0/scripting/plugins/`
-   - macOS: `~/Library/Application Support/kicad/8.0/scripting/plugins/`
+### KiCad Plugin Installation
 
-2. Restart KiCad
+Copy this folder to your KiCad plugins directory:
 
-3. Access via **Tools → Generate BOM** menu
+| Platform | Path |
+|----------|------|
+| Linux | `~/.local/share/kicad/9.0/scripting/plugins/` |
+| Windows | `%APPDATA%\kicad\9.0\scripting\plugins\` |
+| macOS | `~/Library/Preferences/kicad/9.0/scripting/plugins/` |
+
+Then restart KiCad.
+
+### Standalone Usage (for testing)
+
+```bash
+cd /path/to/Kicad-Space-Reliability
+python reliability_launcher.py [project_path]
+```
 
 ## Usage
 
 ### Quick Start
 1. Open your KiCad project
-2. Launch the plugin from Tools → Generate BOM
-3. Add schematic sheets to the block diagram
-4. Double-click components to edit reliability fields
-5. Click "Calculate System Reliability"
+2. Launch the plugin from **Tools → External Plugins → Reliability Calculator**
+3. Add schematic sheets to the block diagram (left panel)
+4. Arrange blocks and group them (Series/Parallel/K-of-N)
+5. Double-click components to edit reliability fields
+6. View calculated system reliability in the Results panel
+
+### Keyboard Shortcuts (Block Editor)
+
+| Key | Action |
+|-----|--------|
+| Mouse Wheel | Zoom in/out (centered on cursor) |
+| Middle Mouse Button | Pan view |
+| Arrow Keys | Pan view |
+| `+` / `=` | Zoom in |
+| `-` | Zoom out |
+| `F` | Fit all blocks in view |
+| `0` | Reset zoom to 100% |
+| `Ctrl+0` | Reset view (zoom + pan) |
+| `Delete` | Remove selected block / Ungroup |
 
 ### Editing Component Fields
 Each component type has specific fields:
@@ -88,18 +119,24 @@ Each component type has specific fields:
 - **Annual Thermal Cycles**: LEO satellite default is 5256/year
 - **Temperature Swing (ΔT)**: Per-cycle temperature change
 
-## File Structure
+## Project Structure
 
 ```
-kicad_reliability_plugin/
-├── bom_reliability.py       # KiCad BOM plugin entry point
-├── reliability_launcher.py  # Project selector dialog
-├── reliability_dialog.py    # Main UI with block editor
-├── reliability_math.py      # ALL FORMULAS - edit here for tuning
-├── component_editor.py      # Field editor with dropdowns
-├── block_editor.py          # Visual block diagram editor
-├── schematic_parser.py      # KiCad schematic reader
-└── README.md
+Kicad-Space-Reliability/
+├── __init__.py              # Plugin registration
+├── plugin.py                # KiCad ActionPlugin interface
+├── reliability_dialog.py    # Main UI dialog
+├── block_editor.py          # Visual block diagram editor (with zoom/pan)
+├── reliability_math.py      # IEC TR 62380 calculations (all formulas here)
+├── reliability_core.py      # Backward compatibility exports
+├── component_editor.py      # Component field editing dialogs
+├── schematic_parser.py      # KiCad schematic file parser
+├── table_generator.py       # KiCad table/text box generation
+├── ecss_fields.py           # ECSS field definitions
+├── reliability_launcher.py  # Standalone launcher with project selector
+├── bom_reliability.py       # BOM generator integration
+├── run_standalone.py        # Development test runner
+└── README.md                # This file
 ```
 
 ## Modifying Calculations
@@ -186,10 +223,33 @@ Save/load configurations as JSON files containing:
 - Mission profile settings
 - All edited component fields
 
+## Dependencies
+
+- Python 3.8+
+- wxPython 4.0+
+- KiCad 9.0+ (for plugin mode)
+
 ## License
 
-MIT License
+MIT License - See [LICENSE](LICENSE) file for details.
 
 ## Author
 
+**Eliot Abramo**
+
 Created for professional space electronics reliability analysis.
+
+## Contributing
+
+Contributions are welcome! Please ensure:
+
+1. Code follows the existing style conventions (type hints, docstrings)
+2. New features include appropriate documentation
+3. IEC TR 62380 calculations are properly documented with section references
+4. All functions include docstrings with parameter descriptions
+
+## References
+
+- **IEC TR 62380:2004** - Reliability data handbook – Universal model for reliability prediction
+- **ECSS-Q-ST-30-11C** - Derating – EEE components
+- **MIL-HDBK-217F** - Reliability Prediction of Electronic Equipment

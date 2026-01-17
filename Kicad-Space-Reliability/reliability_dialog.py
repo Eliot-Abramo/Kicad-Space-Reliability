@@ -1,20 +1,49 @@
 """
 Main Reliability Calculator Dialog
-=================================
+===================================
 
-UI-only module for the reliability calculator (IEC TR 62380-style model).
+The primary user interface for the KiCad Reliability Calculator plugin.
+This module implements the main dialog window that provides:
 
-This dialog intentionally keeps "all the math" out of the UI layer:
-- reliability_math.py provides component / sheet / system computations
-- component_editor.py provides field editing UX
-- schematic_parser.py extracts components per sheet
-- block_editor.py provides the big drag-and-drop block diagram editor
+- Visual block diagram editor for defining system topology
+- Component reliability field editing
+- System reliability calculations based on IEC TR 62380
+- Export capabilities for reports (HTML, Markdown, CSV)
 
-This file focuses on:
-- consistent look & feel with the rest of the plugin UI
-- wiring UI events to the underlying data model
+Architecture
+------------
+This dialog follows a clean separation of concerns:
 
-Author: Eliot
+- **reliability_math.py**: All mathematical calculations (IEC TR 62380 formulas)
+- **component_editor.py**: Component field editing dialogs
+- **schematic_parser.py**: KiCad schematic file parsing
+- **block_editor.py**: Visual drag-and-drop block diagram editor
+
+This module focuses purely on UI layout and event handling, delegating
+all calculations and data processing to the appropriate modules.
+
+Design System
+-------------
+The UI follows a consistent design system defined at the top of this module:
+
+- **Colors**: Professional color palette with semantic colors
+- **Spacing**: Consistent spacing values (XS=4, SM=8, MD=12, LG=16, XL=24)
+- **Fonts**: Standardized font configurations
+
+Usage
+-----
+Standalone testing::
+
+    python -m reliability_dialog
+
+As a KiCad plugin::
+
+    from reliability_dialog import ReliabilityMainDialog
+    dlg = ReliabilityMainDialog(parent, project_path)
+    dlg.ShowModal()
+    dlg.Destroy()
+
+Author: Eliot Abramo
 License: MIT
 """
 
@@ -465,11 +494,18 @@ class ReliabilityMainDialog(BaseDialog):
     """Main reliability calculator dialog."""
 
     def __init__(self, parent, project_path: str = None):
+        # Get screen size for better default sizing
+        display = wx.Display(0)
+        screen_rect = display.GetClientArea()
+        # Use 90% of screen size for better visibility
+        default_w = min(1700, int(screen_rect.Width * 0.90))
+        default_h = min(1050, int(screen_rect.Height * 0.90))
+
         super().__init__(
             parent,
             title="Reliability Calculator (IEC TR 62380)",
-            size=(1350, 900),
-            min_size=(1050, 700),
+            size=(default_w, default_h),
+            min_size=(1200, 850),
             style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER | wx.MAXIMIZE_BOX | wx.MINIMIZE_BOX,
         )
 
@@ -567,7 +603,7 @@ class ReliabilityMainDialog(BaseDialog):
         editor_header = SectionHeader(
             editor_panel,
             "System Block Diagram",
-            "Drag blocks. Drag-select. Right‑click selection to group.",
+            "Drag to pan. Shift+drag to select & group. Scroll to zoom. F to fit all.",
         )
         editor_sizer.Add(editor_header, 0, wx.ALL | wx.EXPAND, Spacing.LG)
 

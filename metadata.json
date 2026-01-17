@@ -1,0 +1,26 @@
+{
+  "$schema": "https://go.kicad.org/pcm/schemas/v1",
+  "name": "Space Reliability Calculator",
+  "description": "Professional-grade KiCad plugin to estimate system reliability based on IEC TR 62380 for space/aerospace and high-reliability electronics.",
+  "description_full": "A professional-grade KiCad plugin for calculating system reliability based on the IEC TR 62380 standard. Designed for space, aerospace, and high-reliability electronics applications.",
+  "identifier": "com-github-eliot-abramo-kicad-space-reliability",
+  "type": "plugin",
+  "author": {
+    "name": "Eliot Abramo",
+    "contact": {
+      "web": "https://github.com/Eliot-Abramo",
+      "github": "https://github.com/Eliot-Abramo"
+    }
+  },
+  "license": "MIT",
+  "resources": {
+    "homepage": "https://github.com/Eliot-Abramo/Kicad-Space-Reliability"
+  },
+  "versions": [
+    {
+      "version": "2.0",
+      "status": "stable",
+      "kicad_version": "9.0"
+    }
+  ]
+}
