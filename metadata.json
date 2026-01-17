@@ -20,8 +20,8 @@
       "version": "2.0",
       "status": "stable",
       "kicad_version": "8.0",
-      "download_url": "https://github.com/Eliot-Abramo/Kicad-Space-Reliability/blob/458129f829efbe9329a93cdb7bd5894699f68adf/Kicad-Space-Reliability.zip",
-      "download_sha256": "5a6b19334e2684469ad73f8c9ca5589badd6153b13270d4c2e59e3b2e7cb4202",
+      "download_url": "https://github.com/Eliot-Abramo/Kicad-Space-Reliability/blob/c707155ed49f8c5118fd557947fd473a046bea35/kicad-space-reliability.zip",
+      "download_sha256": "2fd0ffcd26d7f0d019bebfacd31c8e30e10fef45bd9388fc516988029d791b35",
       "download_size": 123456,
       "install_size": 456789
     }
