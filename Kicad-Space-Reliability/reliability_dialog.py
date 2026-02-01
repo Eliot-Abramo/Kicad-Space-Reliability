@@ -451,13 +451,19 @@ class ReliabilityMainDialog(wx.Dialog):
                         "n_cycles": cycles, "delta_t": dt, "tau_on": tau_on,
                         "t_ambient": c.get_float("T_Ambient", 25),
                         "t_junction": c.get_float("T_Junction", 85),
+                        "operating_power": c.get_float("Operating_Power", 0.01),
+                        "rated_power": c.get_float("Rated_Power", 0.125),
                     }
                     lam = float(calculate_lambda(cls or "Resistor", params) or 0)
                     cls_name = cls or "Unknown"
                 
                 r = reliability_from_lambda(lam, hours)
                 total_lam += lam
-                comp_data.append({"ref": c.reference, "value": c.value, "class": cls_name, "lambda": lam, "r": r})
+                # Store params for Monte Carlo uncertainty analysis
+                comp_data.append({
+                    "ref": c.reference, "value": c.value, "class": cls_name, 
+                    "lambda": lam, "r": r, "params": params
+                })
             
             sheet_r = reliability_from_lambda(total_lam, hours)
             self.sheet_data[path] = {"components": comp_data, "lambda": total_lam, "r": sheet_r}

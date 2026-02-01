@@ -2,12 +2,16 @@
 Monte Carlo Uncertainty Analysis Module
 =======================================
 Provides uncertainty quantification for reliability predictions with convergence detection.
+
+This module implements proper component-level Monte Carlo that propagates parameter
+uncertainty through IEC TR 62380 formulas, NOT just simple noise on the total lambda.
 """
 
 import numpy as np
 from dataclasses import dataclass, field
 from typing import Dict, List, Tuple, Callable, Optional
 import time
+
 
 @dataclass
 class MonteCarloResult:
@@ -61,6 +65,25 @@ class ParameterDistribution:
             raise ValueError(f"Unknown distribution: {self.distribution}")
 
 
+@dataclass
+class ComponentMCInput:
+    """Component input for Monte Carlo analysis."""
+    reference: str
+    component_type: str
+    base_params: Dict[str, float]
+    # Parameter uncertainties as (nominal, cv) tuples
+    # CV = coefficient of variation = std/mean
+    uncertainties: Dict[str, Tuple[float, float]] = field(default_factory=dict)
+
+
+@dataclass 
+class SheetMCResult:
+    """Monte Carlo results for a single sheet/block."""
+    sheet_path: str
+    mc_result: MonteCarloResult
+    lambda_samples: np.ndarray  # For detailed analysis
+
+
 class MonteCarloAnalyzer:
     """Monte Carlo uncertainty analysis with automatic convergence detection."""
     
@@ -81,18 +104,7 @@ class MonteCarloAnalyzer:
         check_interval: int = None,
         callback: Callable[[int, float], None] = None,
     ) -> MonteCarloResult:
-        """
-        Run Monte Carlo analysis with automatic convergence detection.
-        
-        Args:
-            model_func: Function that takes parameter dict and returns reliability/lambda
-            parameters: List of parameter distributions
-            max_simulations: Maximum number of simulations
-            min_simulations: Minimum before checking convergence
-            convergence_threshold: Relative change threshold for convergence
-            check_interval: How often to check convergence
-            callback: Optional callback(iteration, current_mean)
-        """
+        """Run Monte Carlo analysis with automatic convergence detection."""
         max_sims = max_simulations or self.default_max_simulations
         min_sims = min_simulations or self.default_min_simulations
         threshold = convergence_threshold or self.default_convergence_threshold
@@ -147,52 +159,6 @@ class MonteCarloAnalyzer:
             convergence_history=convergence_history,
             runtime_seconds=runtime,
         )
-    
-    def run_system_analysis(
-        self,
-        components: List[Dict],
-        system_structure: str,  # "series", "parallel", "k_of_n"
-        mission_hours: float,
-        parameter_uncertainties: Dict[str, ParameterDistribution],
-        k_value: int = None,
-        **kwargs
-    ) -> MonteCarloResult:
-        """Run Monte Carlo on a complete system."""
-        from .reliability_math import (
-            calculate_component_lambda, reliability_from_lambda,
-            r_series, r_parallel, r_k_of_n
-        )
-        
-        def model_func(sampled_params: Dict[str, float]) -> float:
-            component_reliabilities = []
-            
-            for comp in components:
-                # Merge base params with sampled uncertainties
-                params = comp.get("params", {}).copy()
-                for key, value in sampled_params.items():
-                    if key in params or key in ["t_ambient", "t_junction", "n_cycles", "delta_t"]:
-                        params[key] = value
-                
-                # Calculate component reliability
-                result = calculate_component_lambda(comp.get("type", "Resistor"), params)
-                lam = result["lambda_total"]
-                r = reliability_from_lambda(lam, mission_hours)
-                component_reliabilities.append(r)
-            
-            # Calculate system reliability
-            if system_structure == "series":
-                return r_series(component_reliabilities)
-            elif system_structure == "parallel":
-                return r_parallel(component_reliabilities)
-            elif system_structure == "k_of_n" and k_value:
-                return r_k_of_n(component_reliabilities, k_value)
-            else:
-                return r_series(component_reliabilities)
-        
-        # Convert parameter_uncertainties to list
-        param_list = list(parameter_uncertainties.values())
-        
-        return self.run_analysis(model_func, param_list, **kwargs)
 
 
 # === Preset distributions for common parameters ===
@@ -224,7 +190,216 @@ def delta_t_uncertainty(nominal: float, low_mult: float = 0.5, high_mult: float 
     )
 
 
-# === Quick analysis functions ===
+# === Import helper ===
+
+def _import_reliability_math():
+    """Import reliability_math module (handles both package and standalone)."""
+    try:
+        from .reliability_math import calculate_component_lambda, reliability_from_lambda
+        return calculate_component_lambda, reliability_from_lambda
+    except ImportError:
+        from reliability_math import calculate_component_lambda, reliability_from_lambda
+        return calculate_component_lambda, reliability_from_lambda
+
+
+def _import_classify_component():
+    """Import classify_component (handles both package and standalone)."""
+    try:
+        from .component_editor import classify_component
+        return classify_component
+    except ImportError:
+        try:
+            from component_editor import classify_component
+            return classify_component
+        except ImportError:
+            # Fallback if component_editor not available
+            def classify_component(ref, value, fields):
+                ref = ref.upper()
+                if ref.startswith('R'): return 'Resistor'
+                if ref.startswith('C'): return 'Capacitor'
+                if ref.startswith('L'): return 'Inductor/Transformer'
+                if ref.startswith('D'): return 'Diode'
+                if ref.startswith('Q') or ref.startswith('T'): return 'Transistor'
+                if ref.startswith('U'): return 'Integrated Circuit'
+                return 'Resistor'
+            return classify_component
+
+
+# === Proper Monte Carlo with Component-Level Uncertainty Propagation ===
+
+def monte_carlo_components(
+    components: List[ComponentMCInput],
+    mission_hours: float,
+    n_simulations: int = 5000,
+    uncertainty_percent: float = 20.0,
+    seed: int = None,
+    progress_callback: Callable[[int, int], None] = None,
+) -> Tuple[MonteCarloResult, np.ndarray]:
+    """
+    Proper Monte Carlo that propagates uncertainty through component-level calculations.
+    
+    This is the CORRECT implementation that:
+    1. Samples uncertain parameters for each component
+    2. Recalculates λ using IEC TR 62380 formulas for each sample
+    3. Sums component lambdas for series reliability
+    4. Returns proper uncertainty distribution
+    
+    Args:
+        components: List of component inputs with parameters
+        mission_hours: Mission duration in hours
+        n_simulations: Number of Monte Carlo iterations
+        uncertainty_percent: Default uncertainty CV if not specified per-component
+        seed: Random seed for reproducibility
+        progress_callback: Optional callback(current, total) for progress updates
+        
+    Returns:
+        Tuple of (MonteCarloResult for system, array of lambda samples)
+    """
+    calculate_component_lambda, reliability_from_lambda = _import_reliability_math()
+    
+    rng = np.random.default_rng(seed)
+    start_time = time.time()
+    
+    n_components = len(components)
+    default_cv = uncertainty_percent / 100.0
+    
+    # Key parameters that affect reliability
+    uncertain_params = ['t_junction', 't_ambient', 'n_cycles', 'delta_t', 
+                        'operating_power', 'voltage_stress_vds', 'voltage_stress_vgs',
+                        'voltage_stress_vce', 'ripple_ratio']
+    
+    # Storage for results
+    system_lambda_samples = np.zeros(n_simulations)
+    system_r_samples = np.zeros(n_simulations)
+    convergence_history = []
+    
+    # Main Monte Carlo loop
+    for sim_idx in range(n_simulations):
+        total_lambda = 0.0
+        
+        for comp in components:
+            # Start with base parameters
+            sampled_params = comp.base_params.copy()
+            
+            # Sample uncertain parameters
+            for param_name in uncertain_params:
+                if param_name in sampled_params:
+                    nominal = sampled_params[param_name]
+                    
+                    # Get CV from component uncertainties or use default
+                    if param_name in comp.uncertainties:
+                        _, cv = comp.uncertainties[param_name]
+                    else:
+                        cv = default_cv
+                    
+                    if nominal > 0 and cv > 0:
+                        # Use lognormal for positive parameters (ensures positive samples)
+                        mu = np.log(nominal) - 0.5 * np.log(1 + cv**2)
+                        sigma = np.sqrt(np.log(1 + cv**2))
+                        sampled_params[param_name] = rng.lognormal(mu, sigma)
+                    elif nominal != 0:
+                        # Normal for parameters that can be negative
+                        sampled_params[param_name] = rng.normal(nominal, abs(nominal) * cv)
+            
+            # Calculate component lambda with sampled parameters
+            try:
+                result = calculate_component_lambda(comp.component_type, sampled_params)
+                comp_lambda = result.get('lambda_total', 0)
+                total_lambda += comp_lambda
+            except Exception:
+                # Fallback to base calculation if sampling causes issues
+                result = calculate_component_lambda(comp.component_type, comp.base_params)
+                total_lambda += result.get('lambda_total', 0)
+        
+        system_lambda_samples[sim_idx] = total_lambda
+        system_r_samples[sim_idx] = reliability_from_lambda(total_lambda, mission_hours)
+        
+        # Track convergence every 100 iterations after minimum
+        if sim_idx >= 500 and (sim_idx + 1) % 100 == 0:
+            current_mean = np.mean(system_r_samples[:sim_idx+1])
+            convergence_history.append((sim_idx + 1, current_mean))
+        
+        # Progress callback
+        if progress_callback and (sim_idx + 1) % 100 == 0:
+            progress_callback(sim_idx + 1, n_simulations)
+    
+    runtime = time.time() - start_time
+    
+    # Check convergence
+    converged = False
+    if len(convergence_history) >= 3:
+        last_means = [h[1] for h in convergence_history[-3:]]
+        rel_changes = [abs(last_means[i] - last_means[i-1]) / abs(last_means[i-1]) 
+                      for i in range(1, len(last_means)) if last_means[i-1] != 0]
+        if rel_changes and max(rel_changes) < 0.001:
+            converged = True
+    
+    mc_result = MonteCarloResult(
+        mean=np.mean(system_r_samples),
+        std=np.std(system_r_samples),
+        percentile_5=np.percentile(system_r_samples, 5),
+        percentile_50=np.percentile(system_r_samples, 50),
+        percentile_95=np.percentile(system_r_samples, 95),
+        samples=system_r_samples,
+        converged=converged,
+        n_simulations=n_simulations,
+        convergence_history=convergence_history,
+        runtime_seconds=runtime,
+    )
+    
+    return mc_result, system_lambda_samples
+
+
+def monte_carlo_sheet(
+    sheet_components: List[Dict],
+    mission_hours: float,
+    n_simulations: int = 2000,
+    uncertainty_percent: float = 20.0,
+    seed: int = None,
+) -> Tuple[MonteCarloResult, np.ndarray]:
+    """
+    Run Monte Carlo for a single sheet's components.
+    
+    Args:
+        sheet_components: List of component dicts with 'ref', 'class', 'params'
+        mission_hours: Mission duration
+        n_simulations: Number of iterations (default lower for per-sheet)
+        uncertainty_percent: Uncertainty CV percentage
+        seed: Random seed
+        
+    Returns:
+        Tuple of (MonteCarloResult, lambda_samples array)
+    """
+    classify_component = _import_classify_component()
+    
+    mc_inputs = []
+    for comp in sheet_components:
+        comp_type = comp.get('class', 'Resistor')
+        if not comp_type or comp_type == 'Unknown':
+            comp_type = classify_component(comp.get('ref', 'R1'), comp.get('value', ''), {})
+        
+        base_params = comp.get('params', {})
+        if not base_params:
+            # Default parameters
+            base_params = {
+                't_ambient': 25.0,
+                't_junction': 85.0,
+                'n_cycles': 5256,
+                'delta_t': 3.0,
+                'operating_power': 0.01,
+                'rated_power': 0.125,
+            }
+        
+        mc_inputs.append(ComponentMCInput(
+            reference=comp.get('ref', '?'),
+            component_type=comp_type,
+            base_params=base_params,
+        ))
+    
+    return monte_carlo_components(
+        mc_inputs, mission_hours, n_simulations, uncertainty_percent, seed
+    )
+
 
 def quick_monte_carlo(
     lambda_total: float,
@@ -232,33 +407,185 @@ def quick_monte_carlo(
     uncertainty_percent: float = 20.0,
     n_simulations: int = 5000,
     seed: int = None,
+    components: List[Dict] = None,
 ) -> MonteCarloResult:
-    """Quick Monte Carlo with simple percentage uncertainty on failure rate."""
-    rng = np.random.default_rng(seed)
+    """
+    Monte Carlo uncertainty analysis.
     
-    # Sample lambda with lognormal distribution
-    cv = uncertainty_percent / 100.0
-    mu = np.log(lambda_total) - 0.5 * np.log(1 + cv**2)
-    sigma = np.sqrt(np.log(1 + cv**2))
+    If components are provided, runs proper uncertainty propagation through
+    component-level calculations (slower but correct).
     
-    lambda_samples = rng.lognormal(mu, sigma, n_simulations)
-    reliability_samples = np.exp(-lambda_samples * mission_hours)
+    If only lambda_total is provided, uses simplified lognormal sampling
+    (faster but less accurate - suitable for quick estimates only).
     
-    return MonteCarloResult(
-        mean=np.mean(reliability_samples),
-        std=np.std(reliability_samples),
-        percentile_5=np.percentile(reliability_samples, 5),
-        percentile_50=np.percentile(reliability_samples, 50),
-        percentile_95=np.percentile(reliability_samples, 95),
-        samples=reliability_samples,
-        converged=True,
-        n_simulations=n_simulations,
-    )
+    Args:
+        lambda_total: Total system failure rate (used if no components)
+        mission_hours: Mission duration in hours
+        uncertainty_percent: Uncertainty as percentage (CV * 100)
+        n_simulations: Number of Monte Carlo iterations
+        seed: Random seed for reproducibility
+        components: Optional list of component dicts for proper analysis
+        
+    Returns:
+        MonteCarloResult with distribution statistics
+    """
+    _, reliability_from_lambda = _import_reliability_math()
+    
+    start_time = time.time()
+    
+    if components and len(components) > 0:
+        # Proper component-level Monte Carlo
+        mc_inputs = []
+        for comp in components:
+            comp_type = comp.get('type', comp.get('class', 'Resistor'))
+            base_params = comp.get('params', {})
+            
+            # Ensure minimum parameters
+            if 't_junction' not in base_params and 't_ambient' not in base_params:
+                base_params['t_ambient'] = 25.0
+            if 'n_cycles' not in base_params:
+                base_params['n_cycles'] = 5256
+            if 'delta_t' not in base_params:
+                base_params['delta_t'] = 3.0
+                
+            mc_inputs.append(ComponentMCInput(
+                reference=comp.get('ref', comp.get('reference', '?')),
+                component_type=comp_type,
+                base_params=base_params,
+            ))
+        
+        result, _ = monte_carlo_components(
+            mc_inputs, mission_hours, n_simulations, uncertainty_percent, seed
+        )
+        return result
+    
+    else:
+        # Simplified sampling (legacy behavior)
+        # This just adds noise to the total lambda, NOT proper uncertainty propagation
+        rng = np.random.default_rng(seed)
+        
+        cv = uncertainty_percent / 100.0
+        if lambda_total > 0:
+            mu = np.log(lambda_total) - 0.5 * np.log(1 + cv**2)
+            sigma = np.sqrt(np.log(1 + cv**2))
+            lambda_samples = rng.lognormal(mu, sigma, n_simulations)
+        else:
+            lambda_samples = np.zeros(n_simulations)
+        
+        reliability_samples = np.exp(-lambda_samples * mission_hours)
+        runtime = time.time() - start_time
+        
+        return MonteCarloResult(
+            mean=np.mean(reliability_samples),
+            std=np.std(reliability_samples),
+            percentile_5=np.percentile(reliability_samples, 5),
+            percentile_50=np.percentile(reliability_samples, 50),
+            percentile_95=np.percentile(reliability_samples, 95),
+            samples=reliability_samples,
+            converged=True,
+            n_simulations=n_simulations,
+            runtime_seconds=runtime,
+        )
+
+
+def monte_carlo_blocks(
+    block_data: Dict[str, Dict],
+    mission_hours: float,
+    n_simulations: int = 2000,
+    uncertainty_percent: float = 20.0,
+    seed: int = None,
+    progress_callback: Callable[[str, int, int], None] = None,
+) -> Dict[str, SheetMCResult]:
+    """
+    Run Monte Carlo for all blocks/sheets in the system.
+    
+    Args:
+        block_data: Dict mapping sheet_path to {'components': [...], 'lambda': ..., 'r': ...}
+        mission_hours: Mission duration
+        n_simulations: Simulations per sheet (reduced for speed)
+        uncertainty_percent: Uncertainty CV
+        seed: Base random seed (incremented per sheet)
+        progress_callback: Optional callback(sheet_path, current, total)
+        
+    Returns:
+        Dict mapping sheet_path to SheetMCResult
+    """
+    results = {}
+    base_seed = seed if seed is not None else int(time.time())
+    
+    for idx, (sheet_path, data) in enumerate(block_data.items()):
+        components = data.get('components', [])
+        if not components:
+            continue
+        
+        # Convert component format
+        sheet_components = []
+        for c in components:
+            sheet_components.append({
+                'ref': c.get('ref', '?'),
+                'value': c.get('value', ''),
+                'class': c.get('class', 'Resistor'),
+                'params': c.get('params', {}),
+            })
+        
+        def sheet_progress(current, total):
+            if progress_callback:
+                progress_callback(sheet_path, current, total)
+        
+        mc_result, lambda_samples = monte_carlo_sheet(
+            sheet_components,
+            mission_hours,
+            n_simulations,
+            uncertainty_percent,
+            seed=base_seed + idx,
+        )
+        
+        results[sheet_path] = SheetMCResult(
+            sheet_path=sheet_path,
+            mc_result=mc_result,
+            lambda_samples=lambda_samples,
+        )
+    
+    return results
 
 
 if __name__ == "__main__":
-    # Quick test
-    result = quick_monte_carlo(1e-7, 43800, uncertainty_percent=30.0)
-    print(f"Mean R: {result.mean:.6f}")
-    print(f"90% CI: [{result.percentile_5:.6f}, {result.percentile_95:.6f}]")
-    print(f"Std: {result.std:.6f}")
+    # Test proper Monte Carlo
+    print("Testing proper component-level Monte Carlo...")
+    
+    from reliability_math import calculate_component_lambda, reliability_from_lambda
+    
+    # Create test components
+    test_components = [
+        ComponentMCInput("R1", "Resistor", {'t_ambient': 25, 'operating_power': 0.01, 'rated_power': 0.125, 'n_cycles': 5256, 'delta_t': 3.0}),
+        ComponentMCInput("R2", "Resistor", {'t_ambient': 25, 'operating_power': 0.01, 'rated_power': 0.125, 'n_cycles': 5256, 'delta_t': 3.0}),
+        ComponentMCInput("C1", "Capacitor", {'t_ambient': 25, 'n_cycles': 5256, 'delta_t': 3.0, 'capacitor_type': 'Ceramic Class II (X7R/X5R)'}),
+        ComponentMCInput("U1", "Integrated Circuit", {'t_junction': 85, 'n_cycles': 5256, 'delta_t': 3.0, 'transistor_count': 10000}),
+    ]
+    
+    result, lambda_samples = monte_carlo_components(
+        test_components, 
+        mission_hours=43800,  # 5 years
+        n_simulations=2000,
+        uncertainty_percent=20.0,
+        seed=42
+    )
+    
+    print(f"\nResults (5-year mission, 2000 simulations):")
+    print(f"  Mean R: {result.mean:.6f}")
+    print(f"  Std:    {result.std:.6f}")
+    print(f"  5%:     {result.percentile_5:.6f}")
+    print(f"  50%:    {result.percentile_50:.6f}")
+    print(f"  95%:    {result.percentile_95:.6f}")
+    print(f"  Runtime: {result.runtime_seconds:.2f}s")
+    print(f"  Converged: {result.converged}")
+    
+    # Calculate nominal for comparison
+    total_lambda = 0
+    for comp in test_components:
+        res = calculate_component_lambda(comp.component_type, comp.base_params)
+        total_lambda += res['lambda_total']
+    
+    nominal_r = reliability_from_lambda(total_lambda, 43800)
+    print(f"\nNominal R (no uncertainty): {nominal_r:.6f}")
+    print(f"Total λ: {total_lambda:.2e}")

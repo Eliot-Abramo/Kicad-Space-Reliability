@@ -12,9 +12,12 @@ import numpy as np
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass, field
 
-from .monte_carlo import MonteCarloResult, quick_monte_carlo
+from .monte_carlo import (
+    MonteCarloResult, quick_monte_carlo, monte_carlo_sheet, 
+    monte_carlo_blocks, SheetMCResult, ComponentMCInput
+)
 from .sensitivity_analysis import SobolResult, SobolAnalyzer
-from .reliability_math import reliability_from_lambda
+from .reliability_math import reliability_from_lambda, calculate_component_lambda
 
 
 # =============================================================================
@@ -489,6 +492,7 @@ class AnalysisDialog(wx.Dialog):
         
         self.mc_result: Optional[MonteCarloResult] = None
         self.sobol_result: Optional[SobolResult] = None
+        self.sheet_mc_results: Dict[str, SheetMCResult] = {}  # Per-sheet Monte Carlo results
         
         self._create_ui()
         self.Centre()
@@ -549,21 +553,45 @@ class AnalysisDialog(wx.Dialog):
         ctrl = wx.BoxSizer(wx.HORIZONTAL)
         
         ctrl.Add(wx.StaticText(ctrl_panel, label="Simulations:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 12)
-        self.mc_n = wx.SpinCtrl(ctrl_panel, min=1000, max=100000, initial=10000, size=(100, -1))
+        self.mc_n = wx.SpinCtrl(ctrl_panel, min=1000, max=100000, initial=5000, size=(100, -1))
         ctrl.Add(self.mc_n, 0, wx.ALL, 8)
         
         ctrl.Add(wx.StaticText(ctrl_panel, label="Uncertainty (%):"), 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 12)
         self.mc_unc = wx.SpinCtrlDouble(ctrl_panel, min=5, max=100, initial=25, inc=5, size=(80, -1))
         ctrl.Add(self.mc_unc, 0, wx.ALL, 8)
         
-        self.btn_mc = wx.Button(ctrl_panel, label="Run Monte Carlo")
+        self.btn_mc = wx.Button(ctrl_panel, label="Run System MC")
         self.btn_mc.SetBackgroundColour(Colors.PRIMARY)
         self.btn_mc.SetForegroundColour(Colors.TEXT_WHITE)
         self.btn_mc.Bind(wx.EVT_BUTTON, self._on_run_mc)
+        self.btn_mc.SetToolTip("Run Monte Carlo with component-level uncertainty propagation")
         ctrl.Add(self.btn_mc, 0, wx.ALL, 8)
+        
+        # Per-sheet MC button
+        self.btn_mc_sheets = wx.Button(ctrl_panel, label="Run Per-Sheet MC")
+        self.btn_mc_sheets.SetBackgroundColour(Colors.WARNING)
+        self.btn_mc_sheets.SetForegroundColour(Colors.TEXT_DARK)
+        self.btn_mc_sheets.Bind(wx.EVT_BUTTON, self._on_run_mc_sheets)
+        self.btn_mc_sheets.SetToolTip("Run Monte Carlo for each sheet/block - adds graphs to report")
+        ctrl.Add(self.btn_mc_sheets, 0, wx.ALL, 8)
         
         ctrl_panel.SetSizer(ctrl)
         main.Add(ctrl_panel, 0, wx.EXPAND | wx.ALL, 8)
+        
+        # Notification about full report
+        note_panel = wx.Panel(panel)
+        note_panel.SetBackgroundColour(wx.Colour(255, 251, 235))  # Warm yellow
+        note_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        note_icon = wx.StaticText(note_panel, label="ℹ️")
+        note_icon.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        note_sizer.Add(note_icon, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 8)
+        note_text = wx.StaticText(note_panel, 
+            label="Tip: Comprehensive analysis data, component details, and per-sheet graphs are available in the Full Report tab.")
+        note_text.SetFont(wx.Font(9, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        note_text.SetForegroundColour(Colors.TEXT_DARK)
+        note_sizer.Add(note_text, 1, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 8)
+        note_panel.SetSizer(note_sizer)
+        main.Add(note_panel, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
         
         # Charts row
         charts = wx.BoxSizer(wx.HORIZONTAL)
@@ -699,7 +727,7 @@ class AnalysisDialog(wx.Dialog):
     # =========================================================================
     
     def _on_run_mc(self, event):
-        self.status.SetLabel("Running Monte Carlo...")
+        self.status.SetLabel("Running Monte Carlo (proper component-level analysis)...")
         self.btn_mc.Disable()
         wx.Yield()
         
@@ -707,10 +735,25 @@ class AnalysisDialog(wx.Dialog):
             n = self.mc_n.GetValue()
             unc = self.mc_unc.GetValue()
             
-            self.mc_result = quick_monte_carlo(
-                self.system_lambda, self.mission_hours,
-                uncertainty_percent=unc, n_simulations=n
-            )
+            # Extract component data from sheet_data for proper Monte Carlo
+            components = self._extract_components_for_mc()
+            
+            if components:
+                # Run proper component-level Monte Carlo
+                self.status.SetLabel(f"Running {n:,} simulations with {len(components)} components...")
+                wx.Yield()
+                
+                self.mc_result = quick_monte_carlo(
+                    self.system_lambda, self.mission_hours,
+                    uncertainty_percent=unc, n_simulations=n,
+                    components=components  # Pass components for proper analysis
+                )
+            else:
+                # Fallback to simplified (with warning)
+                self.mc_result = quick_monte_carlo(
+                    self.system_lambda, self.mission_hours,
+                    uncertainty_percent=unc, n_simulations=n
+                )
             
             # Update histogram
             self.histogram.set_data(
@@ -737,13 +780,121 @@ class AnalysisDialog(wx.Dialog):
                 'converged': self.mc_result.converged,
             })
             
-            self.status.SetLabel(f"Monte Carlo complete: {n:,} simulations")
+            runtime = getattr(self.mc_result, 'runtime_seconds', 0)
+            status_msg = f"Monte Carlo complete: {n:,} simulations"
+            if runtime > 0:
+                status_msg += f" in {runtime:.1f}s"
+            if components:
+                status_msg += f" ({len(components)} components)"
+            self.status.SetLabel(status_msg)
             self._update_report()
             
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             wx.MessageBox(str(e), "Error", wx.OK | wx.ICON_ERROR)
             self.status.SetLabel(f"Error: {e}")
         finally:
+            self.btn_mc.Enable()
+    
+    def _extract_components_for_mc(self) -> List[Dict]:
+        """Extract component data from sheet_data for Monte Carlo analysis."""
+        components = []
+        
+        for sheet_path, data in self.sheet_data.items():
+            sheet_comps = data.get('components', [])
+            for comp in sheet_comps:
+                # Build component dict for MC
+                comp_type = comp.get('class', 'Resistor')
+                if comp_type in ('Unknown', '', None):
+                    comp_type = 'Resistor'
+                
+                # Get params if stored, otherwise use defaults
+                params = comp.get('params', {})
+                if not params:
+                    params = {
+                        't_ambient': 25.0,
+                        't_junction': 85.0,
+                        'n_cycles': 5256,
+                        'delta_t': 3.0,
+                        'operating_power': 0.01,
+                        'rated_power': 0.125,
+                    }
+                
+                components.append({
+                    'ref': comp.get('ref', '?'),
+                    'type': comp_type,
+                    'params': params,
+                })
+        
+        return components
+    
+    def _on_run_mc_sheets(self, event):
+        """Run Monte Carlo analysis for each sheet/block individually."""
+        if not self.sheet_data:
+            wx.MessageBox("No sheet data available.", "No Data", wx.OK | wx.ICON_WARNING)
+            return
+        
+        self.status.SetLabel("Running per-sheet Monte Carlo analysis...")
+        self.btn_mc_sheets.Disable()
+        self.btn_mc.Disable()
+        wx.Yield()
+        
+        try:
+            n = min(self.mc_n.GetValue(), 2000)  # Limit per-sheet simulations for speed
+            unc = self.mc_unc.GetValue()
+            
+            self.sheet_mc_results.clear()
+            total_sheets = len(self.sheet_data)
+            completed = 0
+            
+            for sheet_path, data in self.sheet_data.items():
+                sheet_name = sheet_path.rstrip('/').split('/')[-1] or 'Root'
+                self.status.SetLabel(f"Processing {sheet_name} ({completed+1}/{total_sheets})...")
+                wx.Yield()
+                
+                sheet_comps = data.get('components', [])
+                if not sheet_comps:
+                    completed += 1
+                    continue
+                
+                # Convert components to format needed by monte_carlo_sheet
+                mc_components = []
+                for comp in sheet_comps:
+                    mc_components.append({
+                        'ref': comp.get('ref', '?'),
+                        'value': comp.get('value', ''),
+                        'class': comp.get('class', 'Resistor'),
+                        'params': comp.get('params', {}),
+                    })
+                
+                # Run MC for this sheet
+                mc_result, lambda_samples = monte_carlo_sheet(
+                    mc_components,
+                    self.mission_hours,
+                    n_simulations=n,
+                    uncertainty_percent=unc,
+                    seed=42 + completed,
+                )
+                
+                self.sheet_mc_results[sheet_path] = SheetMCResult(
+                    sheet_path=sheet_path,
+                    mc_result=mc_result,
+                    lambda_samples=lambda_samples,
+                )
+                
+                completed += 1
+            
+            self.status.SetLabel(f"Per-sheet MC complete: {completed} sheets × {n} simulations each")
+            self._update_report()
+            
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            wx.MessageBox(str(e), "Error", wx.OK | wx.ICON_ERROR)
+            self.status.SetLabel(f"Error: {e}")
+        finally:
+            self.btn_mc_sheets.Enable()
             self.btn_mc.Enable()
     
     def _on_run_sobol(self, event):
@@ -961,6 +1112,40 @@ class AnalysisDialog(wx.Dialog):
                         lines.append(f"    {ref:<8} {val:<15} {cls:<20} L={c_lam*1e9:>6.2f} FIT  R={c_r:.6f}")
                     if len(components) > 15:
                         lines.append(f"    ... and {len(components) - 15} more")
+                
+                # Add per-sheet MC results if available
+                if path in self.sheet_mc_results:
+                    smc = self.sheet_mc_results[path].mc_result
+                    lines.append(f"  Monte Carlo Analysis ({smc.n_simulations} sims):")
+                    lines.append(f"    Mean R:    {smc.mean:.6f}")
+                    lines.append(f"    Std:       {smc.std:.6f}")
+                    lines.append(f"    5%-95%:    [{smc.percentile_5:.6f}, {smc.percentile_95:.6f}]")
+        
+        # Per-sheet Monte Carlo Summary
+        if self.sheet_mc_results:
+            lines.append("")
+            lines.append("PER-SHEET MONTE CARLO SUMMARY")
+            lines.append("-" * 50)
+            lines.append(f"  {'Sheet':<25} {'Mean R':>10} {'Std':>10} {'5%':>10} {'95%':>10}")
+            lines.append("  " + "-" * 67)
+            
+            for path in sorted(self.sheet_mc_results.keys()):
+                smc = self.sheet_mc_results[path].mc_result
+                sheet_name = path.rstrip('/').split('/')[-1] or 'Root'
+                lines.append(f"  {sheet_name:<25} {smc.mean:>10.6f} {smc.std:>10.6f} {smc.percentile_5:>10.6f} {smc.percentile_95:>10.6f}")
+            lines.append("")
+            
+            # Distribution summary (text-based histogram)
+            lines.append("  Per-Sheet Reliability Distribution (text histogram):")
+            lines.append("  " + "-" * 50)
+            for path in sorted(self.sheet_mc_results.keys()):
+                smc = self.sheet_mc_results[path].mc_result
+                sheet_name = path.rstrip('/').split('/')[-1] or 'Root'
+                # Simple text bar
+                bar_len = int((smc.mean - 0.9) * 100)  # Scale 0.9-1.0 to 0-10
+                bar_len = max(0, min(40, bar_len))
+                bar = "█" * bar_len + "░" * (40 - bar_len)
+                lines.append(f"  {sheet_name:<20} |{bar}| {smc.mean:.4f}")
         
         lines.append("")
         lines.append("=" * 70)
