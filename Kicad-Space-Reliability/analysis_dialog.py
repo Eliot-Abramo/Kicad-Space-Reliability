@@ -1,8 +1,8 @@
 """
-Analysis Dialog - Industrial-Grade Uncertainty & Sensitivity Visualization
-==========================================================================
-Professional presentation of Monte Carlo and Sobol sensitivity analysis results
-with consistent scales, clear legends, and publication-quality graphics.
+Analysis Dialog - Industrial-Grade Reliability Analysis Suite
+=============================================================
+Professional visualization of Monte Carlo uncertainty and Sobol sensitivity analysis.
+Clean, legible design with publication-quality graphics.
 """
 
 import wx
@@ -12,506 +12,447 @@ import numpy as np
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass, field
 
-from .monte_carlo import MonteCarloResult, quick_monte_carlo, MonteCarloAnalyzer, ParameterDistribution
+from .monte_carlo import MonteCarloResult, quick_monte_carlo
 from .sensitivity_analysis import SobolResult, SobolAnalyzer
-from .reliability_math import reliability_from_lambda, calculate_component_lambda
+from .reliability_math import reliability_from_lambda
 
 
 # =============================================================================
-# Design System - Industrial Color Palette
+# Professional Color Scheme
 # =============================================================================
 
-class AnalysisColors:
-    """Professional industrial color palette for analysis visualization."""
+class Colors:
+    """Clean industrial color palette."""
+    # Backgrounds
+    BG_LIGHT = wx.Colour(252, 252, 253)
+    BG_WHITE = wx.Colour(255, 255, 255)
+    BG_HEADER = wx.Colour(37, 99, 235)  # Blue header
     
-    # Primary colors
-    PRIMARY = wx.Colour(30, 136, 229)      # Blue
-    SECONDARY = wx.Colour(67, 160, 71)     # Green
-    TERTIARY = wx.Colour(251, 140, 0)      # Orange
+    # Text
+    TEXT_DARK = wx.Colour(17, 24, 39)
+    TEXT_MEDIUM = wx.Colour(75, 85, 99)
+    TEXT_LIGHT = wx.Colour(156, 163, 175)
+    TEXT_WHITE = wx.Colour(255, 255, 255)
     
-    # Chart colors (colorblind-safe palette)
-    CHART_BLUE = wx.Colour(55, 126, 184)
-    CHART_GREEN = wx.Colour(77, 175, 74)
-    CHART_ORANGE = wx.Colour(255, 127, 0)
-    CHART_RED = wx.Colour(228, 26, 28)
-    CHART_PURPLE = wx.Colour(152, 78, 163)
-    CHART_YELLOW = wx.Colour(255, 255, 51)
-    CHART_BROWN = wx.Colour(166, 86, 40)
-    CHART_PINK = wx.Colour(247, 129, 191)
+    # Accents
+    PRIMARY = wx.Colour(37, 99, 235)     # Blue
+    SUCCESS = wx.Colour(34, 197, 94)     # Green
+    WARNING = wx.Colour(245, 158, 11)    # Amber
+    DANGER = wx.Colour(239, 68, 68)      # Red
     
-    # Grays
-    BACKGROUND = wx.Colour(250, 250, 252)
-    PANEL_BG = wx.Colour(255, 255, 255)
-    GRID = wx.Colour(230, 230, 230)
-    BORDER = wx.Colour(200, 200, 200)
-    TEXT_PRIMARY = wx.Colour(33, 37, 41)
-    TEXT_SECONDARY = wx.Colour(108, 117, 125)
-    TEXT_MUTED = wx.Colour(173, 181, 189)
+    # Chart colors (colorblind-safe)
+    CHART = [
+        wx.Colour(59, 130, 246),   # Blue
+        wx.Colour(16, 185, 129),   # Green
+        wx.Colour(245, 158, 11),   # Amber
+        wx.Colour(239, 68, 68),    # Red
+        wx.Colour(139, 92, 246),   # Purple
+        wx.Colour(236, 72, 153),   # Pink
+        wx.Colour(20, 184, 166),   # Teal
+        wx.Colour(249, 115, 22),   # Orange
+    ]
     
-    # Status colors
-    SUCCESS = wx.Colour(40, 167, 69)
-    WARNING = wx.Colour(255, 193, 7)
-    DANGER = wx.Colour(220, 53, 69)
-    INFO = wx.Colour(23, 162, 184)
-    
-    # Chart palette for multiple series
-    PALETTE = [CHART_BLUE, CHART_GREEN, CHART_ORANGE, CHART_RED, 
-               CHART_PURPLE, CHART_BROWN, CHART_PINK]
-
-
-@dataclass
-class AnalysisSettings:
-    """Settings for analysis."""
-    mc_simulations: int = 10000
-    mc_uncertainty_percent: float = 25.0
-    mc_seed: Optional[int] = None
-    sobol_samples: int = 1024
-    confidence_level: float = 0.90
-
-
-@dataclass
-class SystemAnalysisResult:
-    """Complete analysis results for a system."""
-    system_lambda: float
-    system_reliability: float
-    mission_hours: float
-    monte_carlo: Optional[MonteCarloResult] = None
-    sensitivity: Optional[Dict[str, SobolResult]] = None
-    component_contributions: Optional[Dict[str, float]] = None
-    parameter_ranges: Optional[Dict[str, Tuple[float, float]]] = None
+    # Borders
+    BORDER = wx.Colour(229, 231, 235)
+    GRID = wx.Colour(243, 244, 246)
 
 
 # =============================================================================
-# Chart Drawing Components
+# Professional Chart Components
 # =============================================================================
 
-class ChartPanel(wx.Panel):
-    """Base class for chart panels with professional styling."""
+class HistogramPanel(wx.Panel):
+    """Clean histogram visualization."""
     
-    MARGIN_LEFT = 70
-    MARGIN_RIGHT = 30
-    MARGIN_TOP = 40
-    MARGIN_BOTTOM = 50
-    
-    def __init__(self, parent, title: str = "", size=(400, 300)):
-        super().__init__(parent, size=size)
+    def __init__(self, parent, title="Distribution"):
+        super().__init__(parent, size=(500, 320))
         self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
         self.title = title
-        self.data = None
+        self.samples = None
+        self.mean = None
+        self.p5 = None
+        self.p95 = None
         
-        self.Bind(wx.EVT_PAINT, self.on_paint)
+        self.Bind(wx.EVT_PAINT, self._on_paint)
         self.Bind(wx.EVT_SIZE, lambda e: self.Refresh())
     
-    def on_paint(self, event):
+    def set_data(self, samples: np.ndarray, mean: float, p5: float, p95: float):
+        self.samples = samples
+        self.mean = mean
+        self.p5 = p5
+        self.p95 = p95
+        self.Refresh()
+    
+    def _on_paint(self, event):
         dc = wx.AutoBufferedPaintDC(self)
-        gc = wx.GraphicsContext.Create(dc)
         w, h = self.GetSize()
         
         # Background
-        gc.SetBrush(wx.Brush(AnalysisColors.PANEL_BG))
-        gc.SetPen(wx.TRANSPARENT_PEN)
-        gc.DrawRectangle(0, 0, w, h)
-        
-        # Border
-        gc.SetPen(wx.Pen(AnalysisColors.BORDER, 1))
-        gc.DrawRectangle(0, 0, w-1, h-1)
+        dc.SetBrush(wx.Brush(Colors.BG_WHITE))
+        dc.SetPen(wx.Pen(Colors.BORDER, 1))
+        dc.DrawRectangle(0, 0, w, h)
         
         # Title
-        if self.title:
-            font = wx.Font(11, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
-            gc.SetFont(font, AnalysisColors.TEXT_PRIMARY)
-            tw = gc.GetTextExtent(self.title)[0]
-            gc.DrawText(self.title, (w - tw) / 2, 8)
+        dc.SetFont(wx.Font(11, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        dc.SetTextForeground(Colors.TEXT_DARK)
+        dc.DrawText(self.title, 16, 12)
         
-        # Draw chart area
-        self.draw_chart(gc, w, h)
-    
-    def draw_chart(self, gc, w, h):
-        """Override in subclasses to draw specific chart type."""
-        pass
-    
-    def draw_axis(self, gc, x0, y0, x1, y1, is_x=True):
-        """Draw axis line."""
-        gc.SetPen(wx.Pen(AnalysisColors.TEXT_SECONDARY, 1))
-        gc.StrokeLine(x0, y0, x1, y1)
-
-
-class HistogramChart(ChartPanel):
-    """Professional histogram visualization for Monte Carlo results."""
-    
-    def __init__(self, parent, title: str = "Distribution", n_bins: int = 40):
-        super().__init__(parent, title, size=(500, 350))
-        self.n_bins = n_bins
-        self.samples = None
-        self.stats = {}
-    
-    def set_data(self, samples: np.ndarray, stats: Dict[str, float] = None):
-        self.samples = samples
-        self.stats = stats or {}
-        self.Refresh()
-    
-    def draw_chart(self, gc, w, h):
         if self.samples is None or len(self.samples) == 0:
+            dc.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+            dc.SetTextForeground(Colors.TEXT_LIGHT)
+            dc.DrawText("Run analysis to see distribution", w//2 - 100, h//2)
             return
         
-        # Calculate chart area
-        left = self.MARGIN_LEFT
-        right = w - self.MARGIN_RIGHT
-        top = self.MARGIN_TOP
-        bottom = h - self.MARGIN_BOTTOM
-        chart_w = right - left
-        chart_h = bottom - top
+        # Chart area
+        margin_l, margin_r, margin_t, margin_b = 60, 30, 45, 55
+        chart_w = w - margin_l - margin_r
+        chart_h = h - margin_t - margin_b
         
-        # Calculate histogram
-        hist, bin_edges = np.histogram(self.samples, bins=self.n_bins)
-        max_count = max(hist)
+        if chart_w <= 0 or chart_h <= 0:
+            return
+        
+        # Histogram data
+        n_bins = 35
+        hist, edges = np.histogram(self.samples, bins=n_bins)
+        max_count = max(hist) if max(hist) > 0 else 1
+        bar_width = max(1, chart_w // n_bins - 1)
         
         # Draw grid
-        gc.SetPen(wx.Pen(AnalysisColors.GRID, 1, wx.PENSTYLE_DOT))
+        dc.SetPen(wx.Pen(Colors.GRID, 1))
         for i in range(5):
-            y = top + chart_h * i / 4
-            gc.StrokeLine(left, y, right, y)
+            y = margin_t + chart_h * i // 4
+            dc.DrawLine(margin_l, y, w - margin_r, y)
         
         # Draw bars
-        bar_width = chart_w / len(hist) - 1
-        gc.SetPen(wx.Pen(AnalysisColors.CHART_BLUE.ChangeLightness(80), 1))
-        gc.SetBrush(wx.Brush(AnalysisColors.CHART_BLUE))
+        dc.SetBrush(wx.Brush(Colors.PRIMARY))
+        dc.SetPen(wx.Pen(Colors.PRIMARY.ChangeLightness(85), 1))
         
         for i, count in enumerate(hist):
             if count > 0:
-                x = left + i * (chart_w / len(hist))
-                bar_h = (count / max_count) * chart_h
-                gc.DrawRectangle(x, bottom - bar_h, bar_width, bar_h)
+                x = margin_l + i * chart_w // n_bins
+                bar_h = int((count / max_count) * chart_h)
+                dc.DrawRectangle(int(x), margin_t + chart_h - bar_h, int(bar_width), bar_h)
         
-        # Draw mean line
-        if 'mean' in self.stats:
-            mean_val = self.stats['mean']
-            min_val, max_val = bin_edges[0], bin_edges[-1]
-            if min_val < mean_val < max_val:
-                x_mean = left + (mean_val - min_val) / (max_val - min_val) * chart_w
-                gc.SetPen(wx.Pen(AnalysisColors.CHART_RED, 2, wx.PENSTYLE_SOLID))
-                gc.StrokeLine(x_mean, top, x_mean, bottom)
+        # Draw reference lines
+        min_val, max_val = edges[0], edges[-1]
+        val_range = max_val - min_val
+        if val_range <= 0:
+            val_range = 1
         
-        # Draw percentile lines
-        for pct_key, color, style in [('p5', AnalysisColors.CHART_ORANGE, wx.PENSTYLE_SHORT_DASH),
-                                       ('p95', AnalysisColors.CHART_ORANGE, wx.PENSTYLE_SHORT_DASH)]:
-            if pct_key in self.stats:
-                pct_val = self.stats[pct_key]
-                min_val, max_val = bin_edges[0], bin_edges[-1]
-                if min_val < pct_val < max_val:
-                    x_pct = left + (pct_val - min_val) / (max_val - min_val) * chart_w
-                    gc.SetPen(wx.Pen(color, 1.5, style))
-                    gc.StrokeLine(x_pct, top, x_pct, bottom)
+        def val_to_x(v):
+            return margin_l + (v - min_val) / val_range * chart_w
+        
+        # Mean line (red)
+        if self.mean is not None:
+            x_mean = val_to_x(self.mean)
+            dc.SetPen(wx.Pen(Colors.DANGER, 2))
+            dc.DrawLine(int(x_mean), margin_t, int(x_mean), margin_t + chart_h)
+        
+        # Percentile lines (dashed amber)
+        dc.SetPen(wx.Pen(Colors.WARNING, 2, wx.PENSTYLE_SHORT_DASH))
+        if self.p5 is not None:
+            x_p5 = val_to_x(self.p5)
+            dc.DrawLine(int(x_p5), margin_t, int(x_p5), margin_t + chart_h)
+        if self.p95 is not None:
+            x_p95 = val_to_x(self.p95)
+            dc.DrawLine(int(x_p95), margin_t, int(x_p95), margin_t + chart_h)
+        
+        # Axes
+        dc.SetPen(wx.Pen(Colors.TEXT_MEDIUM, 1))
+        dc.DrawLine(margin_l, margin_t + chart_h, w - margin_r, margin_t + chart_h)
+        dc.DrawLine(margin_l, margin_t, margin_l, margin_t + chart_h)
         
         # X-axis labels
-        font = wx.Font(8, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
-        gc.SetFont(font, AnalysisColors.TEXT_SECONDARY)
-        
-        min_val, max_val = bin_edges[0], bin_edges[-1]
+        dc.SetFont(wx.Font(9, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        dc.SetTextForeground(Colors.TEXT_MEDIUM)
         for i in range(5):
-            val = min_val + (max_val - min_val) * i / 4
-            x = left + chart_w * i / 4
+            val = min_val + val_range * i / 4
+            x = margin_l + chart_w * i // 4
             label = f"{val:.4f}"
-            tw = gc.GetTextExtent(label)[0]
-            gc.DrawText(label, x - tw/2, bottom + 5)
+            tw, _ = dc.GetTextExtent(label)
+            dc.DrawText(label, x - tw // 2, margin_t + chart_h + 8)
         
-        # Y-axis label
-        gc.PushState()
-        gc.Translate(15, (top + bottom) / 2)
-        gc.Rotate(-math.pi / 2)
-        gc.DrawText("Frequency", -30, 0)
-        gc.PopState()
-        
-        # X-axis label
-        gc.DrawText("Reliability R(t)", left + chart_w/2 - 40, h - 15)
-        
-        # Draw axes
-        gc.SetPen(wx.Pen(AnalysisColors.TEXT_SECONDARY, 1))
-        gc.StrokeLine(left, top, left, bottom)
-        gc.StrokeLine(left, bottom, right, bottom)
+        dc.DrawText("Reliability R(t)", margin_l + chart_w // 2 - 50, h - 18)
         
         # Legend
-        self._draw_legend(gc, right - 150, top + 5)
-    
-    def _draw_legend(self, gc, x, y):
-        font = wx.Font(8, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
-        gc.SetFont(font, AnalysisColors.TEXT_PRIMARY)
+        legend_x = w - margin_r - 130
+        legend_y = margin_t + 5
         
-        items = [
-            (AnalysisColors.CHART_RED, "Mean", "solid"),
-            (AnalysisColors.CHART_ORANGE, "5th/95th %ile", "dash"),
-        ]
+        dc.SetFont(wx.Font(8, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         
-        for i, (color, label, style) in enumerate(items):
-            ly = y + i * 14
-            if style == "solid":
-                gc.SetPen(wx.Pen(color, 2))
-            else:
-                gc.SetPen(wx.Pen(color, 1.5, wx.PENSTYLE_SHORT_DASH))
-            gc.StrokeLine(x, ly + 5, x + 20, ly + 5)
-            gc.DrawText(label, x + 25, ly)
+        dc.SetPen(wx.Pen(Colors.DANGER, 2))
+        dc.DrawLine(legend_x, legend_y + 6, legend_x + 20, legend_y + 6)
+        dc.DrawText("Mean", legend_x + 25, legend_y)
+        
+        dc.SetPen(wx.Pen(Colors.WARNING, 2, wx.PENSTYLE_SHORT_DASH))
+        dc.DrawLine(legend_x, legend_y + 20, legend_x + 20, legend_y + 20)
+        dc.DrawText("5th/95th %ile", legend_x + 25, legend_y + 14)
 
 
-class BarChart(ChartPanel):
-    """Professional horizontal bar chart for sensitivity analysis."""
+class HorizontalBarPanel(wx.Panel):
+    """Clean horizontal bar chart for rankings/contributions."""
     
-    def __init__(self, parent, title: str = "Sensitivity"):
-        super().__init__(parent, title, size=(500, 400))
-        self.data = []  # List of (name, value, error_low, error_high)
+    def __init__(self, parent, title="Chart"):
+        super().__init__(parent, size=(500, 400))
+        self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
+        self.title = title
+        self.data = []  # List of (name, value, color_idx)
         self.max_value = 1.0
-        self.show_total = False
+        self.x_label = "Value"
+        
+        self.Bind(wx.EVT_PAINT, self._on_paint)
+        self.Bind(wx.EVT_SIZE, lambda e: self.Refresh())
     
-    def set_data(self, data: List[Tuple[str, float, float, float]], max_value: float = None, show_total: bool = False):
-        self.data = sorted(data, key=lambda x: x[1], reverse=True)
-        self.max_value = max_value or max(d[1] + d[3] for d in data) if data else 1.0
-        self.max_value = max(self.max_value, 0.01)
-        self.show_total = show_total
+    def set_data(self, data: List[Tuple[str, float]], max_value: float = None, x_label: str = "Value"):
+        """Set data as list of (name, value) tuples."""
+        self.data = [(name, val, i % len(Colors.CHART)) for i, (name, val) in enumerate(data)]
+        self.max_value = max_value if max_value else (max(d[1] for d in self.data) if self.data else 1.0)
+        self.max_value = max(self.max_value, 0.001)
+        self.x_label = x_label
         self.Refresh()
     
-    def draw_chart(self, gc, w, h):
+    def _on_paint(self, event):
+        dc = wx.AutoBufferedPaintDC(self)
+        w, h = self.GetSize()
+        
+        # Background
+        dc.SetBrush(wx.Brush(Colors.BG_WHITE))
+        dc.SetPen(wx.Pen(Colors.BORDER, 1))
+        dc.DrawRectangle(0, 0, w, h)
+        
+        # Title
+        dc.SetFont(wx.Font(11, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        dc.SetTextForeground(Colors.TEXT_DARK)
+        dc.DrawText(self.title, 16, 12)
+        
         if not self.data:
+            dc.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+            dc.SetTextForeground(Colors.TEXT_LIGHT)
+            dc.DrawText("No data available", w//2 - 50, h//2)
             return
         
-        left = self.MARGIN_LEFT + 60  # Extra for parameter names
-        right = w - self.MARGIN_RIGHT
-        top = self.MARGIN_TOP
-        bottom = h - self.MARGIN_BOTTOM
-        chart_w = right - left
-        chart_h = bottom - top
+        # Chart area - larger left margin for labels
+        margin_l, margin_r, margin_t, margin_b = 140, 30, 45, 45
+        chart_w = w - margin_l - margin_r
+        chart_h = h - margin_t - margin_b
         
-        n_bars = len(self.data)
-        if n_bars == 0:
+        if chart_w <= 0 or chart_h <= 0:
             return
         
-        bar_height = min(25, chart_h / n_bars - 5)
-        spacing = (chart_h - n_bars * bar_height) / (n_bars + 1)
+        n_bars = min(len(self.data), 15)  # Limit to 15 bars
+        bar_height = min(22, max(12, (chart_h - 10) // n_bars))
+        spacing = max(2, (chart_h - n_bars * bar_height) // (n_bars + 1))
         
         # Draw grid
-        gc.SetPen(wx.Pen(AnalysisColors.GRID, 1, wx.PENSTYLE_DOT))
+        dc.SetPen(wx.Pen(Colors.GRID, 1))
         for i in range(5):
-            x = left + chart_w * i / 4
-            gc.StrokeLine(x, top, x, bottom)
+            x = margin_l + chart_w * i // 4
+            dc.DrawLine(x, margin_t, x, margin_t + chart_h)
         
-        font = wx.Font(9, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
-        gc.SetFont(font, AnalysisColors.TEXT_PRIMARY)
+        # Draw bars
+        dc.SetFont(wx.Font(9, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         
-        for i, (name, value, err_low, err_high) in enumerate(self.data):
-            y = top + spacing + i * (bar_height + spacing)
+        for i, (name, value, color_idx) in enumerate(self.data[:n_bars]):
+            y = margin_t + spacing + i * (bar_height + spacing)
             
-            # Select color based on index
-            color = AnalysisColors.PALETTE[i % len(AnalysisColors.PALETTE)]
+            # Bar
+            bar_w = int((value / self.max_value) * chart_w)
+            bar_w = max(bar_w, 2)  # Minimum visible width
             
-            # Draw bar
-            bar_w = (value / self.max_value) * chart_w
-            gc.SetBrush(wx.Brush(color))
-            gc.SetPen(wx.Pen(color.ChangeLightness(80), 1))
-            gc.DrawRectangle(left, y, bar_w, bar_height)
+            color = Colors.CHART[color_idx]
+            dc.SetBrush(wx.Brush(color))
+            dc.SetPen(wx.Pen(color.ChangeLightness(85), 1))
+            dc.DrawRoundedRectangle(margin_l, y, bar_w, bar_height, 3)
             
-            # Draw error bars if significant
-            if err_high > 0.001:
-                err_x_low = left + ((value - err_low) / self.max_value) * chart_w
-                err_x_high = left + ((value + err_high) / self.max_value) * chart_w
-                err_x_low = max(err_x_low, left)
-                err_x_high = min(err_x_high, right)
-                
-                gc.SetPen(wx.Pen(AnalysisColors.TEXT_PRIMARY, 1.5))
-                mid_y = y + bar_height / 2
-                gc.StrokeLine(err_x_low, mid_y, err_x_high, mid_y)
-                gc.StrokeLine(err_x_low, mid_y - 3, err_x_low, mid_y + 3)
-                gc.StrokeLine(err_x_high, mid_y - 3, err_x_high, mid_y + 3)
+            # Label (truncate if needed)
+            dc.SetTextForeground(Colors.TEXT_DARK)
+            display_name = name[:18] + "..." if len(name) > 18 else name
+            tw, th = dc.GetTextExtent(display_name)
+            dc.DrawText(display_name, margin_l - tw - 8, y + (bar_height - th) // 2)
             
-            # Parameter name
-            gc.SetFont(font, AnalysisColors.TEXT_PRIMARY)
-            name_short = name[:15] + "..." if len(name) > 15 else name
-            tw = gc.GetTextExtent(name_short)[0]
-            gc.DrawText(name_short, left - tw - 8, y + (bar_height - 12) / 2)
-            
-            # Value label
-            val_text = f"{value:.3f}"
-            if bar_w > 50:
-                gc.SetFont(font, wx.WHITE)
-                gc.DrawText(val_text, left + 5, y + (bar_height - 12) / 2)
+            # Value
+            val_text = f"{value:.3f}" if value < 10 else f"{value:.1f}"
+            vw, vh = dc.GetTextExtent(val_text)
+            if bar_w > vw + 10:
+                dc.SetTextForeground(Colors.TEXT_WHITE)
+                dc.DrawText(val_text, margin_l + 6, y + (bar_height - vh) // 2)
             else:
-                gc.SetFont(font, AnalysisColors.TEXT_PRIMARY)
-                gc.DrawText(val_text, left + bar_w + 5, y + (bar_height - 12) / 2)
+                dc.SetTextForeground(Colors.TEXT_DARK)
+                dc.DrawText(val_text, margin_l + bar_w + 6, y + (bar_height - vh) // 2)
         
         # X-axis
-        gc.SetPen(wx.Pen(AnalysisColors.TEXT_SECONDARY, 1))
-        gc.StrokeLine(left, bottom, right, bottom)
+        dc.SetPen(wx.Pen(Colors.TEXT_MEDIUM, 1))
+        dc.DrawLine(margin_l, margin_t + chart_h, w - margin_r, margin_t + chart_h)
         
         # X-axis labels
-        font_small = wx.Font(8, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
-        gc.SetFont(font_small, AnalysisColors.TEXT_SECONDARY)
+        dc.SetFont(wx.Font(8, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        dc.SetTextForeground(Colors.TEXT_MEDIUM)
         for i in range(5):
             val = self.max_value * i / 4
-            x = left + chart_w * i / 4
+            x = margin_l + chart_w * i // 4
             label = f"{val:.2f}"
-            tw = gc.GetTextExtent(label)[0]
-            gc.DrawText(label, x - tw/2, bottom + 5)
+            tw, _ = dc.GetTextExtent(label)
+            dc.DrawText(label, x - tw // 2, margin_t + chart_h + 6)
         
-        # X-axis title
-        gc.DrawText("Sensitivity Index", left + chart_w/2 - 50, h - 15)
+        dc.DrawText(self.x_label, margin_l + chart_w // 2 - 40, h - 15)
 
 
-class ConvergenceChart(ChartPanel):
-    """Convergence plot for Monte Carlo analysis."""
+class ConvergencePanel(wx.Panel):
+    """Convergence plot showing running mean."""
     
-    def __init__(self, parent, title: str = "Convergence"):
-        super().__init__(parent, title, size=(400, 250))
-        self.history = []  # List of (n_samples, mean_value)
+    def __init__(self, parent, title="Convergence"):
+        super().__init__(parent, size=(400, 200))
+        self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
+        self.title = title
+        self.samples = None
+        
+        self.Bind(wx.EVT_PAINT, self._on_paint)
+        self.Bind(wx.EVT_SIZE, lambda e: self.Refresh())
     
     def set_data(self, samples: np.ndarray):
-        # Calculate running mean
-        self.history = []
-        running_sum = 0.0
-        for i, s in enumerate(samples):
-            running_sum += s
-            if (i + 1) % 100 == 0 or i == len(samples) - 1:
-                self.history.append((i + 1, running_sum / (i + 1)))
+        self.samples = samples
         self.Refresh()
     
-    def draw_chart(self, gc, w, h):
-        if not self.history:
+    def _on_paint(self, event):
+        dc = wx.AutoBufferedPaintDC(self)
+        w, h = self.GetSize()
+        
+        dc.SetBrush(wx.Brush(Colors.BG_WHITE))
+        dc.SetPen(wx.Pen(Colors.BORDER, 1))
+        dc.DrawRectangle(0, 0, w, h)
+        
+        dc.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        dc.SetTextForeground(Colors.TEXT_DARK)
+        dc.DrawText(self.title, 12, 8)
+        
+        if self.samples is None or len(self.samples) == 0:
             return
         
-        left = self.MARGIN_LEFT
-        right = w - self.MARGIN_RIGHT
-        top = self.MARGIN_TOP
-        bottom = h - self.MARGIN_BOTTOM
-        chart_w = right - left
-        chart_h = bottom - top
+        margin_l, margin_r, margin_t, margin_b = 55, 20, 35, 35
+        chart_w = w - margin_l - margin_r
+        chart_h = h - margin_t - margin_b
         
-        # Get data range
-        n_max = self.history[-1][0]
-        values = [h[1] for h in self.history]
-        v_min, v_max = min(values), max(values)
+        if chart_w <= 0 or chart_h <= 0:
+            return
+        
+        # Calculate running mean
+        cumsum = np.cumsum(self.samples)
+        running_mean = cumsum / np.arange(1, len(self.samples) + 1)
+        
+        # Sample at intervals
+        step = max(1, len(running_mean) // 100)
+        points = [(i, running_mean[i]) for i in range(0, len(running_mean), step)]
+        if len(running_mean) - 1 not in [p[0] for p in points]:
+            points.append((len(running_mean) - 1, running_mean[-1]))
+        
+        # Value range
+        vals = [p[1] for p in points]
+        v_min, v_max = min(vals), max(vals)
         v_range = v_max - v_min
         if v_range < 1e-9:
-            v_range = v_max * 0.1 if v_max > 0 else 0.01
-        
-        # Padding
+            v_range = abs(v_max) * 0.1 if v_max != 0 else 0.01
         v_min -= v_range * 0.1
         v_max += v_range * 0.1
         v_range = v_max - v_min
         
-        # Draw grid
-        gc.SetPen(wx.Pen(AnalysisColors.GRID, 1, wx.PENSTYLE_DOT))
-        for i in range(5):
-            y = top + chart_h * i / 4
-            gc.StrokeLine(left, y, right, y)
+        n_max = len(self.samples)
         
-        # Draw convergence line
-        gc.SetPen(wx.Pen(AnalysisColors.CHART_BLUE, 2))
-        path = gc.CreatePath()
-        for i, (n, v) in enumerate(self.history):
-            x = left + (n / n_max) * chart_w
-            y = bottom - ((v - v_min) / v_range) * chart_h
-            if i == 0:
-                path.MoveToPoint(x, y)
-            else:
-                path.AddLineToPoint(x, y)
-        gc.StrokePath(path)
+        # Grid
+        dc.SetPen(wx.Pen(Colors.GRID, 1))
+        for i in range(5):
+            y = margin_t + chart_h * i // 4
+            dc.DrawLine(margin_l, y, w - margin_r, y)
+        
+        # Line
+        dc.SetPen(wx.Pen(Colors.PRIMARY, 2))
+        prev_pt = None
+        for n, v in points:
+            x = margin_l + (n / n_max) * chart_w
+            y = margin_t + chart_h - ((v - v_min) / v_range) * chart_h
+            if prev_pt:
+                dc.DrawLine(int(prev_pt[0]), int(prev_pt[1]), int(x), int(y))
+            prev_pt = (x, y)
         
         # Final value line
-        final_val = self.history[-1][1]
-        y_final = bottom - ((final_val - v_min) / v_range) * chart_h
-        gc.SetPen(wx.Pen(AnalysisColors.CHART_GREEN, 1.5, wx.PENSTYLE_SHORT_DASH))
-        gc.StrokeLine(left, y_final, right, y_final)
+        final_y = margin_t + chart_h - ((running_mean[-1] - v_min) / v_range) * chart_h
+        dc.SetPen(wx.Pen(Colors.SUCCESS, 1, wx.PENSTYLE_SHORT_DASH))
+        dc.DrawLine(margin_l, int(final_y), w - margin_r, int(final_y))
         
         # Axes
-        gc.SetPen(wx.Pen(AnalysisColors.TEXT_SECONDARY, 1))
-        gc.StrokeLine(left, top, left, bottom)
-        gc.StrokeLine(left, bottom, right, bottom)
+        dc.SetPen(wx.Pen(Colors.TEXT_MEDIUM, 1))
+        dc.DrawLine(margin_l, margin_t + chart_h, w - margin_r, margin_t + chart_h)
         
         # Labels
-        font = wx.Font(8, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
-        gc.SetFont(font, AnalysisColors.TEXT_SECONDARY)
-        
-        # X-axis labels
-        for i in range(5):
-            n = int(n_max * i / 4)
-            x = left + chart_w * i / 4
-            label = f"{n}"
-            tw = gc.GetTextExtent(label)[0]
-            gc.DrawText(label, x - tw/2, bottom + 5)
-        
-        # Y-axis labels
-        for i in range(5):
-            v = v_min + v_range * (4 - i) / 4
-            y = top + chart_h * i / 4
-            label = f"{v:.5f}"
-            tw = gc.GetTextExtent(label)[0]
-            gc.DrawText(label, left - tw - 5, y - 5)
-        
-        gc.DrawText("Simulations", left + chart_w/2 - 35, h - 12)
+        dc.SetFont(wx.Font(8, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        dc.SetTextForeground(Colors.TEXT_MEDIUM)
+        dc.DrawText("Simulations", margin_l + chart_w // 2 - 30, h - 12)
 
 
-# =============================================================================
-# Statistics Panel
-# =============================================================================
-
-class StatisticsPanel(wx.Panel):
-    """Panel showing key statistics in a professional card layout."""
+class StatsCard(wx.Panel):
+    """Clean statistics display card."""
     
     def __init__(self, parent):
         super().__init__(parent)
-        self.SetBackgroundColour(AnalysisColors.PANEL_BG)
+        self.SetBackgroundColour(Colors.BG_WHITE)
         self.stats = {}
         
         self.sizer = wx.BoxSizer(wx.VERTICAL)
-        self.SetSizer(self.sizer)
-    
-    def set_stats(self, stats: Dict[str, Any]):
-        self.stats = stats
-        self.sizer.Clear(True)
         
         # Title
         title = wx.StaticText(self, label="Summary Statistics")
-        title.SetFont(wx.Font(11, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
-        self.sizer.Add(title, 0, wx.ALL, 10)
+        title.SetFont(wx.Font(11, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        title.SetForegroundColour(Colors.TEXT_DARK)
+        self.sizer.Add(title, 0, wx.ALL, 12)
         
-        # Stats grid
-        grid = wx.FlexGridSizer(0, 2, 8, 20)
-        grid.AddGrowableCol(1, 1)
+        self.content_sizer = wx.FlexGridSizer(0, 2, 6, 16)
+        self.content_sizer.AddGrowableCol(1)
+        self.sizer.Add(self.content_sizer, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 12)
         
-        stat_order = [
-            ("Mean (μ)", "mean", ".6f"),
-            ("Std Dev (σ)", "std", ".6f"),
-            ("Median (50%)", "median", ".6f"),
+        self.SetSizer(self.sizer)
+    
+    def set_stats(self, stats: Dict[str, Any]):
+        self.content_sizer.Clear(True)
+        
+        display_order = [
+            ("Mean (mu)", "mean", ".6f"),
+            ("Std Dev (sigma)", "std", ".6f"),
+            ("Median", "median", ".6f"),
             ("5th Percentile", "p5", ".6f"),
             ("95th Percentile", "p95", ".6f"),
             ("90% CI Width", "ci_width", ".6f"),
-            ("Coefficient of Variation", "cv", ".2%"),
-            ("Simulations", "n_sims", "d"),
-            ("Converged", "converged", ""),
+            ("CV", "cv", ".2%"),
+            ("Simulations", "n_sims", ",d"),
+            ("Converged", "converged", "bool"),
         ]
         
-        for label, key, fmt in stat_order:
-            if key in self.stats:
-                lbl = wx.StaticText(self, label=label + ":")
-                lbl.SetForegroundColour(AnalysisColors.TEXT_SECONDARY)
-                grid.Add(lbl, 0, wx.ALIGN_RIGHT)
-                
-                val = self.stats[key]
-                if fmt == "":
-                    val_text = "Yes ✓" if val else "No"
-                    color = AnalysisColors.SUCCESS if val else AnalysisColors.WARNING
-                elif fmt == ".2%":
-                    val_text = f"{val*100:.2f}%"
-                    color = AnalysisColors.TEXT_PRIMARY
-                elif fmt == "d":
-                    val_text = f"{int(val):,}"
-                    color = AnalysisColors.TEXT_PRIMARY
-                else:
-                    val_text = f"{val:{fmt}}"
-                    color = AnalysisColors.TEXT_PRIMARY
-                
-                val_lbl = wx.StaticText(self, label=val_text)
-                val_lbl.SetFont(wx.Font(10, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
-                val_lbl.SetForegroundColour(color)
-                grid.Add(val_lbl, 0)
+        for label, key, fmt in display_order:
+            if key not in stats:
+                continue
+            
+            lbl = wx.StaticText(self, label=label + ":")
+            lbl.SetFont(wx.Font(9, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+            lbl.SetForegroundColour(Colors.TEXT_MEDIUM)
+            self.content_sizer.Add(lbl, 0, wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL)
+            
+            val = stats[key]
+            if fmt == "bool":
+                text = "Yes" if val else "No"
+                color = Colors.SUCCESS if val else Colors.WARNING
+            elif fmt == ".2%":
+                text = f"{val * 100:.2f}%"
+                color = Colors.TEXT_DARK
+            elif fmt == ",d":
+                text = f"{int(val):,}"
+                color = Colors.TEXT_DARK
+            else:
+                text = f"{val:{fmt}}"
+                color = Colors.TEXT_DARK
+            
+            val_lbl = wx.StaticText(self, label=text)
+            val_lbl.SetFont(wx.Font(10, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+            val_lbl.SetForegroundColour(color)
+            self.content_sizer.Add(val_lbl, 0, wx.ALIGN_CENTER_VERTICAL)
         
-        self.sizer.Add(grid, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
         self.Layout()
 
 
@@ -521,34 +462,33 @@ class StatisticsPanel(wx.Panel):
 
 class AnalysisDialog(wx.Dialog):
     """
-    Industrial-grade analysis dialog with Monte Carlo and Sobol sensitivity.
-    Features professional visualization, consistent scales, and publication-quality graphics.
+    Professional reliability analysis dialog.
+    Clean design, proper charts, comprehensive reporting.
     """
     
     def __init__(self, parent, system_lambda: float, mission_hours: float,
-                 component_lambdas: Dict[str, float] = None,
                  sheet_data: Dict[str, Dict] = None,
-                 title: str = "System Reliability Analysis"):
+                 block_structure: Dict = None,
+                 title: str = "Reliability Analysis Suite"):
         
         display = wx.Display(0)
         rect = display.GetClientArea()
-        w = min(1400, int(rect.Width * 0.85))
-        h = min(950, int(rect.Height * 0.9))
+        w = min(1350, int(rect.Width * 0.85))
+        h = min(900, int(rect.Height * 0.88))
         
         super().__init__(parent, title=title, size=(w, h),
                         style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER | wx.MAXIMIZE_BOX)
         
-        self.SetMinSize((1100, 750))
-        self.SetBackgroundColour(AnalysisColors.BACKGROUND)
+        self.SetMinSize((1000, 700))
+        self.SetBackgroundColour(Colors.BG_LIGHT)
         
         self.system_lambda = system_lambda
         self.mission_hours = mission_hours
-        self.component_lambdas = component_lambdas or {}
         self.sheet_data = sheet_data or {}
+        self.block_structure = block_structure or {}
         
         self.mc_result: Optional[MonteCarloResult] = None
-        self.sobol_results: Dict[str, SobolResult] = {}
-        self.settings = AnalysisSettings()
+        self.sobol_result: Optional[SobolResult] = None
         
         self._create_ui()
         self.Centre()
@@ -560,219 +500,192 @@ class AnalysisDialog(wx.Dialog):
         header = self._create_header()
         main_sizer.Add(header, 0, wx.EXPAND)
         
-        # Notebook for tabs
+        # Notebook
         self.notebook = wx.Notebook(self)
+        self.notebook.SetBackgroundColour(Colors.BG_LIGHT)
         
-        # Tab 1: Monte Carlo Analysis
-        mc_panel = self._create_monte_carlo_tab()
-        self.notebook.AddPage(mc_panel, "Monte Carlo Analysis")
+        self.notebook.AddPage(self._create_mc_tab(), "Monte Carlo")
+        self.notebook.AddPage(self._create_sensitivity_tab(), "Sensitivity")
+        self.notebook.AddPage(self._create_contributions_tab(), "Contributions")
+        self.notebook.AddPage(self._create_report_tab(), "Full Report")
         
-        # Tab 2: Sensitivity Analysis
-        sens_panel = self._create_sensitivity_tab()
-        self.notebook.AddPage(sens_panel, "Sensitivity Analysis")
+        main_sizer.Add(self.notebook, 1, wx.EXPAND | wx.ALL, 12)
         
-        # Tab 3: Component Contributions
-        contrib_panel = self._create_contributions_tab()
-        self.notebook.AddPage(contrib_panel, "Component Contributions")
-        
-        # Tab 4: Summary Report
-        report_panel = self._create_report_tab()
-        self.notebook.AddPage(report_panel, "Summary Report")
-        
-        main_sizer.Add(self.notebook, 1, wx.EXPAND | wx.ALL, 10)
-        
-        # Footer with buttons
+        # Footer
         footer = self._create_footer()
-        main_sizer.Add(footer, 0, wx.EXPAND | wx.ALL, 10)
+        main_sizer.Add(footer, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 12)
         
         self.SetSizer(main_sizer)
     
     def _create_header(self) -> wx.Panel:
         panel = wx.Panel(self)
-        panel.SetBackgroundColour(wx.Colour(38, 50, 56))
+        panel.SetBackgroundColour(Colors.BG_HEADER)
         sizer = wx.BoxSizer(wx.HORIZONTAL)
         
-        title = wx.StaticText(panel, label="⚡ Reliability Analysis Suite")
-        title.SetFont(wx.Font(14, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
-        title.SetForegroundColour(wx.WHITE)
-        sizer.Add(title, 1, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 12)
+        title = wx.StaticText(panel, label="Reliability Analysis Suite")
+        title.SetFont(wx.Font(14, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        title.SetForegroundColour(Colors.TEXT_WHITE)
+        sizer.Add(title, 1, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 14)
         
-        # System summary
+        # System info
         r = reliability_from_lambda(self.system_lambda, self.mission_hours)
-        summary = wx.StaticText(panel, label=f"System: λ = {self.system_lambda*1e9:.2f} FIT  |  R = {r:.6f}")
-        summary.SetForegroundColour(wx.Colour(176, 190, 197))
-        sizer.Add(summary, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 12)
+        years = self.mission_hours / (365 * 24)
+        info = wx.StaticText(panel, label=f"Lambda = {self.system_lambda*1e9:.2f} FIT  |  R = {r:.6f}  |  {years:.1f} years")
+        info.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        info.SetForegroundColour(wx.Colour(191, 219, 254))
+        sizer.Add(info, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 14)
         
         panel.SetSizer(sizer)
         return panel
     
-    def _create_monte_carlo_tab(self) -> wx.Panel:
+    def _create_mc_tab(self) -> wx.Panel:
         panel = wx.Panel(self.notebook)
-        panel.SetBackgroundColour(AnalysisColors.BACKGROUND)
-        main_sizer = wx.BoxSizer(wx.VERTICAL)
+        panel.SetBackgroundColour(Colors.BG_LIGHT)
+        main = wx.BoxSizer(wx.VERTICAL)
         
-        # Settings bar
-        settings_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        # Controls
+        ctrl_panel = wx.Panel(panel)
+        ctrl_panel.SetBackgroundColour(Colors.BG_WHITE)
+        ctrl = wx.BoxSizer(wx.HORIZONTAL)
         
-        settings_sizer.Add(wx.StaticText(panel, label="Simulations:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
-        self.mc_n_sims = wx.SpinCtrl(panel, min=1000, max=100000, initial=10000, size=(100, -1))
-        settings_sizer.Add(self.mc_n_sims, 0, wx.RIGHT, 15)
+        ctrl.Add(wx.StaticText(ctrl_panel, label="Simulations:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 12)
+        self.mc_n = wx.SpinCtrl(ctrl_panel, min=1000, max=100000, initial=10000, size=(100, -1))
+        ctrl.Add(self.mc_n, 0, wx.ALL, 8)
         
-        settings_sizer.Add(wx.StaticText(panel, label="Uncertainty (%):"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
-        self.mc_uncertainty = wx.SpinCtrlDouble(panel, min=5, max=100, initial=25, inc=5, size=(80, -1))
-        settings_sizer.Add(self.mc_uncertainty, 0, wx.RIGHT, 15)
+        ctrl.Add(wx.StaticText(ctrl_panel, label="Uncertainty (%):"), 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 12)
+        self.mc_unc = wx.SpinCtrlDouble(ctrl_panel, min=5, max=100, initial=25, inc=5, size=(80, -1))
+        ctrl.Add(self.mc_unc, 0, wx.ALL, 8)
         
-        self.btn_run_mc = wx.Button(panel, label="Run Monte Carlo Analysis")
-        self.btn_run_mc.SetBackgroundColour(AnalysisColors.PRIMARY)
-        self.btn_run_mc.SetForegroundColour(wx.WHITE)
-        self.btn_run_mc.Bind(wx.EVT_BUTTON, self._on_run_monte_carlo)
-        settings_sizer.Add(self.btn_run_mc, 0)
+        self.btn_mc = wx.Button(ctrl_panel, label="Run Monte Carlo")
+        self.btn_mc.SetBackgroundColour(Colors.PRIMARY)
+        self.btn_mc.SetForegroundColour(Colors.TEXT_WHITE)
+        self.btn_mc.Bind(wx.EVT_BUTTON, self._on_run_mc)
+        ctrl.Add(self.btn_mc, 0, wx.ALL, 8)
         
-        main_sizer.Add(settings_sizer, 0, wx.ALL, 15)
+        ctrl_panel.SetSizer(ctrl)
+        main.Add(ctrl_panel, 0, wx.EXPAND | wx.ALL, 8)
         
-        # Charts area
-        charts_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        # Charts row
+        charts = wx.BoxSizer(wx.HORIZONTAL)
         
-        # Left: Histogram
-        left_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.mc_histogram = HistogramChart(panel, "Reliability Distribution")
-        left_sizer.Add(self.mc_histogram, 1, wx.EXPAND)
+        # Left: histogram + convergence
+        left = wx.BoxSizer(wx.VERTICAL)
+        self.histogram = HistogramPanel(panel, "Reliability Distribution")
+        left.Add(self.histogram, 2, wx.EXPAND)
+        self.convergence = ConvergencePanel(panel, "Mean Convergence")
+        left.Add(self.convergence, 1, wx.EXPAND | wx.TOP, 8)
+        charts.Add(left, 2, wx.EXPAND | wx.RIGHT, 8)
         
-        self.mc_convergence = ConvergenceChart(panel, "Mean Convergence")
-        left_sizer.Add(self.mc_convergence, 0, wx.EXPAND | wx.TOP, 10)
+        # Right: stats
+        self.stats_card = StatsCard(panel)
+        charts.Add(self.stats_card, 1, wx.EXPAND)
         
-        charts_sizer.Add(left_sizer, 2, wx.EXPAND | wx.RIGHT, 10)
+        main.Add(charts, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
         
-        # Right: Statistics
-        self.mc_stats_panel = StatisticsPanel(panel)
-        charts_sizer.Add(self.mc_stats_panel, 1, wx.EXPAND)
-        
-        main_sizer.Add(charts_sizer, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 15)
-        
-        # Results text
-        self.mc_results_text = wx.TextCtrl(panel, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.BORDER_SIMPLE)
-        self.mc_results_text.SetFont(wx.Font(9, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
-        self.mc_results_text.SetMinSize((-1, 100))
-        main_sizer.Add(self.mc_results_text, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 15)
-        
-        panel.SetSizer(main_sizer)
+        panel.SetSizer(main)
         return panel
     
     def _create_sensitivity_tab(self) -> wx.Panel:
         panel = wx.Panel(self.notebook)
-        panel.SetBackgroundColour(AnalysisColors.BACKGROUND)
-        main_sizer = wx.BoxSizer(wx.VERTICAL)
+        panel.SetBackgroundColour(Colors.BG_LIGHT)
+        main = wx.BoxSizer(wx.VERTICAL)
         
-        # Settings bar
-        settings_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        # Controls
+        ctrl_panel = wx.Panel(panel)
+        ctrl_panel.SetBackgroundColour(Colors.BG_WHITE)
+        ctrl = wx.BoxSizer(wx.HORIZONTAL)
         
-        settings_sizer.Add(wx.StaticText(panel, label="Sobol Samples (N):"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
-        self.sobol_n = wx.SpinCtrl(panel, min=256, max=8192, initial=1024, size=(100, -1))
-        settings_sizer.Add(self.sobol_n, 0, wx.RIGHT, 15)
+        ctrl.Add(wx.StaticText(ctrl_panel, label="Samples (N):"), 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 12)
+        self.sobol_n = wx.SpinCtrl(ctrl_panel, min=256, max=4096, initial=1024, size=(100, -1))
+        ctrl.Add(self.sobol_n, 0, wx.ALL, 8)
         
-        self.btn_run_sobol = wx.Button(panel, label="Run Sensitivity Analysis")
-        self.btn_run_sobol.SetBackgroundColour(AnalysisColors.SECONDARY)
-        self.btn_run_sobol.SetForegroundColour(wx.WHITE)
-        self.btn_run_sobol.Bind(wx.EVT_BUTTON, self._on_run_sensitivity)
-        settings_sizer.Add(self.btn_run_sobol, 0)
+        self.btn_sobol = wx.Button(ctrl_panel, label="Run Sensitivity Analysis")
+        self.btn_sobol.SetBackgroundColour(Colors.SUCCESS)
+        self.btn_sobol.SetForegroundColour(Colors.TEXT_WHITE)
+        self.btn_sobol.Bind(wx.EVT_BUTTON, self._on_run_sobol)
+        ctrl.Add(self.btn_sobol, 0, wx.ALL, 8)
         
-        main_sizer.Add(settings_sizer, 0, wx.ALL, 15)
+        ctrl_panel.SetSizer(ctrl)
+        main.Add(ctrl_panel, 0, wx.EXPAND | wx.ALL, 8)
         
         # Charts
-        charts_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        charts = wx.BoxSizer(wx.HORIZONTAL)
         
-        # First-order indices
-        self.sobol_first_chart = BarChart(panel, "First-Order Sensitivity (S₁)")
-        charts_sizer.Add(self.sobol_first_chart, 1, wx.EXPAND | wx.RIGHT, 10)
+        self.sobol_first_chart = HorizontalBarPanel(panel, "First-Order Indices (S1)")
+        charts.Add(self.sobol_first_chart, 1, wx.EXPAND | wx.RIGHT, 8)
         
-        # Total-order indices
-        self.sobol_total_chart = BarChart(panel, "Total-Order Sensitivity (Sₜ)")
-        charts_sizer.Add(self.sobol_total_chart, 1, wx.EXPAND)
+        self.sobol_total_chart = HorizontalBarPanel(panel, "Total-Order Indices (ST)")
+        charts.Add(self.sobol_total_chart, 1, wx.EXPAND)
         
-        main_sizer.Add(charts_sizer, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 15)
+        main.Add(charts, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
         
-        # Interaction indicator
-        self.interaction_panel = wx.Panel(panel)
-        self.interaction_panel.SetBackgroundColour(AnalysisColors.PANEL_BG)
-        int_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.interaction_text = wx.StaticText(self.interaction_panel, label="")
-        int_sizer.Add(self.interaction_text, 1, wx.ALL | wx.EXPAND, 10)
-        self.interaction_panel.SetSizer(int_sizer)
-        main_sizer.Add(self.interaction_panel, 0, wx.EXPAND | wx.ALL, 15)
+        # Interaction info
+        self.interaction_info = wx.StaticText(panel, label="Run analysis to see parameter sensitivities and interactions.")
+        self.interaction_info.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        self.interaction_info.SetForegroundColour(Colors.TEXT_MEDIUM)
+        main.Add(self.interaction_info, 0, wx.ALL, 12)
         
-        # Results table
-        self.sobol_results_text = wx.TextCtrl(panel, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.BORDER_SIMPLE)
-        self.sobol_results_text.SetFont(wx.Font(9, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
-        self.sobol_results_text.SetMinSize((-1, 150))
-        main_sizer.Add(self.sobol_results_text, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 15)
-        
-        panel.SetSizer(main_sizer)
+        panel.SetSizer(main)
         return panel
     
     def _create_contributions_tab(self) -> wx.Panel:
         panel = wx.Panel(self.notebook)
-        panel.SetBackgroundColour(AnalysisColors.BACKGROUND)
-        main_sizer = wx.BoxSizer(wx.VERTICAL)
+        panel.SetBackgroundColour(Colors.BG_LIGHT)
+        main = wx.BoxSizer(wx.VERTICAL)
         
-        # Title
-        title = wx.StaticText(panel, label="Component Failure Rate Contributions")
-        title.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
-        main_sizer.Add(title, 0, wx.ALL, 15)
+        # Chart
+        self.contrib_chart = HorizontalBarPanel(panel, "Failure Rate Contributions")
+        main.Add(self.contrib_chart, 1, wx.EXPAND | wx.ALL, 8)
         
-        # Contribution chart
-        self.contrib_chart = BarChart(panel, "Relative Contribution to System λ")
-        main_sizer.Add(self.contrib_chart, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 15)
-        
-        # Contribution table
+        # Table
         self.contrib_list = wx.ListCtrl(panel, style=wx.LC_REPORT | wx.BORDER_SIMPLE)
+        self.contrib_list.SetBackgroundColour(Colors.BG_WHITE)
         self.contrib_list.InsertColumn(0, "Component/Sheet", width=200)
-        self.contrib_list.InsertColumn(1, "λ (FIT)", width=100)
-        self.contrib_list.InsertColumn(2, "Contribution (%)", width=120)
-        self.contrib_list.InsertColumn(3, "Cumulative (%)", width=120)
-        main_sizer.Add(self.contrib_list, 1, wx.EXPAND | wx.ALL, 15)
+        self.contrib_list.InsertColumn(1, "Lambda (FIT)", width=100)
+        self.contrib_list.InsertColumn(2, "Contribution", width=100)
+        self.contrib_list.InsertColumn(3, "Cumulative", width=100)
+        main.Add(self.contrib_list, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
         
-        panel.SetSizer(main_sizer)
+        panel.SetSizer(main)
         self._update_contributions()
         return panel
     
     def _create_report_tab(self) -> wx.Panel:
         panel = wx.Panel(self.notebook)
-        panel.SetBackgroundColour(AnalysisColors.BACKGROUND)
-        main_sizer = wx.BoxSizer(wx.VERTICAL)
+        panel.SetBackgroundColour(Colors.BG_LIGHT)
+        main = wx.BoxSizer(wx.VERTICAL)
         
-        # Title
-        title = wx.StaticText(panel, label="Analysis Summary Report")
-        title.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
-        main_sizer.Add(title, 0, wx.ALL, 15)
-        
+        # Report text
         self.report_text = wx.TextCtrl(panel, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.BORDER_SIMPLE)
+        self.report_text.SetBackgroundColour(Colors.BG_WHITE)
         self.report_text.SetFont(wx.Font(10, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
-        main_sizer.Add(self.report_text, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 15)
+        main.Add(self.report_text, 1, wx.EXPAND | wx.ALL, 8)
         
         # Export buttons
-        btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        btn_html = wx.Button(panel, label="Export HTML Report")
+        btn_row = wx.BoxSizer(wx.HORIZONTAL)
+        
+        btn_html = wx.Button(panel, label="Export HTML")
         btn_html.Bind(wx.EVT_BUTTON, self._on_export_html)
-        btn_sizer.Add(btn_html, 0, wx.RIGHT, 10)
+        btn_row.Add(btn_html, 0, wx.RIGHT, 8)
         
-        btn_csv = wx.Button(panel, label="Export CSV Data")
+        btn_csv = wx.Button(panel, label="Export CSV")
         btn_csv.Bind(wx.EVT_BUTTON, self._on_export_csv)
-        btn_sizer.Add(btn_csv, 0)
+        btn_row.Add(btn_csv, 0)
         
-        main_sizer.Add(btn_sizer, 0, wx.ALL, 15)
+        main.Add(btn_row, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
         
-        panel.SetSizer(main_sizer)
+        panel.SetSizer(main)
         self._update_report()
         return panel
     
     def _create_footer(self) -> wx.Panel:
         panel = wx.Panel(self)
-        panel.SetBackgroundColour(AnalysisColors.BACKGROUND)
+        panel.SetBackgroundColour(Colors.BG_LIGHT)
         sizer = wx.BoxSizer(wx.HORIZONTAL)
         
-        self.status_text = wx.StaticText(panel, label="Ready. Configure parameters and run analysis.")
-        self.status_text.SetForegroundColour(AnalysisColors.TEXT_SECONDARY)
-        sizer.Add(self.status_text, 1, wx.ALIGN_CENTER_VERTICAL)
+        self.status = wx.StaticText(panel, label="Ready")
+        self.status.SetForegroundColour(Colors.TEXT_MEDIUM)
+        sizer.Add(self.status, 1, wx.ALIGN_CENTER_VERTICAL)
         
         close_btn = wx.Button(panel, label="Close", size=(100, -1))
         close_btn.Bind(wx.EVT_BUTTON, lambda e: self.EndModal(wx.ID_OK))
@@ -785,183 +698,154 @@ class AnalysisDialog(wx.Dialog):
     # Analysis Methods
     # =========================================================================
     
-    def _on_run_monte_carlo(self, event):
-        self.status_text.SetLabel("Running Monte Carlo analysis...")
-        self.btn_run_mc.Disable()
+    def _on_run_mc(self, event):
+        self.status.SetLabel("Running Monte Carlo...")
+        self.btn_mc.Disable()
         wx.Yield()
         
         try:
-            n_sims = self.mc_n_sims.GetValue()
-            uncertainty = self.mc_uncertainty.GetValue()
+            n = self.mc_n.GetValue()
+            unc = self.mc_unc.GetValue()
             
             self.mc_result = quick_monte_carlo(
-                self.system_lambda,
-                self.mission_hours,
-                uncertainty_percent=uncertainty,
-                n_simulations=n_sims
+                self.system_lambda, self.mission_hours,
+                uncertainty_percent=unc, n_simulations=n
             )
             
             # Update histogram
-            self.mc_histogram.set_data(
+            self.histogram.set_data(
                 self.mc_result.samples,
-                {
-                    'mean': self.mc_result.mean,
-                    'p5': self.mc_result.percentile_5,
-                    'p95': self.mc_result.percentile_95
-                }
+                self.mc_result.mean,
+                self.mc_result.percentile_5,
+                self.mc_result.percentile_95
             )
             
             # Update convergence
-            self.mc_convergence.set_data(self.mc_result.samples)
+            self.convergence.set_data(self.mc_result.samples)
             
-            # Update statistics
-            ci_low, ci_high = self.mc_result.confidence_interval(0.90)
-            self.mc_stats_panel.set_stats({
+            # Update stats
+            ci_lo, ci_hi = self.mc_result.confidence_interval(0.90)
+            self.stats_card.set_stats({
                 'mean': self.mc_result.mean,
                 'std': self.mc_result.std,
                 'median': self.mc_result.percentile_50,
                 'p5': self.mc_result.percentile_5,
                 'p95': self.mc_result.percentile_95,
-                'ci_width': ci_high - ci_low,
+                'ci_width': ci_hi - ci_lo,
                 'cv': self.mc_result.std / self.mc_result.mean if self.mc_result.mean > 0 else 0,
-                'n_sims': n_sims,
-                'converged': self.mc_result.converged
+                'n_sims': n,
+                'converged': self.mc_result.converged,
             })
             
-            # Update text results
-            text = self._format_mc_results()
-            self.mc_results_text.SetValue(text)
-            
-            self.status_text.SetLabel(f"Monte Carlo complete: {n_sims:,} simulations")
+            self.status.SetLabel(f"Monte Carlo complete: {n:,} simulations")
             self._update_report()
             
         except Exception as e:
-            wx.MessageBox(f"Error: {str(e)}", "Analysis Error", wx.OK | wx.ICON_ERROR)
-            self.status_text.SetLabel(f"Error: {str(e)}")
-        
+            wx.MessageBox(str(e), "Error", wx.OK | wx.ICON_ERROR)
+            self.status.SetLabel(f"Error: {e}")
         finally:
-            self.btn_run_mc.Enable()
+            self.btn_mc.Enable()
     
-    def _on_run_sensitivity(self, event):
+    def _on_run_sobol(self, event):
         if not self.sheet_data:
-            wx.MessageBox("No sheet data available for sensitivity analysis.", "No Data", wx.OK | wx.ICON_WARNING)
+            wx.MessageBox("No sheet data for sensitivity analysis.", "No Data", wx.OK | wx.ICON_WARNING)
             return
         
-        self.status_text.SetLabel("Running Sobol sensitivity analysis...")
-        self.btn_run_sobol.Disable()
+        self.status.SetLabel("Running Sobol analysis...")
+        self.btn_sobol.Disable()
         wx.Yield()
         
         try:
-            n_samples = self.sobol_n.GetValue()
+            n = self.sobol_n.GetValue()
             
-            # Build parameter distributions from sheet lambdas
-            parameters = []
-            param_names = []
-            base_lambdas = {}
-            
-            for sheet_path, data in self.sheet_data.items():
+            # Build parameter bounds from sheet lambdas (Dict not list!)
+            param_bounds = {}
+            for path, data in self.sheet_data.items():
                 lam = data.get('lambda', 0)
                 if lam > 0:
-                    name = sheet_path.rstrip('/').split('/')[-1] or 'Root'
-                    param_names.append(name)
-                    base_lambdas[name] = lam
-                    # ±30% uniform uncertainty on each sheet lambda
-                    parameters.append(ParameterDistribution(
-                        name=name,
-                        distribution="uniform",
-                        params={"low": lam * 0.7, "high": lam * 1.3}
-                    ))
+                    name = path.rstrip('/').split('/')[-1] or 'Root'
+                    # Ensure unique names
+                    base_name = name
+                    i = 1
+                    while name in param_bounds:
+                        name = f"{base_name}_{i}"
+                        i += 1
+                    param_bounds[name] = (lam * 0.7, lam * 1.3)
             
-            if len(parameters) < 2:
-                wx.MessageBox("Need at least 2 parameters for sensitivity analysis.", "Insufficient Data", wx.OK | wx.ICON_WARNING)
+            if len(param_bounds) < 2:
+                wx.MessageBox("Need at least 2 sheets with non-zero lambda for sensitivity analysis.",
+                             "Insufficient Data", wx.OK | wx.ICON_WARNING)
+                self.btn_sobol.Enable()
                 return
             
-            # Define model: sum of lambdas -> reliability
+            # Model: sum lambdas -> reliability
             def model(params: Dict[str, float]) -> float:
                 total_lam = sum(params.values())
                 return reliability_from_lambda(total_lam, self.mission_hours)
             
-            # Run Sobol analysis
+            # Run analysis
             analyzer = SobolAnalyzer(seed=42)
-            results = analyzer.analyze(model, parameters, n_samples=n_samples)
-            self.sobol_results = results
+            self.sobol_result = analyzer.analyze(model, param_bounds, n_samples=n)
             
-            # Update first-order chart
-            first_data = [(name, res.S_first, res.S_first_ci[0] if res.S_first_ci else 0,
-                          res.S_first_ci[1] - res.S_first if res.S_first_ci else 0)
-                         for name, res in results.items()]
-            self.sobol_first_chart.set_data(first_data, max_value=1.0)
+            # Update charts
+            first_data = list(zip(self.sobol_result.parameter_names, self.sobol_result.S_first))
+            first_data.sort(key=lambda x: -x[1])
+            self.sobol_first_chart.set_data(first_data, max_value=1.0, x_label="First-Order Index")
             
-            # Update total-order chart
-            total_data = [(name, res.S_total, res.S_total_ci[0] if res.S_total_ci else 0,
-                          res.S_total_ci[1] - res.S_total if res.S_total_ci else 0)
-                         for name, res in results.items()]
-            self.sobol_total_chart.set_data(total_data, max_value=1.0)
+            total_data = list(zip(self.sobol_result.parameter_names, self.sobol_result.S_total))
+            total_data.sort(key=lambda x: -x[1])
+            self.sobol_total_chart.set_data(total_data, max_value=1.0, x_label="Total-Order Index")
             
-            # Check for interactions
-            interactions = []
-            for name, res in results.items():
-                if res.S_total - res.S_first > 0.05:
-                    interactions.append((name, res.S_total - res.S_first))
+            # Interaction info
+            significant = [self.sobol_result.parameter_names[i] for i in self.sobol_result.significant_interactions]
             
-            if interactions:
-                int_text = "⚠️ Significant interactions detected:\n"
-                for name, diff in sorted(interactions, key=lambda x: -x[1]):
-                    int_text += f"  • {name}: Sₜ - S₁ = {diff:.3f}\n"
-                self.interaction_text.SetLabel(int_text)
-                self.interaction_panel.SetBackgroundColour(wx.Colour(255, 248, 225))
+            if significant:
+                info = f"Warning: Significant interactions detected in: {', '.join(significant)}"
+                self.interaction_info.SetForegroundColour(Colors.WARNING)
             else:
-                self.interaction_text.SetLabel("✓ No significant parameter interactions detected.")
-                self.interaction_panel.SetBackgroundColour(wx.Colour(232, 245, 233))
-            self.interaction_panel.Refresh()
+                info = "OK: No significant parameter interactions detected."
+                self.interaction_info.SetForegroundColour(Colors.SUCCESS)
+            self.interaction_info.SetLabel(info)
             
-            # Update text results
-            text = self._format_sobol_results()
-            self.sobol_results_text.SetValue(text)
-            
-            self.status_text.SetLabel(f"Sensitivity analysis complete: {len(parameters)} parameters")
+            self.status.SetLabel(f"Sensitivity analysis complete: {len(param_bounds)} parameters")
             self._update_report()
             
         except Exception as e:
             import traceback
             traceback.print_exc()
-            wx.MessageBox(f"Error: {str(e)}", "Analysis Error", wx.OK | wx.ICON_ERROR)
-            self.status_text.SetLabel(f"Error: {str(e)}")
-        
+            wx.MessageBox(str(e), "Analysis Error", wx.OK | wx.ICON_ERROR)
+            self.status.SetLabel(f"Error: {e}")
         finally:
-            self.btn_run_sobol.Enable()
+            self.btn_sobol.Enable()
     
     def _update_contributions(self):
-        """Update component contribution display."""
         if not self.sheet_data:
             return
         
-        # Gather all lambdas
-        contributions = []
-        total_lambda = 0
-        
-        for sheet_path, data in self.sheet_data.items():
+        # Gather contributions
+        contribs = []
+        total_lam = 0
+        for path, data in self.sheet_data.items():
             lam = data.get('lambda', 0)
             if lam > 0:
-                name = sheet_path.rstrip('/').split('/')[-1] or 'Root'
-                contributions.append((name, lam))
-                total_lambda += lam
+                name = path.rstrip('/').split('/')[-1] or 'Root'
+                contribs.append((name, lam))
+                total_lam += lam
         
-        if total_lambda == 0:
+        if total_lam == 0:
             return
         
-        # Sort by contribution
-        contributions.sort(key=lambda x: -x[1])
+        contribs.sort(key=lambda x: -x[1])
         
         # Update chart
-        chart_data = [(name, lam / total_lambda, 0, 0) for name, lam in contributions]
-        self.contrib_chart.set_data(chart_data, max_value=1.0)
+        chart_data = [(name, lam / total_lam) for name, lam in contribs]
+        self.contrib_chart.set_data(chart_data, max_value=1.0, x_label="Relative Contribution")
         
         # Update list
         self.contrib_list.DeleteAllItems()
         cumulative = 0
-        for i, (name, lam) in enumerate(contributions):
-            pct = lam / total_lambda * 100
+        for i, (name, lam) in enumerate(contribs):
+            pct = lam / total_lam * 100
             cumulative += pct
             idx = self.contrib_list.InsertItem(i, name)
             self.contrib_list.SetItem(idx, 1, f"{lam*1e9:.2f}")
@@ -969,233 +853,290 @@ class AnalysisDialog(wx.Dialog):
             self.contrib_list.SetItem(idx, 3, f"{cumulative:.1f}%")
     
     def _update_report(self):
-        """Update summary report text."""
         lines = []
-        lines.append("=" * 60)
-        lines.append("        RELIABILITY ANALYSIS SUMMARY REPORT")
-        lines.append("=" * 60)
-        lines.append("")
         
-        # System info
         r = reliability_from_lambda(self.system_lambda, self.mission_hours)
         years = self.mission_hours / (365 * 24)
+        
+        lines.append("=" * 70)
+        lines.append("           RELIABILITY ANALYSIS REPORT")
+        lines.append("=" * 70)
+        lines.append("")
         lines.append("SYSTEM PARAMETERS")
-        lines.append("-" * 40)
-        lines.append(f"  Mission Duration:     {years:.1f} years ({self.mission_hours:.0f} h)")
-        lines.append(f"  System Failure Rate:  {self.system_lambda*1e9:.2f} FIT")
-        lines.append(f"  Point Estimate R(t):  {r:.6f}")
+        lines.append("-" * 50)
+        lines.append(f"  Mission Duration:      {years:.2f} years ({self.mission_hours:.0f} hours)")
+        lines.append(f"  System Failure Rate:   {self.system_lambda*1e9:.2f} FIT")
+        lines.append(f"  Point Estimate R(t):   {r:.6f}")
         lines.append("")
         
-        # Monte Carlo results
+        # Monte Carlo
         if self.mc_result:
+            mc = self.mc_result
             lines.append("MONTE CARLO ANALYSIS")
-            lines.append("-" * 40)
-            lines.append(f"  Simulations:          {self.mc_result.n_simulations:,}")
-            lines.append(f"  Mean Reliability:     {self.mc_result.mean:.6f}")
-            lines.append(f"  Standard Deviation:   {self.mc_result.std:.6f}")
-            lines.append(f"  90% Confidence Int:   [{self.mc_result.percentile_5:.6f}, {self.mc_result.percentile_95:.6f}]")
-            cv = self.mc_result.std / self.mc_result.mean if self.mc_result.mean > 0 else 0
-            lines.append(f"  Coeff. of Variation:  {cv*100:.2f}%")
+            lines.append("-" * 50)
+            lines.append(f"  Simulations:           {mc.n_simulations:,}")
+            lines.append(f"  Mean Reliability:      {mc.mean:.6f}")
+            lines.append(f"  Standard Deviation:    {mc.std:.6f}")
+            lines.append(f"  Median:                {mc.percentile_50:.6f}")
+            lines.append(f"  5th Percentile:        {mc.percentile_5:.6f}")
+            lines.append(f"  95th Percentile:       {mc.percentile_95:.6f}")
+            ci_lo, ci_hi = mc.confidence_interval(0.90)
+            lines.append(f"  90% Confidence:        [{ci_lo:.6f}, {ci_hi:.6f}]")
+            cv = mc.std / mc.mean if mc.mean > 0 else 0
+            lines.append(f"  Coeff. of Variation:   {cv*100:.2f}%")
             lines.append("")
         
-        # Sensitivity results
-        if self.sobol_results:
-            lines.append("SENSITIVITY ANALYSIS (Sobol Indices)")
-            lines.append("-" * 40)
-            lines.append(f"  {'Parameter':<20} {'S₁':>10} {'Sₜ':>10} {'Interact.':>12}")
-            lines.append("  " + "-" * 54)
-            for name, res in sorted(self.sobol_results.items(), key=lambda x: -x[1].S_total):
-                interact = res.S_total - res.S_first
-                flag = "  ⚠️" if interact > 0.05 else ""
-                lines.append(f"  {name:<20} {res.S_first:>10.4f} {res.S_total:>10.4f} {interact:>10.4f}{flag}")
+        # Sensitivity
+        if self.sobol_result:
+            sr = self.sobol_result
+            lines.append("SENSITIVITY ANALYSIS (SOBOL INDICES)")
+            lines.append("-" * 50)
+            lines.append(f"  {'Parameter':<25} {'S1':>10} {'ST':>10} {'ST-S1':>10}")
+            lines.append("  " + "-" * 57)
+            
+            ranked = sorted(zip(sr.parameter_names, sr.S_first, sr.S_total), key=lambda x: -x[2])
+            for name, s1, st in ranked:
+                interact = st - s1
+                flag = "  *" if interact > 0.1 * st and st > 0.01 else ""
+                lines.append(f"  {name:<25} {s1:>10.4f} {st:>10.4f} {interact:>10.4f}{flag}")
+            
+            if sr.significant_interactions:
+                lines.append("")
+                names = [sr.parameter_names[i] for i in sr.significant_interactions]
+                lines.append(f"  * Significant interactions: {', '.join(names)}")
             lines.append("")
         
         # Contributions
         if self.sheet_data:
             lines.append("FAILURE RATE CONTRIBUTIONS")
-            lines.append("-" * 40)
-            contributions = []
-            total = 0
+            lines.append("-" * 50)
+            
+            contribs = []
+            total_lam = 0
             for path, data in self.sheet_data.items():
                 lam = data.get('lambda', 0)
                 if lam > 0:
                     name = path.rstrip('/').split('/')[-1] or 'Root'
-                    contributions.append((name, lam))
-                    total += lam
+                    contribs.append((name, lam, path))
+                    total_lam += lam
             
-            if total > 0:
-                for name, lam in sorted(contributions, key=lambda x: -x[1])[:10]:
-                    pct = lam / total * 100
-                    lines.append(f"  {name:<25} {lam*1e9:>8.2f} FIT  ({pct:>5.1f}%)")
+            contribs.sort(key=lambda x: -x[1])
+            
+            if total_lam > 0:
+                cumul = 0
+                for name, lam, path in contribs[:20]:
+                    pct = lam / total_lam * 100
+                    cumul += pct
+                    lines.append(f"  {name:<25} {lam*1e9:>8.2f} FIT  ({pct:>5.1f}%)  cum: {cumul:>5.1f}%")
+                
+                if len(contribs) > 20:
+                    lines.append(f"  ... and {len(contribs) - 20} more")
+            lines.append("")
+        
+        # Component details
+        if self.sheet_data:
+            lines.append("COMPONENT DETAILS BY SHEET")
+            lines.append("-" * 50)
+            
+            for path in sorted(self.sheet_data.keys()):
+                data = self.sheet_data[path]
+                sheet_name = path.rstrip('/').split('/')[-1] or 'Root'
+                sheet_lam = data.get('lambda', 0)
+                sheet_r = data.get('r', 1)
+                
+                lines.append(f"")
+                lines.append(f"  [{sheet_name}]")
+                lines.append(f"  Path: {path}")
+                lines.append(f"  Sheet Lambda: {sheet_lam*1e9:.2f} FIT, R: {sheet_r:.6f}")
+                
+                components = data.get('components', [])
+                if components:
+                    lines.append(f"  Components ({len(components)}):")
+                    for c in components[:15]:
+                        ref = c.get('ref', '?')
+                        val = c.get('value', '')[:15]
+                        cls = c.get('class', '')[:20]
+                        c_lam = c.get('lambda', 0)
+                        c_r = c.get('r', 1)
+                        lines.append(f"    {ref:<8} {val:<15} {cls:<20} L={c_lam*1e9:>6.2f} FIT  R={c_r:.6f}")
+                    if len(components) > 15:
+                        lines.append(f"    ... and {len(components) - 15} more")
         
         lines.append("")
-        lines.append("=" * 60)
-        lines.append("  Report generated by KiCad Reliability Calculator v2.0.0")
-        lines.append("  Analysis based on IEC TR 62380")
-        lines.append("=" * 60)
+        lines.append("=" * 70)
+        lines.append("  Generated by KiCad Reliability Calculator v2.0.0")
+        lines.append("  IEC TR 62380 Methodology")
+        lines.append("=" * 70)
         
         self.report_text.SetValue("\n".join(lines))
     
-    def _format_mc_results(self) -> str:
-        if not self.mc_result:
-            return ""
-        r = self.mc_result
-        lines = [
-            f"Monte Carlo Results ({r.n_simulations:,} simulations)",
-            f"{'='*50}",
-            f"Mean:        {r.mean:.6f}",
-            f"Std Dev:     {r.std:.6f}",
-            f"Median:      {r.percentile_50:.6f}",
-            f"5th %ile:    {r.percentile_5:.6f}",
-            f"95th %ile:   {r.percentile_95:.6f}",
-            f"90% CI:      [{r.percentile_5:.6f}, {r.percentile_95:.6f}]",
-        ]
-        return "\n".join(lines)
-    
-    def _format_sobol_results(self) -> str:
-        if not self.sobol_results:
-            return ""
-        
-        lines = [
-            "Sobol Sensitivity Indices",
-            "=" * 65,
-            f"{'Parameter':<20} {'S₁ (First)':>12} {'Sₜ (Total)':>12} {'Interaction':>12}",
-            "-" * 65,
-        ]
-        
-        for name, res in sorted(self.sobol_results.items(), key=lambda x: -x[1].S_total):
-            interact = res.S_total - res.S_first
-            flag = " ⚠️" if interact > 0.05 else ""
-            lines.append(f"{name:<20} {res.S_first:>12.4f} {res.S_total:>12.4f} {interact:>12.4f}{flag}")
-        
-        lines.append("-" * 65)
-        lines.append("S₁: First-order sensitivity (main effect)")
-        lines.append("Sₜ: Total-order sensitivity (includes interactions)")
-        lines.append("⚠️: Significant interaction (Sₜ - S₁ > 0.05)")
-        
-        return "\n".join(lines)
-    
     def _on_export_html(self, event):
-        dlg = wx.FileDialog(self, "Export HTML Report", wildcard="HTML (*.html)|*.html",
+        dlg = wx.FileDialog(self, "Export HTML", wildcard="HTML (*.html)|*.html",
                            style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT)
         if dlg.ShowModal() == wx.ID_OK:
-            path = dlg.GetPath()
-            html = self._generate_html_report()
-            with open(path, 'w', encoding='utf-8') as f:
+            html = self._generate_html()
+            with open(dlg.GetPath(), 'w', encoding='utf-8') as f:
                 f.write(html)
-            self.status_text.SetLabel(f"Exported: {path}")
+            self.status.SetLabel(f"Exported: {dlg.GetPath()}")
         dlg.Destroy()
     
     def _on_export_csv(self, event):
-        dlg = wx.FileDialog(self, "Export CSV Data", wildcard="CSV (*.csv)|*.csv",
+        dlg = wx.FileDialog(self, "Export CSV", wildcard="CSV (*.csv)|*.csv",
                            style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT)
         if dlg.ShowModal() == wx.ID_OK:
-            path = dlg.GetPath()
-            csv = self._generate_csv_report()
-            with open(path, 'w', encoding='utf-8') as f:
+            csv = self._generate_csv()
+            with open(dlg.GetPath(), 'w', encoding='utf-8') as f:
                 f.write(csv)
-            self.status_text.SetLabel(f"Exported: {path}")
+            self.status.SetLabel(f"Exported: {dlg.GetPath()}")
         dlg.Destroy()
     
-    def _generate_html_report(self) -> str:
+    def _generate_html(self) -> str:
         r = reliability_from_lambda(self.system_lambda, self.mission_hours)
         years = self.mission_hours / (365 * 24)
         
         html = f"""<!DOCTYPE html>
 <html><head>
+<meta charset="utf-8">
 <title>Reliability Analysis Report</title>
 <style>
+* {{ box-sizing: border-box; }}
 body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
-       max-width: 1200px; margin: 0 auto; padding: 20px; background: #f8f9fa; }}
-.card {{ background: white; border-radius: 8px; padding: 20px; margin: 15px 0; 
+       max-width: 1100px; margin: 0 auto; padding: 24px; background: #f8fafc; color: #1e293b; }}
+h1 {{ color: #1e40af; margin-bottom: 8px; }}
+h2 {{ color: #334155; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; margin-top: 32px; }}
+h3 {{ color: #475569; margin-top: 16px; }}
+.subtitle {{ color: #64748b; margin-bottom: 24px; }}
+.card {{ background: white; border-radius: 8px; padding: 20px; margin: 16px 0; 
          box-shadow: 0 1px 3px rgba(0,0,0,0.1); }}
-h1 {{ color: #1a237e; border-bottom: 3px solid #1e88e5; padding-bottom: 10px; }}
-h2 {{ color: #37474f; }}
-.metric {{ font-size: 28px; font-weight: bold; color: #1565c0; }}
-.metric-label {{ color: #78909c; font-size: 14px; }}
-table {{ border-collapse: collapse; width: 100%; }}
-th, td {{ border: 1px solid #e0e0e0; padding: 10px; text-align: left; }}
-th {{ background: #f5f5f5; font-weight: 600; }}
-.bar {{ height: 20px; background: linear-gradient(90deg, #1e88e5, #42a5f5); border-radius: 3px; }}
-.warn {{ color: #f57c00; }}
-.grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; }}
+.metric {{ font-size: 24px; font-weight: 700; color: #2563eb; }}
+.metric-label {{ font-size: 12px; color: #64748b; text-transform: uppercase; }}
+.grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }}
+table {{ width: 100%; border-collapse: collapse; margin: 16px 0; }}
+th, td {{ padding: 10px 12px; text-align: left; border-bottom: 1px solid #e2e8f0; }}
+th {{ background: #f1f5f9; font-weight: 600; color: #475569; }}
+tr:hover {{ background: #f8fafc; }}
+.mono {{ font-family: 'SF Mono', Monaco, monospace; font-size: 13px; }}
+.bar {{ height: 8px; background: linear-gradient(90deg, #3b82f6, #60a5fa); border-radius: 4px; }}
+.warn {{ color: #f59e0b; }}
 </style></head><body>
-<h1>⚡ Reliability Analysis Report</h1>
-<p style="color: #78909c;">IEC TR 62380 Analysis | Generated by KiCad Reliability Calculator v2.0.0</p>
+<h1>Reliability Analysis Report</h1>
+<p class="subtitle">IEC TR 62380 Methodology - KiCad Reliability Calculator v2.0.0</p>
 
 <div class="card">
-<h2>System Summary</h2>
+<h2 style="margin-top: 0;">System Summary</h2>
 <div class="grid">
 <div><div class="metric-label">Mission Duration</div><div class="metric">{years:.1f} years</div></div>
 <div><div class="metric-label">Failure Rate</div><div class="metric">{self.system_lambda*1e9:.2f} FIT</div></div>
-<div><div class="metric-label">Point Estimate R(t)</div><div class="metric">{r:.6f}</div></div>
+<div><div class="metric-label">Reliability R(t)</div><div class="metric">{r:.6f}</div></div>
 </div></div>
 """
+        
         if self.mc_result:
             mc = self.mc_result
+            ci_lo, ci_hi = mc.confidence_interval(0.90)
             html += f"""
 <div class="card">
-<h2>Monte Carlo Analysis</h2>
+<h2 style="margin-top: 0;">Monte Carlo Analysis</h2>
 <div class="grid">
-<div><div class="metric-label">Mean Reliability</div><div class="metric">{mc.mean:.6f}</div></div>
-<div><div class="metric-label">Standard Deviation</div><div class="metric">{mc.std:.6f}</div></div>
-<div><div class="metric-label">90% Confidence Interval</div><div class="metric">[{mc.percentile_5:.6f}, {mc.percentile_95:.6f}]</div></div>
+<div><div class="metric-label">Mean</div><div class="metric">{mc.mean:.6f}</div></div>
+<div><div class="metric-label">Std Dev</div><div class="metric">{mc.std:.6f}</div></div>
+<div><div class="metric-label">90% CI</div><div class="metric mono">[{ci_lo:.6f}, {ci_hi:.6f}]</div></div>
 <div><div class="metric-label">Simulations</div><div class="metric">{mc.n_simulations:,}</div></div>
 </div></div>
 """
         
-        if self.sobol_results:
-            html += """
-<div class="card">
-<h2>Sensitivity Analysis (Sobol Indices)</h2>
-<table>
-<tr><th>Parameter</th><th>S₁ (First-Order)</th><th>Sₜ (Total-Order)</th><th>Interactions</th><th>Visual</th></tr>
-"""
-            for name, res in sorted(self.sobol_results.items(), key=lambda x: -x[1].S_total):
-                interact = res.S_total - res.S_first
-                warn = ' class="warn"' if interact > 0.05 else ''
-                bar_w = min(100, res.S_total * 100)
-                html += f"""<tr>
-<td>{name}</td>
-<td>{res.S_first:.4f}</td>
-<td>{res.S_total:.4f}</td>
-<td{warn}>{interact:.4f}</td>
-<td><div class="bar" style="width: {bar_w}%"></div></td>
-</tr>"""
+        if self.sobol_result:
+            sr = self.sobol_result
+            html += """<div class="card"><h2 style="margin-top: 0;">Sensitivity Analysis</h2>
+<table><tr><th>Parameter</th><th>S1 (First)</th><th>ST (Total)</th><th>Interaction</th><th></th></tr>"""
+            ranked = sorted(zip(sr.parameter_names, sr.S_first, sr.S_total), key=lambda x: -x[2])
+            for name, s1, st in ranked:
+                interact = st - s1
+                warn = ' class="warn"' if interact > 0.1 * st and st > 0.01 else ''
+                bar_w = min(100, st * 100)
+                html += f"""<tr><td>{name}</td><td class="mono">{s1:.4f}</td><td class="mono">{st:.4f}</td>
+<td{warn} class="mono">{interact:.4f}</td><td><div class="bar" style="width:{bar_w}%"></div></td></tr>"""
             html += "</table></div>"
+        
+        # Contributions
+        if self.sheet_data:
+            html += """<div class="card"><h2 style="margin-top: 0;">Failure Rate Contributions</h2>
+<table><tr><th>Sheet</th><th>Lambda (FIT)</th><th>Contribution</th><th></th></tr>"""
+            
+            contribs = []
+            total = sum(d.get('lambda', 0) for d in self.sheet_data.values())
+            for path, data in self.sheet_data.items():
+                lam = data.get('lambda', 0)
+                if lam > 0:
+                    name = path.rstrip('/').split('/')[-1] or 'Root'
+                    contribs.append((name, lam))
+            
+            for name, lam in sorted(contribs, key=lambda x: -x[1])[:15]:
+                pct = lam / total * 100 if total > 0 else 0
+                bar_w = min(100, pct)
+                html += f"""<tr><td>{name}</td><td class="mono">{lam*1e9:.2f}</td>
+<td>{pct:.1f}%</td><td><div class="bar" style="width:{bar_w}%"></div></td></tr>"""
+            html += "</table></div>"
+        
+        # Component details
+        if self.sheet_data:
+            html += """<h2>Component Details</h2>"""
+            for path in sorted(self.sheet_data.keys()):
+                data = self.sheet_data[path]
+                name = path.rstrip('/').split('/')[-1] or 'Root'
+                lam = data.get('lambda', 0)
+                r_val = data.get('r', 1)
+                comps = data.get('components', [])
+                
+                html += f"""<div class="card"><h3 style="margin-top:0">{name}</h3>
+<p><strong>Path:</strong> {path}</p>
+<p><strong>Lambda:</strong> {lam*1e9:.2f} FIT | <strong>R:</strong> {r_val:.6f}</p>"""
+                
+                if comps:
+                    html += """<table><tr><th>Ref</th><th>Value</th><th>Type</th><th>Lambda (FIT)</th><th>R</th></tr>"""
+                    for c in comps[:30]:
+                        html += f"""<tr><td>{c.get('ref','?')}</td><td>{c.get('value','')[:20]}</td>
+<td>{c.get('class','')[:25]}</td><td class="mono">{c.get('lambda',0)*1e9:.2f}</td>
+<td class="mono">{c.get('r',1):.6f}</td></tr>"""
+                    if len(comps) > 30:
+                        html += f"<tr><td colspan='5'>... and {len(comps)-30} more</td></tr>"
+                    html += "</table>"
+                html += "</div>"
         
         html += "</body></html>"
         return html
     
-    def _generate_csv_report(self) -> str:
-        lines = ["Type,Parameter,Value"]
+    def _generate_csv(self) -> str:
+        lines = ["Section,Item,Parameter,Value"]
         
         r = reliability_from_lambda(self.system_lambda, self.mission_hours)
-        lines.append(f"System,Lambda_FIT,{self.system_lambda*1e9:.6f}")
-        lines.append(f"System,Reliability,{r:.6f}")
-        lines.append(f"System,Mission_Hours,{self.mission_hours:.0f}")
+        lines.append(f"System,Summary,Lambda_FIT,{self.system_lambda*1e9:.6f}")
+        lines.append(f"System,Summary,Reliability,{r:.6f}")
+        lines.append(f"System,Summary,Mission_Hours,{self.mission_hours:.0f}")
         
         if self.mc_result:
             mc = self.mc_result
-            lines.append(f"MonteCarlo,Mean,{mc.mean:.6f}")
-            lines.append(f"MonteCarlo,StdDev,{mc.std:.6f}")
-            lines.append(f"MonteCarlo,Percentile_5,{mc.percentile_5:.6f}")
-            lines.append(f"MonteCarlo,Percentile_95,{mc.percentile_95:.6f}")
-            lines.append(f"MonteCarlo,N_Simulations,{mc.n_simulations}")
+            lines.append(f"MonteCarlo,Summary,Mean,{mc.mean:.6f}")
+            lines.append(f"MonteCarlo,Summary,StdDev,{mc.std:.6f}")
+            lines.append(f"MonteCarlo,Summary,P5,{mc.percentile_5:.6f}")
+            lines.append(f"MonteCarlo,Summary,P95,{mc.percentile_95:.6f}")
         
-        if self.sobol_results:
-            for name, res in self.sobol_results.items():
-                lines.append(f"Sobol_S1,{name},{res.S_first:.6f}")
-                lines.append(f"Sobol_ST,{name},{res.S_total:.6f}")
+        if self.sobol_result:
+            for i, name in enumerate(self.sobol_result.parameter_names):
+                lines.append(f"Sensitivity,{name},S_first,{self.sobol_result.S_first[i]:.6f}")
+                lines.append(f"Sensitivity,{name},S_total,{self.sobol_result.S_total[i]:.6f}")
+        
+        for path, data in self.sheet_data.items():
+            name = path.rstrip('/').split('/')[-1] or 'Root'
+            lines.append(f"Sheet,{name},Path,{path}")
+            lines.append(f"Sheet,{name},Lambda_FIT,{data.get('lambda',0)*1e9:.6f}")
+            lines.append(f"Sheet,{name},Reliability,{data.get('r',1):.6f}")
+            for c in data.get('components', []):
+                ref = c.get('ref', '?')
+                lines.append(f"Component,{ref},Sheet,{name}")
+                lines.append(f"Component,{ref},Value,{c.get('value', '')}")
+                lines.append(f"Component,{ref},Class,{c.get('class', '')}")
+                lines.append(f"Component,{ref},Lambda_FIT,{c.get('lambda',0)*1e9:.6f}")
+                lines.append(f"Component,{ref},Reliability,{c.get('r',1):.6f}")
         
         return "\n".join(lines)
-    
-    def get_results(self) -> SystemAnalysisResult:
-        """Return all analysis results."""
-        return SystemAnalysisResult(
-            system_lambda=self.system_lambda,
-            system_reliability=reliability_from_lambda(self.system_lambda, self.mission_hours),
-            mission_hours=self.mission_hours,
-            monte_carlo=self.mc_result,
-            sensitivity=self.sobol_results if self.sobol_results else None,
-        )
