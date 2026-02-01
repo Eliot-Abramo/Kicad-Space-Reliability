@@ -34,9 +34,11 @@ __author__ = "KiCad Reliability Plugin Team"
 
 try:
     from .plugin import ReliabilityPlugin
+
     ReliabilityPlugin().register()
 except Exception as e:
     import logging
+
     logging.warning(f"Could not register ReliabilityPlugin: {e}")
 
 # Expose main classes for external use

@@ -1,4 +1,3 @@
-
 """
 ECSS field and category loader.
 
@@ -77,7 +76,13 @@ def infer_category_from_class(component_class: str, footprint: str = "") -> str:
         return "capacitor_ceramic"
 
     # Diodes / transistors
-    if "diod" in cls or "diode" in cls or "led" in cls or "zener" in cls or "tvs" in cls:
+    if (
+        "diod" in cls
+        or "diode" in cls
+        or "led" in cls
+        or "zener" in cls
+        or "tvs" in cls
+    ):
         return "diode"
     if "bjt" in cls or "npn" in cls or "pnp" in cls or "bipolar" in cls:
         return "bjt"
@@ -89,7 +94,13 @@ def infer_category_from_class(component_class: str, footprint: str = "") -> str:
         return "fpga"
     if "opamp" in cls or "opa" in cls or "analog" in cls:
         return "ic_analog"
-    if "ic" in cls or cls.startswith("u") or "mcu" in cls or "logic" in cls or "asic" in cls:
+    if (
+        "ic" in cls
+        or cls.startswith("u")
+        or "mcu" in cls
+        or "logic" in cls
+        or "asic" in cls
+    ):
         return "ic_digital"
 
     # Connectors
