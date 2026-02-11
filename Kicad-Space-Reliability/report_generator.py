@@ -8,6 +8,8 @@ import json
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
+from pathlib import Path
+import base64
 
 @dataclass
 class ReportData:
@@ -38,8 +40,21 @@ class ReportData:
 class ReportGenerator:
     """Generate professional reliability reports."""
     
-    def __init__(self):
+    def __init__(self, logo_path: Optional[str] = None):
+        self.logo_path = logo_path
         self.css_style = self._get_css()
+        self.logo_base64 = self._encode_logo() if logo_path else None
+    
+    def _encode_logo(self) -> Optional[str]:
+        """Encode logo image to base64 for embedding in HTML."""
+        try:
+            if self.logo_path and Path(self.logo_path).exists():
+                with open(self.logo_path, 'rb') as f:
+                    logo_data = f.read()
+                    return base64.b64encode(logo_data).decode('utf-8')
+        except Exception:
+            pass
+        return None
     
     def _get_css(self) -> str:
         return """
@@ -59,9 +74,12 @@ class ReportGenerator:
                background: var(--bg); color: var(--text); line-height: 1.6; padding: 40px; }
         .container { max-width: 1200px; margin: 0 auto; }
         .header { background: linear-gradient(135deg, var(--primary), #1565C0);
-                  color: white; padding: 40px; border-radius: 12px; margin-bottom: 30px; }
+                  color: white; padding: 40px; border-radius: 12px; margin-bottom: 30px; 
+                  display: flex; align-items: center; justify-content: space-between; }
+        .header-content { flex: 1; }
         .header h1 { font-size: 2.2em; margin-bottom: 10px; }
         .header .subtitle { opacity: 0.9; font-size: 1.1em; }
+        .header-logo { max-height: 80px; max-width: 150px; margin-left: 20px; }
         .card { background: var(--card); border-radius: 12px; padding: 24px;
                 margin-bottom: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
         .card h2 { color: var(--primary); margin-bottom: 16px; font-size: 1.4em;
@@ -116,12 +134,20 @@ class ReportGenerator:
 <body>
 <div class="container">
     <div class="header">
-        <h1>⚡ Reliability Analysis Report</h1>
-        <div class="subtitle">
-            Project: <strong>{data.project_name}</strong> | 
-            Generated: {datetime.fromisoformat(data.generated_at).strftime('%Y-%m-%d %H:%M')} |
-            Standard: IEC TR 62380:2004
-        </div>
+        <div class="header-content">
+            <h1>⚡ Reliability Analysis Report</h1>
+            <div class="subtitle">
+                Project: <strong>{data.project_name}</strong> | 
+                Generated: {datetime.fromisoformat(data.generated_at).strftime('%Y-%m-%d %H:%M')} |
+                Standard: IEC TR 62380:2004
+            </div>
+        </div>"""
+        
+        if self.logo_base64:
+            html += f"""
+        <img src="data:image/png;base64,{self.logo_base64}" alt="Logo" class="header-logo">"""
+        
+        html += f"""
     </div>
     
     <div class="card">
@@ -198,30 +224,14 @@ class ReportGenerator:
             s_first = sens.get("S_first", [])
             s_total = sens.get("S_total", [])
             
-            # Sort by total index
             ranked = sorted(zip(params, s_first, s_total), key=lambda x: -x[2])[:10]
-            
             for name, sf, st in ranked:
-                pct = st * 100
-                html += f"""
-                <tr>
-                    <td><strong>{name}</strong></td>
-                    <td class="fit">{sf:.4f}</td>
-                    <td class="fit">{st:.4f}</td>
-                    <td>
-                        <div class="bar" style="width: 150px;">
-                            <div class="bar-fill" style="width: {min(pct, 100):.1f}%;"></div>
-                        </div>
-                    </td>
-                </tr>
-"""
+                influence = "High" if st > 0.3 else "Medium" if st > 0.1 else "Low"
+                html += f"                <tr><td>{name}</td><td>{sf:.4f}</td><td>{st:.4f}</td><td>{influence}</td></tr>\n"
             
             html += """
             </tbody>
         </table>
-        <p style="color: var(--text-secondary); font-size: 0.9em;">
-            Higher values indicate greater influence on system reliability uncertainty.
-        </p>
     </div>
 """
         

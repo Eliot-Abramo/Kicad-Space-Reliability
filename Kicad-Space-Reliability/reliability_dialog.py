@@ -22,6 +22,8 @@ from .component_editor import (
     classify_component, QuickReferenceDialog
 )
 from .schematic_parser import SchematicParser, create_test_data
+from .project_manager import ProjectManager
+from .report_generator import ReportGenerator, ReportData
 
 
 # Design system colors
@@ -250,9 +252,15 @@ class ReliabilityMainDialog(wx.Dialog):
         self.SetBackgroundColour(Colors.BACKGROUND)
         
         self.project_path = project_path
+        self.project_manager: Optional[ProjectManager] = None
         self.parser: Optional[SchematicParser] = None
         self.sheet_data: Dict[str, Dict] = {}
         self.component_edits: Dict[str, Dict[str, Dict]] = {}
+        
+        # Initialize project manager if project path is provided
+        if project_path:
+            self.project_manager = ProjectManager(project_path)
+            self.project_manager.ensure_reliability_folder()
         
         self._create_ui()
         self._bind_events()
@@ -635,8 +643,21 @@ class ReliabilityMainDialog(wx.Dialog):
         dlg.Destroy()
     
     def _on_save(self, event):
-        dlg = wx.FileDialog(self, "Save Configuration", defaultFile="reliability_config.json",
-                           wildcard="JSON (*.json)|*.json", style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT)
+        # Check if project manager is available
+        default_path = "reliability_config.json"
+        if self.project_manager:
+            default_path = str(self.project_manager.get_config_path())
+            initial_dir = str(self.project_manager.get_reliability_folder())
+        else:
+            initial_dir = ""
+        
+        dlg = wx.FileDialog(
+            self, "Save Configuration",
+            defaultFile=Path(default_path).name,
+            defaultDir=initial_dir,
+            wildcard="JSON (*.json)|*.json",
+            style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT
+        )
         if dlg.ShowModal() == wx.ID_OK:
             config = {
                 "project": self.project_path,
@@ -655,8 +676,18 @@ class ReliabilityMainDialog(wx.Dialog):
         dlg.Destroy()
     
     def _on_load_config(self, event):
-        dlg = wx.FileDialog(self, "Load Configuration", wildcard="JSON (*.json)|*.json",
-                           style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST)
+        # Check if project manager is available  
+        if self.project_manager:
+            initial_dir = str(self.project_manager.get_reliability_folder())
+        else:
+            initial_dir = ""
+        
+        dlg = wx.FileDialog(
+            self, "Load Configuration",
+            defaultDir=initial_dir,
+            wildcard="JSON (*.json)|*.json",
+            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST
+        )
         if dlg.ShowModal() == wx.ID_OK:
             try:
                 with open(dlg.GetPath(), "r", encoding="utf-8") as f:
@@ -717,9 +748,22 @@ class ReliabilityMainDialog(wx.Dialog):
             wx.MessageBox(f"Error: {e}", "Analysis Error", wx.OK | wx.ICON_ERROR)
     
     def _on_export(self, event):
-        dlg = wx.FileDialog(self, "Export Report",
-                           wildcard="HTML (*.html)|*.html|Markdown (*.md)|*.md|CSV (*.csv)|*.csv|JSON (*.json)|*.json",
-                           style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT)
+        # Determine initial directory and filename
+        if self.project_manager:
+            reports_folder = self.project_manager.get_reports_folder()
+            initial_dir = str(reports_folder)
+            default_name = f"reliability_report_{wx.DateTime.Now().Format('%Y%m%d_%H%M%S')}"
+        else:
+            initial_dir = ""
+            default_name = "reliability_report"
+        
+        dlg = wx.FileDialog(
+            self, "Export Report",
+            defaultFile=default_name + ".html",
+            defaultDir=initial_dir,
+            wildcard="HTML (*.html)|*.html|Markdown (*.md)|*.md|CSV (*.csv)|*.csv|JSON (*.json)|*.json",
+            style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT
+        )
         if dlg.ShowModal() == wx.ID_OK:
             path = dlg.GetPath()
             idx = dlg.GetFilterIndex()
@@ -742,39 +786,30 @@ class ReliabilityMainDialog(wx.Dialog):
     
     def _generate_html(self, sys_r: float, sys_lam: float, hours: float) -> str:
         years = hours / (365 * 24)
-        html = f"""<!DOCTYPE html>
-<html><head><title>Reliability Report</title>
-<style>
-body {{ font-family: -apple-system, Arial, sans-serif; margin: 20px; max-width: 1200px; }}
-h1 {{ color: #1a237e; }}
-.summary {{ background: #e3f2fd; padding: 20px; border-radius: 8px; margin: 20px 0; }}
-table {{ border-collapse: collapse; width: 100%; margin: 15px 0; }}
-th, td {{ border: 1px solid #ddd; padding: 10px; text-align: left; }}
-th {{ background: #f5f5f5; }}
-.metric {{ font-size: 24px; font-weight: bold; color: #1565c0; }}
-</style></head><body>
-<h1>⚡ Reliability Analysis Report</h1>
-<p><i>IEC TR 62380 Analysis</i></p>
-<div class="summary">
-<h2>System Summary</h2>
-<p><b>Mission:</b> {years:.1f} years ({hours:.0f} hours)</p>
-<p class="metric">R = {sys_r:.6f}</p>
-<p><b>Failure Rate:</b> λ = {sys_lam*1e9:.2f} FIT</p>
-</div>
-<h2>Sheet Analysis</h2>"""
-        for path, data in sorted(self.sheet_data.items()):
-            fit = float(data["lambda"]) * 1e9
-            html += f"""<h3>{path}</h3>
-<p>R = {float(data["r"]):.6f}, λ = {fit:.2f} FIT</p>
-<table><tr><th>Ref</th><th>Value</th><th>Type</th><th>λ (FIT)</th><th>R</th></tr>"""
-            for c in data["components"][:20]:
-                c_fit = float(c["lambda"]) * 1e9
-                html += f'<tr><td>{c["ref"]}</td><td>{c["value"]}</td><td>{c["class"]}</td><td>{c_fit:.2f}</td><td>{float(c["r"]):.6f}</td></tr>'
-            if len(data["components"]) > 20:
-                html += f'<tr><td colspan="5"><i>... and {len(data["components"])-20} more</i></td></tr>'
-            html += "</table>"
-        html += "</body></html>"
-        return html
+        
+        # Get logo path if available
+        logo_path = None
+        if self.project_manager:
+            logo_path = self.project_manager.get_available_logo_path()
+        
+        # Create report generator with logo support
+        generator = ReportGenerator(logo_path=str(logo_path) if logo_path else None)
+        
+        # Build report data
+        report_data = ReportData(
+            project_name=Path(self.project_path).name if self.project_path else "Reliability Report",
+            mission_hours=hours,
+            mission_years=years,
+            n_cycles=int(self.settings_panel.cycles.GetValue()),
+            delta_t=float(self.settings_panel.dt.GetValue()),
+            system_reliability=sys_r,
+            system_lambda=sys_lam,
+            system_mttf_hours=1/sys_lam if sys_lam > 0 else float('inf'),
+            sheets=self.sheet_data,
+            blocks=[],
+        )
+        
+        return generator.generate_html(report_data)
     
     def _generate_md(self, sys_r: float, sys_lam: float, hours: float) -> str:
         years = hours / (365 * 24)

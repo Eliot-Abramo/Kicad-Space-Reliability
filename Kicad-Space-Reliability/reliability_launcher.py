@@ -23,6 +23,8 @@ import wx
 import json
 from pathlib import Path
 
+from project_manager import initialize_project_folder
+
 
 class ProjectSelector(wx.Dialog):
     """
@@ -209,6 +211,17 @@ def main():
         
         if not project_path:
             return 0
+    
+    # Initialize Reliability folder for the project
+    try:
+        initialize_project_folder(project_path)
+    except Exception as e:
+        wx.MessageBox(
+            f"Failed to initialize project folder:\n\n{str(e)}",
+            "Initialization Error",
+            wx.OK | wx.ICON_ERROR
+        )
+        return 1
     
     # Import and launch the main dialog
     from reliability_dialog import ReliabilityMainDialog

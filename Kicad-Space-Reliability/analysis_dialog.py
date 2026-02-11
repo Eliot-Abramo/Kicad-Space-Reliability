@@ -1206,7 +1206,7 @@ tr:hover {{ background: #f8fafc; }}
 </style></head><body>
 <h1>Reliability Analysis Report</h1>
 <p class="subtitle">IEC TR 62380 Methodology - KiCad Reliability Calculator v2.0.0</p>
-
+<p class="subtitle">Author: Eliot Abramo</p>
 <div class="card">
 <h2 style="margin-top: 0;">System Summary</h2>
 <div class="grid">
