@@ -296,6 +296,77 @@ def quick_sensitivity(
     return analyzer.analyze(model, bounds, n_samples)
 
 
+# === Component-Level Criticality Analysis ===
+
+def analyze_board_criticality(
+    components: List[Dict],
+    mission_hours: float = 8760.0,
+    top_n: int = 10,
+    perturbation: float = 0.1,
+) -> List[Dict]:
+    """Run parameter criticality analysis on the highest-FIT components.
+    
+    Integrates with reliability_math.analyze_component_criticality() to
+    identify which input parameters most influence each component's λ.
+    Results are suitable for report_generator.ReportData.criticality.
+    
+    Args:
+        components: List of component dicts with 'ref', 'class', 'params', 'lambda'
+        mission_hours: Mission duration in hours (default 1 year = 8760h)
+        top_n: Number of top components to analyze (by FIT contribution)
+        perturbation: Fractional perturbation for finite-difference (default ±10%)
+    
+    Returns:
+        List of criticality result dicts, one per analyzed component.
+        Each dict has: reference, component_type, base_lambda_fit, fields[].
+        Each field has: name, value, elasticity, impact_pct.
+    """
+    try:
+        from .reliability_math import analyze_component_criticality
+    except ImportError:
+        from reliability_math import analyze_component_criticality
+
+    # Sort by failure rate, analyze the top contributors
+    sorted_comps = sorted(components, key=lambda c: c.get("lambda", 0), reverse=True)
+    results = []
+
+    for comp in sorted_comps[:top_n]:
+        ref = comp.get("ref", "?")
+        comp_type = comp.get("class", "")
+        params = comp.get("params", {})
+
+        if not comp_type or not params:
+            continue
+
+        try:
+            raw = analyze_component_criticality(comp_type, params, mission_hours, perturbation)
+            if not raw:
+                continue
+
+            # Reformat into report-friendly structure
+            base_fit = raw[0]["lambda_nominal_fit"] if raw else 0
+            fields = []
+            total_impact = sum(abs(r["impact_percent"]) for r in raw) or 1.0
+            for r in raw:
+                fields.append({
+                    "name": r["field"],
+                    "value": r["nominal_value"],
+                    "elasticity": r["sensitivity"],
+                    "impact_pct": r["impact_percent"],
+                })
+
+            results.append({
+                "reference": ref,
+                "component_type": comp_type,
+                "base_lambda_fit": base_fit,
+                "fields": fields,
+            })
+        except Exception:
+            continue
+
+    return results
+
+
 if __name__ == "__main__":
     # Test with example
     components = {

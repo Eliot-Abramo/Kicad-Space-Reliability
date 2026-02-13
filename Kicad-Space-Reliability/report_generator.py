@@ -34,6 +34,7 @@ class ReportData:
     monte_carlo: Optional[Dict] = None
     sensitivity: Optional[Dict] = None
     sheet_mc: Optional[Dict] = None  # per-sheet MC results
+    criticality: Optional[List] = None  # component criticality results
 
     generated_at: str = None
 
@@ -327,6 +328,10 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
         if data.sensitivity:
             html += self._sensitivity_section(data.sensitivity)
 
+        # Component-level criticality analysis
+        if data.criticality:
+            html += self._criticality_section(data.criticality)
+
         # Failure rate contributions
         html += self._contributions_section(data.sheets)
 
@@ -339,7 +344,7 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
 
         html += """
 <div class="footer">
-<p>Designed and developed by Eliot Abramo | KiCad Reliability Plugin v2.0 | IEC TR 62380:2004</p>
+<p>Designed and developed by Eliot Abramo | KiCad Reliability Plugin v3.0.0 | IEC TR 62380:2004</p>
 <p>This report is for engineering reference. Verify critical calculations independently.</p>
 </div></div></body></html>"""
         return html
@@ -401,6 +406,56 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
                                colors=["#10b981", "#14b8a6", "#06b6d4", "#0ea5e9", "#3b82f6",
                                        "#6366f1", "#8b5cf6", "#a855f7", "#d946ef", "#ec4899"])
         html += '</div></div>\n'
+        return html
+
+    def _criticality_section(self, criticality: List) -> str:
+        """Render component-level parameter criticality analysis.
+        
+        Shows which input parameters have the greatest influence on each
+        component's failure rate, enabling focused validation effort.
+        IEC TR 62380 §4 - sensitivity of predictions to input parameters.
+        """
+        html = '<div class="card"><h2>Component Parameter Criticality</h2>\n'
+        html += '<p>Parameter sensitivity analysis showing which inputs most influence '
+        html += 'each component\'s failure rate. Higher impact (%) = greater validation priority.</p>\n'
+
+        for entry in criticality:
+            ref = entry.get("reference", "?")
+            comp_type = entry.get("component_type", "Unknown")
+            base_fit = entry.get("base_lambda_fit", 0)
+            fields = entry.get("fields", [])
+
+            if not fields:
+                continue
+
+            html += f'<h3 style="margin-top:18px">{ref} ({comp_type}) — Base: {base_fit:.2f} FIT</h3>\n'
+            html += '<table><thead><tr>'
+            html += '<th>Parameter</th><th>Value</th><th>Elasticity</th>'
+            html += '<th>Impact (%)</th><th>Direction</th>'
+            html += '</tr></thead><tbody>\n'
+
+            for f in fields:
+                name = f.get("name", "")
+                val = f.get("value", "")
+                elast = f.get("elasticity", 0)
+                impact = f.get("impact_pct", 0)
+                direction = "↑ increases λ" if elast > 0 else "↓ decreases λ" if elast < 0 else "—"
+
+                # Color-code by impact severity
+                if abs(impact) > 20:
+                    cls = ' class="bad"'
+                elif abs(impact) > 10:
+                    cls = ' class="warn"'
+                else:
+                    cls = ''
+
+                html += f'<tr{cls}><td>{name}</td><td>{val}</td>'
+                html += f'<td>{elast:+.3f}</td><td>{impact:.1f}%</td>'
+                html += f'<td>{direction}</td></tr>\n'
+
+            html += '</tbody></table>\n'
+
+        html += '</div>\n'
         return html
 
     def _contributions_section(self, sheets: Dict) -> str:
@@ -526,6 +581,22 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
                 md += f"| {name} | {sf:.4f} | {st_val:.4f} |\n"
             md += "\n"
 
+        # Criticality analysis
+        if data.criticality:
+            md += "## Component Parameter Criticality\n\n"
+            for entry in data.criticality:
+                ref = entry.get("reference", "?")
+                comp_type = entry.get("component_type", "Unknown")
+                base_fit = entry.get("base_lambda_fit", 0)
+                fields = entry.get("fields", [])
+                if not fields:
+                    continue
+                md += f"**{ref}** ({comp_type}) — Base: {base_fit:.2f} FIT\n\n"
+                md += "| Parameter | Value | Elasticity | Impact (%) |\n|---|---|---|---|\n"
+                for f in fields:
+                    md += f"| {f.get('name','')} | {f.get('value','')} | {f.get('elasticity',0):+.3f} | {f.get('impact_pct',0):.1f}% |\n"
+                md += "\n"
+
         for path, sd in sorted(data.sheets.items()):
             name = path.rstrip('/').split('/')[-1] or 'Root'
             md += f"### {name}\n\nlambda = {sd.get('lambda',0)*1e9:.2f} FIT | R = {sd.get('r',1):.6f}\n\n"
@@ -533,7 +604,7 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
             for c in sd.get('components',[])[:20]:
                 md += f"| {c.get('ref','?')} | {c.get('value','')} | {c.get('class','')} | {c.get('lambda',0)*1e9:.2f} | {c.get('r',1):.6f} |\n"
             md += "\n"
-        md += "\n---\n*Designed and developed by Eliot Abramo | KiCad Reliability Plugin v2.0*\n"
+        md += "\n---\n*Designed and developed by Eliot Abramo | KiCad Reliability Plugin v3.0.0*\n"
         return md
 
     def generate_csv(self, data: ReportData) -> str:
@@ -558,6 +629,8 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
             output["monte_carlo"] = mc
         if data.sensitivity:
             output["sensitivity"] = data.sensitivity
+        if data.criticality:
+            output["criticality"] = data.criticality
         return json.dumps(output, indent=2, default=str)
 
     def generate(self, data: ReportData, format: str = "html") -> str:

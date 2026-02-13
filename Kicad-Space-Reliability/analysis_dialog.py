@@ -504,6 +504,7 @@ class AnalysisDialog(wx.Dialog):
         self.mc_result: Optional[MonteCarloResult] = None
         self.sobol_result: Optional[SobolResult] = None
         self.sheet_mc_results: Dict[str, SheetMCResult] = {}  # Per-sheet Monte Carlo results
+        self.criticality_results: List[Dict] = []  # Component-level criticality results
         
         self._create_ui()
         self.Centre()
@@ -522,6 +523,7 @@ class AnalysisDialog(wx.Dialog):
         self.notebook.AddPage(self._create_mc_tab(), "Monte Carlo")
         self.notebook.AddPage(self._create_sensitivity_tab(), "Sensitivity")
         self.notebook.AddPage(self._create_contributions_tab(), "Contributions")
+        self.notebook.AddPage(self._create_criticality_tab(), "Criticality")
         self.notebook.AddPage(self._create_report_tab(), "Full Report")
         
         main_sizer.Add(self.notebook, 1, wx.EXPAND | wx.ALL, 12)
@@ -568,7 +570,7 @@ class AnalysisDialog(wx.Dialog):
         ctrl.Add(self.mc_n, 0, wx.ALL, 8)
         
         ctrl.Add(wx.StaticText(ctrl_panel, label="Uncertainty (%):"), 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 12)
-        self.mc_unc = wx.SpinCtrlDouble(ctrl_panel, min=5, max=100, initial=25, inc=5, size=(80, -1))
+        self.mc_unc = wx.SpinCtrlDouble(ctrl_panel, min=1, max=100, initial=25, inc=1, size=(80, -1))
         ctrl.Add(self.mc_unc, 0, wx.ALL, 8)
         
         self.btn_mc = wx.Button(ctrl_panel, label="Run System MC")
@@ -689,6 +691,61 @@ class AnalysisDialog(wx.Dialog):
         self._update_contributions()
         return panel
     
+    def _create_criticality_tab(self) -> wx.Panel:
+        """Create tab for component-level parameter criticality analysis.
+        
+        Shows which input parameters most influence each component's failure rate,
+        enabling engineers to focus validation effort on the most impactful inputs.
+        """
+        panel = wx.Panel(self.notebook)
+        panel.SetBackgroundColour(Colors.BG_LIGHT)
+        main = wx.BoxSizer(wx.VERTICAL)
+
+        # Controls
+        ctrl_panel = wx.Panel(panel)
+        ctrl_panel.SetBackgroundColour(Colors.BG_WHITE)
+        ctrl = wx.BoxSizer(wx.HORIZONTAL)
+
+        ctrl.Add(wx.StaticText(ctrl_panel, label="Top N components:"), 0,
+                 wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 12)
+        self.crit_top_n = wx.SpinCtrl(ctrl_panel, min=1, max=50, initial=10, size=(80, -1))
+        ctrl.Add(self.crit_top_n, 0, wx.ALL, 8)
+
+        ctrl.Add(wx.StaticText(ctrl_panel, label="Perturbation (%):"), 0,
+                 wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 8)
+        self.crit_perturb = wx.SpinCtrl(ctrl_panel, min=1, max=50, initial=10, size=(80, -1))
+        ctrl.Add(self.crit_perturb, 0, wx.ALL, 8)
+
+        self.btn_crit = wx.Button(ctrl_panel, label="Run Criticality Analysis")
+        self.btn_crit.SetBackgroundColour(Colors.PRIMARY)
+        self.btn_crit.SetForegroundColour(Colors.TEXT_WHITE)
+        self.btn_crit.Bind(wx.EVT_BUTTON, self._on_run_criticality)
+        ctrl.Add(self.btn_crit, 0, wx.ALL, 8)
+
+        ctrl_panel.SetSizer(ctrl)
+        main.Add(ctrl_panel, 0, wx.EXPAND | wx.ALL, 8)
+
+        # Results list
+        self.crit_list = wx.ListCtrl(panel, style=wx.LC_REPORT | wx.BORDER_SIMPLE)
+        self.crit_list.SetBackgroundColour(Colors.BG_WHITE)
+        self.crit_list.InsertColumn(0, "Reference", width=100)
+        self.crit_list.InsertColumn(1, "Type", width=100)
+        self.crit_list.InsertColumn(2, "Base FIT", width=80)
+        self.crit_list.InsertColumn(3, "Top Parameter", width=150)
+        self.crit_list.InsertColumn(4, "Elasticity", width=80)
+        self.crit_list.InsertColumn(5, "Impact (%)", width=80)
+        main.Add(self.crit_list, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
+
+        # Status
+        self.crit_info = wx.StaticText(panel,
+            label="Analyzes which input parameters most affect each component's failure rate.")
+        self.crit_info.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        self.crit_info.SetForegroundColour(Colors.TEXT_MEDIUM)
+        main.Add(self.crit_info, 0, wx.ALL, 12)
+
+        panel.SetSizer(main)
+        return panel
+
     def _create_report_tab(self) -> wx.Panel:
         panel = wx.Panel(self.notebook)
         panel.SetBackgroundColour(Colors.BG_LIGHT)
@@ -980,6 +1037,82 @@ class AnalysisDialog(wx.Dialog):
         finally:
             self.btn_sobol.Enable()
     
+    def _on_run_criticality(self, event):
+        """Run component-level parameter criticality analysis.
+        
+        Identifies which input parameters most influence each component's
+        failure rate using finite-difference perturbation analysis.
+        """
+        if not self.sheet_data:
+            wx.MessageBox("No sheet data for criticality analysis.", "No Data",
+                         wx.OK | wx.ICON_WARNING)
+            return
+
+        self.status.SetLabel("Running criticality analysis...")
+        self.btn_crit.Disable()
+        wx.Yield()
+
+        try:
+            from .sensitivity_analysis import analyze_board_criticality
+        except ImportError:
+            from sensitivity_analysis import analyze_board_criticality
+
+        try:
+            top_n = self.crit_top_n.GetValue()
+            perturb = self.crit_perturb.GetValue() / 100.0
+
+            # Gather all components across sheets
+            all_components = []
+            for path, data in self.sheet_data.items():
+                for comp in data.get("components", []):
+                    all_components.append(comp)
+
+            if not all_components:
+                wx.MessageBox("No components found in sheet data.",
+                             "No Data", wx.OK | wx.ICON_WARNING)
+                self.btn_crit.Enable()
+                return
+
+            # Run criticality analysis
+            self.criticality_results = analyze_board_criticality(
+                all_components, mission_hours=self.mission_hours,
+                top_n=top_n, perturbation=perturb)
+
+            # Update list
+            self.crit_list.DeleteAllItems()
+            for entry in self.criticality_results:
+                ref = entry.get("reference", "?")
+                comp_type = entry.get("component_type", "Unknown")
+                base_fit = entry.get("base_lambda_fit", 0)
+                fields = entry.get("fields", [])
+
+                if fields:
+                    # Show the most impactful parameter
+                    top = max(fields, key=lambda f: abs(f.get("impact_pct", 0)))
+                    idx = self.crit_list.InsertItem(self.crit_list.GetItemCount(), ref)
+                    self.crit_list.SetItem(idx, 1, comp_type)
+                    self.crit_list.SetItem(idx, 2, f"{base_fit:.2f}")
+                    self.crit_list.SetItem(idx, 3, top.get("name", ""))
+                    self.crit_list.SetItem(idx, 4, f"{top.get('elasticity', 0):+.3f}")
+                    self.crit_list.SetItem(idx, 5, f"{top.get('impact_pct', 0):.1f}%")
+
+            n_analyzed = len(self.criticality_results)
+            self.crit_info.SetLabel(
+                f"Analyzed {n_analyzed} components. "
+                f"Showing top parameter per component (±{perturb*100:.0f}% perturbation).")
+            self.crit_info.SetForegroundColour(Colors.SUCCESS)
+
+            self.status.SetLabel(f"Criticality analysis complete: {n_analyzed} components analyzed")
+            self._update_report()
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            wx.MessageBox(str(e), "Criticality Error", wx.OK | wx.ICON_ERROR)
+            self.status.SetLabel(f"Error: {e}")
+        finally:
+            self.btn_crit.Enable()
+
     def _update_contributions(self):
         if not self.sheet_data:
             return
@@ -1157,10 +1290,28 @@ class AnalysisDialog(wx.Dialog):
                 bar_len = max(0, min(40, bar_len))
                 bar = "#" * bar_len + "." * (40 - bar_len)
                 lines.append(f"  {sheet_name:<20} |{bar}| {smc.mean:.4f}")
+
+        # Component criticality
+        if self.criticality_results:
+            lines.append("")
+            lines.append("COMPONENT PARAMETER CRITICALITY")
+            lines.append("-" * 50)
+            for entry in self.criticality_results:
+                ref = entry.get("reference", "?")
+                comp_type = entry.get("component_type", "Unknown")
+                base_fit = entry.get("base_lambda_fit", 0)
+                fields = entry.get("fields", [])
+                lines.append(f"  {ref} ({comp_type}) — Base: {base_fit:.2f} FIT")
+                for f in fields[:5]:
+                    name = f.get("name", "")
+                    elast = f.get("elasticity", 0)
+                    impact = f.get("impact_pct", 0)
+                    lines.append(f"    {name:<20} elasticity={elast:+.3f}  impact={impact:.1f}%")
+                lines.append("")
         
         lines.append("")
         lines.append("=" * 70)
-        lines.append("  Designed and developed by Eliot Abramo | KiCad Reliability Plugin v2.0.0")
+        lines.append("  Designed and developed by Eliot Abramo | KiCad Reliability Plugin v3.0.0")
         lines.append("  IEC TR 62380 Methodology")
         lines.append("=" * 70)
         
@@ -1228,6 +1379,7 @@ class AnalysisDialog(wx.Dialog):
             monte_carlo=mc_dict,
             sensitivity=sens_dict,
             sheet_mc=sheet_mc_dict,
+            criticality=self.criticality_results if self.criticality_results else None,
         )
 
         generator = ReportGenerator(logo_path=self.logo_path)
@@ -1266,4 +1418,10 @@ class AnalysisDialog(wx.Dialog):
                 lines.append(f"Component,{ref},Lambda_FIT,{c.get('lambda',0)*1e9:.6f}")
                 lines.append(f"Component,{ref},Reliability,{c.get('r',1):.6f}")
         
+        if self.criticality_results:
+            for entry in self.criticality_results:
+                ref = entry.get("reference", "?")
+                for f in entry.get("fields", []):
+                    lines.append(f"Criticality,{ref},{f.get('name','')},elasticity={f.get('elasticity',0):+.3f},impact={f.get('impact_pct',0):.1f}%")
+
         return "\n".join(lines)

@@ -18,7 +18,10 @@ from .reliability_math import (
     get_component_types, get_field_definitions, calculate_component_lambda,
     reliability_from_lambda, INTERFACE_EOS_VALUES, THERMAL_EXPANSION_SUBSTRATE,
     IC_TYPE_CHOICES, IC_PACKAGE_CHOICES, DIODE_BASE_RATES, TRANSISTOR_BASE_RATES,
-    CAPACITOR_PARAMS, RESISTOR_PARAMS, INDUCTOR_PARAMS, MISC_COMPONENT_RATES
+    CAPACITOR_PARAMS, RESISTOR_PARAMS, INDUCTOR_PARAMS, MISC_COMPONENT_RATES,
+    OPTOCOUPLER_BASE_RATES, THYRISTOR_BASE_RATES, RELAY_PARAMS,
+    CONNECTOR_PARAMS, PCB_SOLDER_PARAMS, DISCRETE_PACKAGE_TABLE,
+    analyze_component_criticality,
 )
 
 @dataclass
@@ -30,25 +33,63 @@ class ComponentData:
 
 
 def classify_component(reference: str, value: str, existing_fields: Dict[str, str] = None) -> str:
-    """Classify component from reference designator."""
+    """Classify component from reference designator.
+
+    Mapping follows IEC TR 62380 component categories:
+        R*  -> Resistor          (Section 12)
+        C*  -> Capacitor         (Section 11)
+        L*  -> Inductor          (Section 13)
+        D*  -> Diode             (Section 9)
+        Q*, T* -> Transistor     (Section 10)
+        U*, IC* -> IC            (Section 8)
+        K*  -> Relay             (Section 14)
+        J*, P* -> Connector      (Section 15)
+        Y*, X* -> Crystal/Osc    (Appendix)
+
+    Args:
+        reference:       Component reference designator (e.g. 'R1', 'U3').
+        value:           Component value string (e.g. '10k', 'STM32F4').
+        existing_fields: Optional dict with pre-assigned Reliability_Class.
+
+    Returns:
+        Component type string matching get_component_types() output.
+    """
     ref = reference.upper()
+    val = (value or "").lower()
+
+    # Check user-assigned class first
     if existing_fields and existing_fields.get("Reliability_Class"):
         rc = existing_fields["Reliability_Class"].lower()
         if "ic" in rc or "integrated" in rc: return "Integrated Circuit"
         if "diode" in rc: return "Diode"
         if "transistor" in rc or "mosfet" in rc: return "Transistor"
+        if "optocoupler" in rc or "opto" in rc: return "Optocoupler"
+        if "thyristor" in rc or "triac" in rc or "scr" in rc: return "Thyristor/TRIAC"
         if "capacitor" in rc: return "Capacitor"
         if "resistor" in rc: return "Resistor"
-        if "inductor" in rc: return "Inductor/Transformer"
-    
+        if "inductor" in rc or "transformer" in rc: return "Inductor/Transformer"
+        if "relay" in rc: return "Relay"
+        if "connector" in rc: return "Connector"
+        if "pcb" in rc or "solder" in rc: return "PCB/Solder"
+
+    # Value-based detection for ambiguous cases
+    if "opto" in val or "optocoupler" in val:
+        return "Optocoupler"
+    if "triac" in val or "thyristor" in val or "scr" in val:
+        return "Thyristor/TRIAC"
+    if "relay" in val:
+        return "Relay"
+
+    # Reference designator mapping
     if ref.startswith('R'): return "Resistor"
     elif ref.startswith('C'): return "Capacitor"
     elif ref.startswith('L'): return "Inductor/Transformer"
     elif ref.startswith('D'): return "Diode"
     elif ref.startswith('Q') or ref.startswith('T'): return "Transistor"
     elif ref.startswith('U') or ref.startswith('IC'): return "Integrated Circuit"
+    elif ref.startswith('K'): return "Relay"
+    elif ref.startswith('J') or ref.startswith('P'): return "Connector"
     elif ref.startswith('Y') or ref.startswith('X'): return "Miscellaneous"
-    elif ref.startswith('J') or ref.startswith('P'): return "Miscellaneous"
     return "Miscellaneous"
 
 
