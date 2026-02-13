@@ -13,7 +13,7 @@
   },
   "license": "MIT",
   "resources": {
-    "homepage": "https://github.com/Eliot-Abramo/Kicad-Space-Reliability"
+        "homepage": "https://github.com/reliability-calculator/kicad-plugin"
   },
   "versions": [
     {
