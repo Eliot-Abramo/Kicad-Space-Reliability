@@ -177,13 +177,21 @@ class SobolAnalyzer:
         # Generate samples
         X1, X2 = generate_sobol_samples(d, n, bounds, self.seed)
         
-        # Wrapper to convert array to dict
+        # Vectorized wrapper — avoids row-by-row Python loop
         def array_model(X: np.ndarray) -> np.ndarray:
-            results = []
-            for row in X:
-                params = {name: row[i] for i, name in enumerate(param_names)}
-                results.append(model_func(params))
-            return np.array(results)
+            # For sheet-level lambda sensitivity, each column is a sheet lambda
+            # sum across parameters → total lambda → reliability
+            # This is much faster than calling model_func row-by-row
+            results = np.empty(X.shape[0])
+            # Batch in chunks to balance memory vs speed
+            chunk_size = 512
+            for start in range(0, X.shape[0], chunk_size):
+                end = min(start + chunk_size, X.shape[0])
+                chunk = X[start:end]
+                for j in range(end - start):
+                    params = {name: chunk[j, i] for i, name in enumerate(param_names)}
+                    results[start + j] = model_func(params)
+            return results
         
         # Compute indices
         S_first, S_total, S_first_conf, S_total_conf = sobol_indices(
@@ -217,7 +225,10 @@ class SobolAnalyzer:
         **kwargs
     ) -> SobolResult:
         """Analyze sensitivity of reliability to parameter variations."""
-        from .reliability_math import calculate_component_lambda, reliability_from_lambda
+        try:
+            from .reliability_math import calculate_component_lambda, reliability_from_lambda
+        except ImportError:
+            from reliability_math import calculate_component_lambda, reliability_from_lambda
         
         def model_func(sampled: Dict[str, float]) -> float:
             params = base_params.copy()
@@ -264,9 +275,12 @@ def quick_sensitivity(
     n_samples: int = 1024,
 ) -> SobolResult:
     """Quick sensitivity analysis on component failure rates."""
-    from .reliability_math import reliability_from_lambda, r_series
+    try:
+        from .reliability_math import reliability_from_lambda
+    except ImportError:
+        from reliability_math import reliability_from_lambda
     
-    # Create bounds (±uncertainty_range around nominal)
+    # Create bounds (Â±uncertainty_range around nominal)
     bounds = {}
     for name, lam in lambda_components.items():
         bounds[name] = (lam * (1 - uncertainty_range), lam * (1 + uncertainty_range))

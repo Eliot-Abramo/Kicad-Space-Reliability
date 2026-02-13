@@ -46,12 +46,10 @@ from .reliability_math import (
     
     # Classes
     ConnectionType,
-    ComponentParams,
     ActivationEnergy,
     
     # Legacy functions
     component_failure_rate,
-    ecss_component_failure_rate,
 )
 
 # Alias

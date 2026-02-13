@@ -18,6 +18,7 @@ from .monte_carlo import (
 )
 from .sensitivity_analysis import SobolResult, SobolAnalyzer
 from .reliability_math import reliability_from_lambda, calculate_component_lambda
+from .report_generator import ReportGenerator, ReportData
 
 
 # =============================================================================
@@ -472,6 +473,10 @@ class AnalysisDialog(wx.Dialog):
     def __init__(self, parent, system_lambda: float, mission_hours: float,
                  sheet_data: Dict[str, Dict] = None,
                  block_structure: Dict = None,
+                 project_path: str = None,
+                 logo_path: str = None,
+                 n_cycles: int = 5256,
+                 delta_t: float = 3.0,
                  title: str = "Reliability Analysis Suite"):
         
         display = wx.Display(0)
@@ -489,6 +494,10 @@ class AnalysisDialog(wx.Dialog):
         self.mission_hours = mission_hours
         self.sheet_data = sheet_data or {}
         self.block_structure = block_structure or {}
+        self.project_path = project_path
+        self.logo_path = logo_path
+        self.n_cycles = n_cycles
+        self.delta_t = delta_t
         
         self.mc_result: Optional[MonteCarloResult] = None
         self.sobol_result: Optional[SobolResult] = None
@@ -582,7 +591,7 @@ class AnalysisDialog(wx.Dialog):
         note_panel = wx.Panel(panel)
         note_panel.SetBackgroundColour(wx.Colour(255, 251, 235))  # Warm yellow
         note_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        note_icon = wx.StaticText(note_panel, label="ℹ️")
+        note_icon = wx.StaticText(note_panel, label="â„¹ï¸")
         note_icon.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         note_sizer.Add(note_icon, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 8)
         note_text = wx.StaticText(note_panel, 
@@ -885,7 +894,7 @@ class AnalysisDialog(wx.Dialog):
                 
                 completed += 1
             
-            self.status.SetLabel(f"Per-sheet MC complete: {completed} sheets × {n} simulations each")
+            self.status.SetLabel(f"Per-sheet MC complete: {completed} sheets Ã— {n} simulations each")
             self._update_report()
             
         except Exception as e:
@@ -1144,7 +1153,7 @@ class AnalysisDialog(wx.Dialog):
                 # Simple text bar
                 bar_len = int((smc.mean - 0.9) * 100)  # Scale 0.9-1.0 to 0-10
                 bar_len = max(0, min(40, bar_len))
-                bar = "█" * bar_len + "░" * (40 - bar_len)
+                bar = "â–ˆ" * bar_len + "â–‘" * (40 - bar_len)
                 lines.append(f"  {sheet_name:<20} |{bar}| {smc.mean:.4f}")
         
         lines.append("")
@@ -1176,120 +1185,51 @@ class AnalysisDialog(wx.Dialog):
         dlg.Destroy()
     
     def _generate_html(self) -> str:
+        """Generate comprehensive HTML report using ReportGenerator with SVG charts."""
         r = reliability_from_lambda(self.system_lambda, self.mission_hours)
         years = self.mission_hours / (365 * 24)
-        
-        html = f"""<!DOCTYPE html>
-<html><head>
-<meta charset="utf-8">
-<title>Reliability Analysis Report</title>
-<style>
-* {{ box-sizing: border-box; }}
-body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
-       max-width: 1100px; margin: 0 auto; padding: 24px; background: #f8fafc; color: #1e293b; }}
-h1 {{ color: #1e40af; margin-bottom: 8px; }}
-h2 {{ color: #334155; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; margin-top: 32px; }}
-h3 {{ color: #475569; margin-top: 16px; }}
-.subtitle {{ color: #64748b; margin-bottom: 24px; }}
-.card {{ background: white; border-radius: 8px; padding: 20px; margin: 16px 0; 
-         box-shadow: 0 1px 3px rgba(0,0,0,0.1); }}
-.metric {{ font-size: 24px; font-weight: 700; color: #2563eb; }}
-.metric-label {{ font-size: 12px; color: #64748b; text-transform: uppercase; }}
-.grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }}
-table {{ width: 100%; border-collapse: collapse; margin: 16px 0; }}
-th, td {{ padding: 10px 12px; text-align: left; border-bottom: 1px solid #e2e8f0; }}
-th {{ background: #f1f5f9; font-weight: 600; color: #475569; }}
-tr:hover {{ background: #f8fafc; }}
-.mono {{ font-family: 'SF Mono', Monaco, monospace; font-size: 13px; }}
-.bar {{ height: 8px; background: linear-gradient(90deg, #3b82f6, #60a5fa); border-radius: 4px; }}
-.warn {{ color: #f59e0b; }}
-</style></head><body>
-<h1>Reliability Analysis Report</h1>
-<p class="subtitle">IEC TR 62380 Methodology - KiCad Reliability Calculator v2.0.0</p>
-<p class="subtitle">Author: Eliot Abramo</p>
-<div class="card">
-<h2 style="margin-top: 0;">System Summary</h2>
-<div class="grid">
-<div><div class="metric-label">Mission Duration</div><div class="metric">{years:.1f} years</div></div>
-<div><div class="metric-label">Failure Rate</div><div class="metric">{self.system_lambda*1e9:.2f} FIT</div></div>
-<div><div class="metric-label">Reliability R(t)</div><div class="metric">{r:.6f}</div></div>
-</div></div>
-"""
-        
+
+        # Build MC data dict
+        mc_dict = None
         if self.mc_result:
             mc = self.mc_result
-            ci_lo, ci_hi = mc.confidence_interval(0.90)
-            html += f"""
-<div class="card">
-<h2 style="margin-top: 0;">Monte Carlo Analysis</h2>
-<div class="grid">
-<div><div class="metric-label">Mean</div><div class="metric">{mc.mean:.6f}</div></div>
-<div><div class="metric-label">Std Dev</div><div class="metric">{mc.std:.6f}</div></div>
-<div><div class="metric-label">90% CI</div><div class="metric mono">[{ci_lo:.6f}, {ci_hi:.6f}]</div></div>
-<div><div class="metric-label">Simulations</div><div class="metric">{mc.n_simulations:,}</div></div>
-</div></div>
-"""
-        
+            mc_dict = mc.to_dict()
+            # Include samples for SVG histogram
+            mc_dict['samples'] = mc.samples.tolist() if hasattr(mc.samples, 'tolist') else list(mc.samples)
+
+        # Build sensitivity data dict
+        sens_dict = None
         if self.sobol_result:
-            sr = self.sobol_result
-            html += """<div class="card"><h2 style="margin-top: 0;">Sensitivity Analysis</h2>
-<table><tr><th>Parameter</th><th>S1 (First)</th><th>ST (Total)</th><th>Interaction</th><th></th></tr>"""
-            ranked = sorted(zip(sr.parameter_names, sr.S_first, sr.S_total), key=lambda x: -x[2])
-            for name, s1, st in ranked:
-                interact = st - s1
-                warn = ' class="warn"' if interact > 0.1 * st and st > 0.01 else ''
-                bar_w = min(100, st * 100)
-                html += f"""<tr><td>{name}</td><td class="mono">{s1:.4f}</td><td class="mono">{st:.4f}</td>
-<td{warn} class="mono">{interact:.4f}</td><td><div class="bar" style="width:{bar_w}%"></div></td></tr>"""
-            html += "</table></div>"
-        
-        # Contributions
-        if self.sheet_data:
-            html += """<div class="card"><h2 style="margin-top: 0;">Failure Rate Contributions</h2>
-<table><tr><th>Sheet</th><th>Lambda (FIT)</th><th>Contribution</th><th></th></tr>"""
-            
-            contribs = []
-            total = sum(d.get('lambda', 0) for d in self.sheet_data.values())
-            for path, data in self.sheet_data.items():
-                lam = data.get('lambda', 0)
-                if lam > 0:
-                    name = path.rstrip('/').split('/')[-1] or 'Root'
-                    contribs.append((name, lam))
-            
-            for name, lam in sorted(contribs, key=lambda x: -x[1])[:15]:
-                pct = lam / total * 100 if total > 0 else 0
-                bar_w = min(100, pct)
-                html += f"""<tr><td>{name}</td><td class="mono">{lam*1e9:.2f}</td>
-<td>{pct:.1f}%</td><td><div class="bar" style="width:{bar_w}%"></div></td></tr>"""
-            html += "</table></div>"
-        
-        # Component details
-        if self.sheet_data:
-            html += """<h2>Component Details</h2>"""
-            for path in sorted(self.sheet_data.keys()):
-                data = self.sheet_data[path]
-                name = path.rstrip('/').split('/')[-1] or 'Root'
-                lam = data.get('lambda', 0)
-                r_val = data.get('r', 1)
-                comps = data.get('components', [])
-                
-                html += f"""<div class="card"><h3 style="margin-top:0">{name}</h3>
-<p><strong>Path:</strong> {path}</p>
-<p><strong>Lambda:</strong> {lam*1e9:.2f} FIT | <strong>R:</strong> {r_val:.6f}</p>"""
-                
-                if comps:
-                    html += """<table><tr><th>Ref</th><th>Value</th><th>Type</th><th>Lambda (FIT)</th><th>R</th></tr>"""
-                    for c in comps[:30]:
-                        html += f"""<tr><td>{c.get('ref','?')}</td><td>{c.get('value','')[:20]}</td>
-<td>{c.get('class','')[:25]}</td><td class="mono">{c.get('lambda',0)*1e9:.2f}</td>
-<td class="mono">{c.get('r',1):.6f}</td></tr>"""
-                    if len(comps) > 30:
-                        html += f"<tr><td colspan='5'>... and {len(comps)-30} more</td></tr>"
-                    html += "</table>"
-                html += "</div>"
-        
-        html += "</body></html>"
-        return html
+            sens_dict = self.sobol_result.to_dict()
+
+        # Build per-sheet MC data dict
+        sheet_mc_dict = None
+        if self.sheet_mc_results:
+            sheet_mc_dict = {}
+            for path, smc in self.sheet_mc_results.items():
+                sheet_mc_dict[path] = smc.mc_result.to_dict()
+
+        # Create report data
+        from pathlib import Path
+        project_name = Path(self.project_path).name if self.project_path else "Reliability Report"
+        report_data = ReportData(
+            project_name=project_name,
+            mission_hours=self.mission_hours,
+            mission_years=years,
+            n_cycles=self.n_cycles,
+            delta_t=self.delta_t,
+            system_reliability=r,
+            system_lambda=self.system_lambda,
+            system_mttf_hours=1.0 / self.system_lambda if self.system_lambda > 0 else float('inf'),
+            sheets=self.sheet_data,
+            blocks=[],
+            monte_carlo=mc_dict,
+            sensitivity=sens_dict,
+            sheet_mc=sheet_mc_dict,
+        )
+
+        generator = ReportGenerator(logo_path=self.logo_path)
+        return generator.generate_html(report_data)
     
     def _generate_csv(self) -> str:
         lines = ["Section,Item,Parameter,Value"]

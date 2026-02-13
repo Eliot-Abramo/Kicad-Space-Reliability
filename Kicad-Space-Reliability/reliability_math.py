@@ -1,7 +1,7 @@
 """
 Reliability Mathematics - IEC TR 62380 Implementation (CORRECTED v2.0)
 ======================================================================
-FIXES: π_n threshold, configurable EOS, τ_on support, input validation
+FIXES: Ï€_n threshold, configurable EOS, Ï„_on support, input validation
 """
 
 import math
@@ -19,7 +19,7 @@ def validate_positive(val, name="value"):
     return val
 
 def validate_temperature(val, name="temperature"):
-    """Validate temperature is above absolute zero (-273.15°C)."""
+    """Validate temperature is above absolute zero (-273.15Â°C)."""
     if val < -273.15: raise ValueError(f"{name} must be above absolute zero: {val}")
     return val
 
@@ -91,7 +91,7 @@ DIODE_BASE_RATES = {
 }
 
 TRANSISTOR_BASE_RATES = {
-    "Silicon BJT (≤5W)": {"l0": 0.75, "tech": "bipolar"}, "Silicon MOSFET (≤5W)": {"l0": 0.75, "tech": "mos"},
+    "Silicon BJT (â‰¤5W)": {"l0": 0.75, "tech": "bipolar"}, "Silicon MOSFET (â‰¤5W)": {"l0": 0.75, "tech": "mos"},
     "Silicon BJT (>5W)": {"l0": 2.0, "tech": "bipolar"}, "Silicon MOSFET (>5W)": {"l0": 2.0, "tech": "mos"},
     "GaN HEMT": {"l0": 3.0, "tech": "gan"},
 }
@@ -113,7 +113,7 @@ INDUCTOR_PARAMS = {"Power Inductor": {"l0": 0.6}, "Signal Transformer": {"l0": 1
 
 MISC_COMPONENT_RATES = {
     "Crystal Oscillator (XO)": 10.0, "TCXO/VCXO": 15.0, "Connector (per contact)": 0.5,
-    "DC-DC Converter (<10W)": 100.0, "DC-DC Converter (≥10W)": 130.0, "Fuse": 2.0,
+    "DC-DC Converter (<10W)": 100.0, "DC-DC Converter (â‰¥10W)": 130.0, "Fuse": 2.0,
 }
 
 # === CORE FUNCTIONS ===
@@ -176,16 +176,16 @@ def lambda_diode(diode_type="Signal (<1A)", t_junction=85.0, package="SOD-123", 
     return {"lambda_die": lambda_die*1e-9, "lambda_package": lambda_pkg*1e-9, "lambda_eos": lambda_e*1e-9,
             "lambda_total": total, "fit_total": lambda_die + lambda_pkg + lambda_e}
 
-def lambda_transistor(transistor_type="Silicon MOSFET (≤5W)", t_junction=85.0, package="SOT-23",
+def lambda_transistor(transistor_type="Silicon MOSFET (â‰¤5W)", t_junction=85.0, package="SOT-23",
                        voltage_stress_vds=0.5, voltage_stress_vgs=0.5, voltage_stress_vce=0.5,
                        is_interface=False, interface_type="Not Interface", n_cycles=5256, delta_t=3.0, tau_on=1.0, **kw) -> Dict[str, float]:
     tau_on = validate_ratio(tau_on, "tau_on")
-    p = TRANSISTOR_BASE_RATES.get(transistor_type, TRANSISTOR_BASE_RATES["Silicon MOSFET (≤5W)"])
+    p = TRANSISTOR_BASE_RATES.get(transistor_type, TRANSISTOR_BASE_RATES["Silicon MOSFET (â‰¤5W)"])
     l0, tech = p["l0"], p["tech"]
     ea = ActivationEnergy.BIPOLAR if tech == "bipolar" else ActivationEnergy.MOS
     pi_t = pi_temperature(t_junction, ea, 373)
     if tech == "bipolar": pi_s = 0.22 * math.exp(1.7 * min(voltage_stress_vce, 1.0))
-    else: pi_s = 0.22 * math.exp(1.7 * min(voltage_stress_vds, 1.0)) * 0.22 * math.exp(3 * min(voltage_stress_vgs, 1.0))
+    else: pi_s = 0.22 * math.exp(1.7 * min(voltage_stress_vds, 1.0)) * math.exp(3 * min(voltage_stress_vgs, 1.0))
     lambda_die = pi_s * l0 * pi_t * tau_on
     lb = DISCRETE_PACKAGE_TABLE.get(package, {"lb": 1.0}).get("lb", 1.0)
     pi_n = pi_thermal_cycles(n_cycles)
@@ -278,7 +278,7 @@ def get_component_types() -> List[str]:
 
 def get_field_definitions(ct: str) -> Dict[str, Dict]:
     common = {"n_cycles": {"type": "int", "default": 5256, "help": "Annual thermal cycles"},
-              "delta_t": {"type": "float", "default": 3.0, "help": "ΔT (°C)"},
+              "delta_t": {"type": "float", "default": 3.0, "help": "Î”T (Â°C)"},
               "tau_on": {"type": "float", "default": 1.0, "help": "Working time ratio (0-1)"}}
     iface = {"is_interface": {"type": "bool", "default": False, "help": "Interface circuit?"},
              "interface_type": {"type": "choice", "choices": list(INTERFACE_EOS_VALUES.keys()), "default": "Not Interface"}}

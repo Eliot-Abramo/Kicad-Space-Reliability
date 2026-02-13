@@ -54,6 +54,7 @@ class BlockEditor(wx.Panel):
         self.blocks: Dict[str, Block] = {}
         self.root_id: Optional[str] = None
         self.selected: Optional[str] = None
+        self.multi_selected: List[str] = []  # rubber-band multi selection
         self.hover: Optional[str] = None
         self.dragging = False
         self.drag_offset = (0, 0)
@@ -62,6 +63,11 @@ class BlockEditor(wx.Panel):
         self.panning = False
         self.pan_start = (0, 0)
         self.mission_hours = 5 * 365 * 24
+
+        # Rubber-band selection
+        self.rubber_band = False
+        self.rubber_start = (0, 0)
+        self.rubber_end = (0, 0)
 
         self.on_selection_change = None
         self.on_structure_change = None
@@ -73,6 +79,8 @@ class BlockEditor(wx.Panel):
         self.Bind(wx.EVT_LEFT_UP, self._on_left_up)
         self.Bind(wx.EVT_LEFT_DCLICK, self._on_dclick)
         self.Bind(wx.EVT_RIGHT_DOWN, self._on_right_click)
+        self.Bind(wx.EVT_MIDDLE_DOWN, self._on_middle_down)
+        self.Bind(wx.EVT_MIDDLE_UP, self._on_middle_up)
         self.Bind(wx.EVT_MOTION, self._on_motion)
         self.Bind(wx.EVT_MOUSEWHEEL, self._on_mouse_wheel)
         self.Bind(wx.EVT_KEY_DOWN, self._on_key)
@@ -235,11 +243,24 @@ class BlockEditor(wx.Panel):
         # Then blocks
         for b in self.blocks.values():
             if not b.is_group: self._draw_block(gc, b)
+        
+        # Draw rubber-band selection rectangle
+        if self.rubber_band:
+            x1 = min(self.rubber_start[0], self.rubber_end[0])
+            y1 = min(self.rubber_start[1], self.rubber_end[1])
+            rw = abs(self.rubber_end[0] - self.rubber_start[0])
+            rh = abs(self.rubber_end[1] - self.rubber_start[1])
+            gc.SetBrush(wx.Brush(wx.Colour(100, 150, 255, 30)))
+            gc.SetPen(wx.Pen(wx.Colour(50, 100, 200), 2, wx.PENSTYLE_SHORT_DASH))
+            gc.DrawRectangle(x1, y1, rw, rh)
 
     def _draw_block(self, gc, b: Block):
         if b.id == self.selected:
             gc.SetBrush(wx.Brush(self.BLOCK_SEL))
             gc.SetPen(wx.Pen(wx.Colour(50, 100, 200), 3))
+        elif b.id in self.multi_selected:
+            gc.SetBrush(wx.Brush(wx.Colour(180, 200, 255)))
+            gc.SetPen(wx.Pen(wx.Colour(80, 120, 200), 2, wx.PENSTYLE_SHORT_DASH))
         else:
             gc.SetBrush(wx.Brush(self.BLOCK_COLOR))
             gc.SetPen(wx.Pen(wx.Colour(100, 100, 100), 1))
@@ -252,7 +273,7 @@ class BlockEditor(wx.Panel):
         font = wx.Font(9, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
         gc.SetFont(font, wx.Colour(60, 60, 60))
         gc.DrawText(f"R = {b.reliability:.4f}", b.x + 10, b.y + 32)
-        gc.DrawText(f"λ = {b.lambda_val*1e9:.1f} FIT", b.x + 10, b.y + 48)
+        gc.DrawText(f"Î» = {b.lambda_val*1e9:.1f} FIT", b.x + 10, b.y + 48)
 
     def _draw_group(self, gc, g: Block):
         color = {"series": self.SERIES_COLOR, "parallel": self.PARALLEL_COLOR, "k_of_n": self.KN_COLOR}.get(g.connection_type, self.SERIES_COLOR)
@@ -270,18 +291,54 @@ class BlockEditor(wx.Panel):
         self.SetFocus()
         bid = self._block_at(cx, cy)
         if bid:
-            self.selected = bid
-            self.dragging = True
-            b = self.blocks[bid]
-            self.drag_offset = (cx - b.x, cy - b.y)
+            if event.ShiftDown():
+                # Shift+click: toggle multi-selection
+                if bid in self.multi_selected:
+                    self.multi_selected.remove(bid)
+                else:
+                    self.multi_selected.append(bid)
+                self.selected = bid
+            else:
+                self.selected = bid
+                if bid not in self.multi_selected:
+                    self.multi_selected = [bid]
+                self.dragging = True
+                b = self.blocks[bid]
+                self.drag_offset = (cx - b.x, cy - b.y)
             if self.on_selection_change: self.on_selection_change(self.selected)
         else:
-            self.panning = True
-            self.pan_start = (sx, sy)
-            self.selected = None
+            # Start rubber-band selection on empty space
+            self.rubber_band = True
+            self.rubber_start = (cx, cy)
+            self.rubber_end = (cx, cy)
+            if not event.ShiftDown():
+                self.selected = None
+                self.multi_selected = []
         self.Refresh()
 
     def _on_left_up(self, event):
+        if self.rubber_band:
+            # Finish rubber-band: select all non-group blocks in the rectangle
+            self.rubber_band = False
+            x1 = min(self.rubber_start[0], self.rubber_end[0])
+            y1 = min(self.rubber_start[1], self.rubber_end[1])
+            x2 = max(self.rubber_start[0], self.rubber_end[0])
+            y2 = max(self.rubber_start[1], self.rubber_end[1])
+            # Only select if drag area is meaningful (> 5px canvas)
+            if abs(x2 - x1) > 5 and abs(y2 - y1) > 5:
+                for bid, b in self.blocks.items():
+                    if not b.is_group:
+                        # Block center must be inside the rectangle
+                        bcx, bcy = b.center()
+                        if x1 <= bcx <= x2 and y1 <= bcy <= y2:
+                            if bid not in self.multi_selected:
+                                self.multi_selected.append(bid)
+                if self.multi_selected:
+                    self.selected = self.multi_selected[-1]
+                    if self.on_selection_change:
+                        self.on_selection_change(self.selected)
+            self.Refresh()
+            return
         if self.dragging:
             self.dragging = False
             self._update_group_bounds()
@@ -302,10 +359,24 @@ class BlockEditor(wx.Panel):
         sx, sy = event.GetPosition()
         cx, cy = self.screen_to_canvas(sx, sy)
         bid = self._block_at(cx, cy)
+        
+        menu = wx.Menu()
+        
+        # If we have a multi-selection (2+ blocks), offer grouping
+        groupable = [b for b in self.multi_selected
+                     if b in self.blocks and not self.blocks[b].is_group]
+        if len(groupable) >= 2:
+            item_s = menu.Append(wx.ID_ANY, f"Group {len(groupable)} blocks → Series")
+            self.Bind(wx.EVT_MENU, lambda e, ids=groupable: self._group_selected(ids, "series"), item_s)
+            item_p = menu.Append(wx.ID_ANY, f"Group {len(groupable)} blocks → Parallel")
+            self.Bind(wx.EVT_MENU, lambda e, ids=groupable: self._group_selected(ids, "parallel"), item_p)
+            item_k = menu.Append(wx.ID_ANY, f"Group {len(groupable)} blocks → K-of-N")
+            self.Bind(wx.EVT_MENU, lambda e, ids=groupable: self._group_selected(ids, "k_of_n"), item_k)
+            menu.AppendSeparator()
+        
         if bid:
             self.selected = bid
             self.Refresh()
-            menu = wx.Menu()
             b = self.blocks[bid]
             if b.is_group:
                 item = menu.Append(wx.ID_ANY, "Edit Group...")
@@ -316,11 +387,32 @@ class BlockEditor(wx.Panel):
             else:
                 item = menu.Append(wx.ID_ANY, "Remove")
                 self.Bind(wx.EVT_MENU, lambda e: self.remove_block(bid), item)
+        
+        if menu.GetMenuItemCount() > 0:
             self.PopupMenu(menu, event.GetPosition())
-            menu.Destroy()
+        menu.Destroy()
+    
+    def _group_selected(self, block_ids: List[str], conn_type: str):
+        """Group selected blocks with given connection type."""
+        k = 2
+        if conn_type == "k_of_n":
+            dlg = wx.NumberEntryDialog(self, "K value:", "K:", "K-of-N", 2, 1, len(block_ids))
+            if dlg.ShowModal() == wx.ID_OK:
+                k = dlg.GetValue()
+            else:
+                dlg.Destroy()
+                return
+            dlg.Destroy()
+        self.create_group(block_ids, conn_type, k)
+        self.multi_selected = []
 
     def _on_motion(self, event):
         sx, sy = event.GetPosition()
+        if self.rubber_band:
+            cx, cy = self.screen_to_canvas(sx, sy)
+            self.rubber_end = (cx, cy)
+            self.Refresh()
+            return
         if self.panning:
             self.pan_offset[0] += sx - self.pan_start[0]
             self.pan_offset[1] += sy - self.pan_start[1]
@@ -339,6 +431,14 @@ class BlockEditor(wx.Panel):
             self.hover = self._block_at(cx, cy)
             if old != self.hover: self.Refresh()
 
+    def _on_middle_down(self, event):
+        sx, sy = event.GetPosition()
+        self.panning = True
+        self.pan_start = (sx, sy)
+
+    def _on_middle_up(self, event):
+        self.panning = False
+
     def _on_mouse_wheel(self, event):
         rotation = event.GetWheelRotation()
         if rotation > 0: self.set_zoom(self.zoom_level + 0.1, event.GetPosition())
@@ -351,6 +451,16 @@ class BlockEditor(wx.Panel):
             if b and b.is_group: self.ungroup(self.selected)
             elif b: self.remove_block(self.selected)
         elif key in (ord('f'), ord('F')): self.zoom_fit()
+        elif key == wx.WXK_ESCAPE:
+            self.selected = None
+            self.multi_selected = []
+            self.Refresh()
+        elif key == ord('G') or key == ord('g'):
+            # Ctrl+G or just G to group selected blocks
+            groupable = [b for b in self.multi_selected
+                         if b in self.blocks and not self.blocks[b].is_group]
+            if len(groupable) >= 2:
+                self._group_selected(groupable, "series")
         else: event.Skip()
 
     def _edit_group(self, group_id: str):
