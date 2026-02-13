@@ -15,7 +15,7 @@ Features:
 
 New in v2.0.0:
 - Configurable EOS (Electrical Overstress) with 10 interface types
-- Working time ratio (τ_on) for duty-cycled operation
+- Working time ratio (tau_on) for duty-cycled operation
 - Thermal expansion materials (substrate and package)
 - Corrected thermal cycling threshold (8760 cycles/year)
 
@@ -25,12 +25,12 @@ Installation:
     - Windows: %APPDATA%\\kicad\\9.0\\scripting\\plugins\\
     - macOS: ~/Library/Preferences/kicad/9.0/scripting/plugins/
 
-Author: Generated with Claude assistance
+Designed and developed by Eliot Abramo
 License: MIT
 """
 
 __version__ = "2.0.0"
-__author__ = "KiCad Reliability Plugin Team"
+__author__ = "Eliot Abramo"
 
 try:
     from .plugin import ReliabilityPlugin

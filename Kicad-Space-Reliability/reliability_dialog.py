@@ -2,6 +2,8 @@
 Main Reliability Calculator Dialog
 ===================================
 Primary UI integrating all IEC TR 62380 features with block diagram editor.
+
+Author:  Eliot Abramo
 """
 
 import os
@@ -125,17 +127,17 @@ class SettingsPanel(wx.Panel):
         form.Add(wx.StaticText(self, label="Thermal cycles"), 0, wx.ALIGN_CENTER_VERTICAL)
         self.cycles = wx.SpinCtrl(self, min=100, max=20000, initial=5256, size=(80, -1))
         self.cycles.Bind(wx.EVT_SPINCTRL, self._on_change)
-        self.cycles.SetToolTip("Annual thermal cycles (5256 â‰ˆ LEO satellite)")
+        self.cycles.SetToolTip("Annual thermal cycles (5256, approx. LEO satellite)")
         form.Add(self.cycles, 0)
         form.Add(wx.StaticText(self, label="/year"), 0, wx.ALIGN_CENTER_VERTICAL)
         
-        form.Add(wx.StaticText(self, label="Î”T per cycle"), 0, wx.ALIGN_CENTER_VERTICAL)
+        form.Add(wx.StaticText(self, label="dT per cycle"), 0, wx.ALIGN_CENTER_VERTICAL)
         self.dt = wx.SpinCtrlDouble(self, min=0.5, max=50, initial=3.0, inc=0.5, size=(80, -1))
         self.dt.Bind(wx.EVT_SPINCTRLDOUBLE, self._on_change)
         form.Add(self.dt, 0)
-        form.Add(wx.StaticText(self, label="Â°C"), 0, wx.ALIGN_CENTER_VERTICAL)
+        form.Add(wx.StaticText(self, label="degC"), 0, wx.ALIGN_CENTER_VERTICAL)
         
-        form.Add(wx.StaticText(self, label="Default Ï„_on"), 0, wx.ALIGN_CENTER_VERTICAL)
+        form.Add(wx.StaticText(self, label="Default tau_on"), 0, wx.ALIGN_CENTER_VERTICAL)
         self.tau_on = wx.SpinCtrlDouble(self, min=0.01, max=1.0, initial=1.0, inc=0.05, size=(80, -1))
         self.tau_on.SetDigits(2)
         self.tau_on.Bind(wx.EVT_SPINCTRLDOUBLE, self._on_change)
@@ -196,7 +198,7 @@ class ComponentPanel(scrolled.ScrolledPanel):
         self.list.InsertColumn(0, "Ref", width=50)
         self.list.InsertColumn(1, "Value", width=80)
         self.list.InsertColumn(2, "Type", width=110)
-        self.list.InsertColumn(3, "Î» (FIT)", width=70)
+        self.list.InsertColumn(3, "L (FIT)", width=70)
         self.list.InsertColumn(4, "R", width=70)
         self.list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self._on_dclick)
         sizer.Add(self.list, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
@@ -211,7 +213,7 @@ class ComponentPanel(scrolled.ScrolledPanel):
     def set_data(self, sheet: str, components: List[Dict], total_lam: float, r: float):
         self.current_sheet = sheet
         label = sheet.rstrip("/").split("/")[-1] or "Root"
-        self.header.SetLabel(f"Components â€” {label}")
+        self.header.SetLabel(f"Components -- {label}")
         
         self.list.DeleteAllItems()
         for i, c in enumerate(components):
@@ -222,7 +224,7 @@ class ComponentPanel(scrolled.ScrolledPanel):
             self.list.SetItem(idx, 3, f"{lam*1e9:.1f}")
             self.list.SetItem(idx, 4, f"{float(c.get('r', 1) or 1):.5f}")
         
-        self.summary.SetLabel(f"Sheet: Î» = {total_lam*1e9:.1f} FIT â€¢ R = {r:.5f}")
+        self.summary.SetLabel(f"Sheet: L = {total_lam*1e9:.1f} FIT  R = {r:.5f}")
         self.Layout()
     
     def _on_edit(self, event):
@@ -279,7 +281,7 @@ class ReliabilityMainDialog(wx.Dialog):
         header = wx.Panel(self)
         header.SetBackgroundColour(Colors.HEADER_BG)
         header_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        title = wx.StaticText(header, label="âš¡ Reliability Calculator")
+        title = wx.StaticText(header, label="[Z] Reliability Calculator")
         title.SetFont(wx.Font(14, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
         title.SetForegroundColour(Colors.HEADER_FG)
         header_sizer.Add(title, 1, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 12)
@@ -551,12 +553,12 @@ class ReliabilityMainDialog(wx.Dialog):
         lines = [
             "=" * 45, "       SYSTEM RELIABILITY ANALYSIS", "=" * 45, "",
             f"  Mission: {years:.1f} years ({hours:.0f} h)", "",
-            f"  â–¶ Reliability:  R = {sys_r:.6f}",
-            f"  â–¶ Failure Rate: Î» = {sys_lam*1e9:.2f} FIT"
+            f"   Reliability:  R = {sys_r:.6f}",
+            f"   Failure Rate: L = {sys_lam*1e9:.2f} FIT"
         ]
         if sys_lam > 0:
             mttf = 1 / sys_lam
-            lines.append(f"  â–¶ MTTF: {mttf/(365*24):.1f} years")
+            lines.append(f"   MTTF: {mttf/(365*24):.1f} years")
         
         lines.extend(["", "=" * 45, "            BLOCK DETAILS", "=" * 45])
         for bid, b in sorted(self.editor.blocks.items()):
@@ -566,7 +568,7 @@ class ReliabilityMainDialog(wx.Dialog):
                 lines.append(f"    R = {float(b.reliability or 1.0):.6f}")
             else:
                 lines.append(f"\n  {b.label}")
-                lines.append(f"    Î» = {float(b.lambda_val or 0)*1e9:.1f} FIT, R = {float(b.reliability or 1.0):.6f}")
+                lines.append(f"    L = {float(b.lambda_val or 0)*1e9:.1f} FIT, R = {float(b.reliability or 1.0):.6f}")
         
         self.results.SetValue("\n".join(lines))
         self.status.SetLabel(f"System R = {sys_r:.6f} ({years:.1f}y)")
@@ -825,7 +827,7 @@ class ReliabilityMainDialog(wx.Dialog):
 
 - **Mission:** {years:.1f} years ({hours:.0f} hours)
 - **Reliability:** R = {sys_r:.6f}
-- **Failure Rate:** Î» = {sys_lam*1e9:.2f} FIT
+- **Failure Rate:** L = {sys_lam*1e9:.2f} FIT
 
 ## Sheet Analysis
 
@@ -834,9 +836,9 @@ class ReliabilityMainDialog(wx.Dialog):
             fit = float(data["lambda"]) * 1e9
             md += f"""### {path}
 
-R = {float(data["r"]):.6f}, Î» = {fit:.2f} FIT
+R = {float(data["r"]):.6f}, L = {fit:.2f} FIT
 
-| Ref | Value | Type | Î» (FIT) | R |
+| Ref | Value | Type | L (FIT) | R |
 |-----|-------|------|---------|---|
 """
             for c in data["components"][:20]:

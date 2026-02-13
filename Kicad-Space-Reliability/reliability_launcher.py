@@ -2,13 +2,15 @@
 """
 Reliability Calculator - Main Launcher
 
-This is the primary entry point for the Reliability Calculator.
-It can be launched:
+Primary entry point for the Reliability Calculator.
+Can be launched:
 1. From KiCad via the BOM generator (bom_reliability.py)
 2. Directly by double-clicking this file
 3. From command line: python reliability_launcher.py [project_path]
 
-On first launch without a project, it shows a welcome dialog to browse for a project.
+On first launch without a project, shows a welcome dialog to browse for a project.
+
+Author:  Eliot Abramo
 """
 
 import sys
@@ -51,7 +53,7 @@ class ProjectSelector(wx.Dialog):
         main_sizer = wx.BoxSizer(wx.VERTICAL)
         
         # Header
-        header = wx.StaticText(panel, label="⚡ Reliability Calculator")
+        header = wx.StaticText(panel, label="Reliability Calculator")
         header_font = header.GetFont()
         header_font.SetPointSize(16)
         header_font.SetWeight(wx.FONTWEIGHT_BOLD)
@@ -90,7 +92,7 @@ class ProjectSelector(wx.Dialog):
         # Browse button
         browse_sizer = wx.BoxSizer(wx.HORIZONTAL)
         
-        browse_btn = wx.Button(panel, label="📁 Browse for Project...", size=(200, 40))
+        browse_btn = wx.Button(panel, label=" Browse for Project...", size=(200, 40))
         browse_btn.SetFont(browse_btn.GetFont().Bold())
         browse_btn.Bind(wx.EVT_BUTTON, self.on_browse)
         browse_sizer.Add(browse_btn, 0, wx.ALL, 10)

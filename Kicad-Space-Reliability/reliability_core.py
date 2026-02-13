@@ -1,8 +1,10 @@
 """
 Reliability Core - Backward Compatibility Module
 
-This module provides backward compatibility with older imports.
+Provides backward compatibility with older imports.
 All actual calculations are now in reliability_math.py.
+
+Author:  Eliot Abramo
 """
 
 # Re-export everything from reliability_math for backward compatibility

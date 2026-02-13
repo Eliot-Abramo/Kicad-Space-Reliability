@@ -3,6 +3,8 @@ Project Manager
 ===============
 Manages the Reliability/ folder structure for KiCad projects.
 Handles configuration, reports, and assets storage.
+
+Author:  Eliot Abramo
 """
 
 import os

@@ -2,6 +2,8 @@
 KiCad Schematic Parser
 ======================
 Reads KiCad 9 schematic files and extracts hierarchy and component data.
+
+Author:  Eliot Abramo
 """
 
 import os

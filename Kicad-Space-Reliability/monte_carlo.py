@@ -3,6 +3,8 @@ Monte Carlo Uncertainty Analysis Module
 =======================================
 Component-level uncertainty propagation through IEC TR 62380 formulas.
 Uses vectorized NumPy operations for performance.
+
+Author:  Eliot Abramo
 """
 
 import numpy as np

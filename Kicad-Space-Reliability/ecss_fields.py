@@ -2,11 +2,13 @@
 """
 ECSS field and category loader.
 
-This module loads ECSS categories and field definitions from JSON files:
+Loads ECSS categories and field definitions from JSON files:
     - ecss_categories.json : UI + mapping to math models
     - ecss_tables.json     : numerical tables (base rates, pi factors, ...)
 
-It provides a stable API for the GUI and math code.
+Provides a stable API for the GUI and math code.
+
+Author:  Eliot Abramo
 """
 
 from __future__ import annotations

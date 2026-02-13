@@ -2,11 +2,11 @@
 """
 KiCad BOM Generator Plugin - Reliability Calculator
 
-This script is called by KiCad's Schematic Editor via Tools → Generate Bill of Materials.
+This script is called by KiCad's Schematic Editor via Tools > Generate Bill of Materials.
 It launches the Reliability Calculator GUI with the current project loaded.
 
 Installation:
-1. In Eeschema, go to Tools → Generate Bill of Materials
+1. In Eeschema, go to Tools > Generate Bill of Materials
 2. Click "Add Plugin..."  
 3. Browse to this file (bom_reliability.py)
 4. Set the command line to:
@@ -19,10 +19,12 @@ Installation:
 6. Click OK
 
 Usage:
-- With your schematic open, go to Tools → Generate Bill of Materials
+- With your schematic open, go to Tools > Generate Bill of Materials
 - Select "Reliability Calculator" from the list
 - Click "Generate"
 - The Reliability Calculator window will open with your project loaded
+
+Author:  Eliot Abramo
 """
 
 import sys

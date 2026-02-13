@@ -2,6 +2,8 @@
 Sobol Sensitivity Analysis Module
 =================================
 First-order and total-order Sobol indices with interaction detection.
+
+Author:  Eliot Abramo
 """
 
 import numpy as np
@@ -177,10 +179,10 @@ class SobolAnalyzer:
         # Generate samples
         X1, X2 = generate_sobol_samples(d, n, bounds, self.seed)
         
-        # Vectorized wrapper — avoids row-by-row Python loop
+        # Vectorized wrapper  avoids row-by-row Python loop
         def array_model(X: np.ndarray) -> np.ndarray:
             # For sheet-level lambda sensitivity, each column is a sheet lambda
-            # sum across parameters → total lambda → reliability
+            # sum across parameters  total lambda  reliability
             # This is much faster than calling model_func row-by-row
             results = np.empty(X.shape[0])
             # Batch in chunks to balance memory vs speed
@@ -280,7 +282,7 @@ def quick_sensitivity(
     except ImportError:
         from reliability_math import reliability_from_lambda
     
-    # Create bounds (Â±uncertainty_range around nominal)
+    # Create bounds (uncertainty_range around nominal)
     bounds = {}
     for name, lam in lambda_components.items():
         bounds[name] = (lam * (1 - uncertainty_range), lam * (1 + uncertainty_range))

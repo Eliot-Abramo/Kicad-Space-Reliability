@@ -2,6 +2,8 @@
 Visual Block Diagram Editor
 ===========================
 Drag-and-drop canvas for defining reliability topology with zoom/pan.
+
+Author:  Eliot Abramo
 """
 
 import wx
@@ -273,7 +275,7 @@ class BlockEditor(wx.Panel):
         font = wx.Font(9, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
         gc.SetFont(font, wx.Colour(60, 60, 60))
         gc.DrawText(f"R = {b.reliability:.4f}", b.x + 10, b.y + 32)
-        gc.DrawText(f"Î» = {b.lambda_val*1e9:.1f} FIT", b.x + 10, b.y + 48)
+        gc.DrawText(f"L = {b.lambda_val*1e9:.1f} FIT", b.x + 10, b.y + 48)
 
     def _draw_group(self, gc, g: Block):
         color = {"series": self.SERIES_COLOR, "parallel": self.PARALLEL_COLOR, "k_of_n": self.KN_COLOR}.get(g.connection_type, self.SERIES_COLOR)
@@ -366,11 +368,11 @@ class BlockEditor(wx.Panel):
         groupable = [b for b in self.multi_selected
                      if b in self.blocks and not self.blocks[b].is_group]
         if len(groupable) >= 2:
-            item_s = menu.Append(wx.ID_ANY, f"Group {len(groupable)} blocks → Series")
+            item_s = menu.Append(wx.ID_ANY, f"Group {len(groupable)} blocks  Series")
             self.Bind(wx.EVT_MENU, lambda e, ids=groupable: self._group_selected(ids, "series"), item_s)
-            item_p = menu.Append(wx.ID_ANY, f"Group {len(groupable)} blocks → Parallel")
+            item_p = menu.Append(wx.ID_ANY, f"Group {len(groupable)} blocks  Parallel")
             self.Bind(wx.EVT_MENU, lambda e, ids=groupable: self._group_selected(ids, "parallel"), item_p)
-            item_k = menu.Append(wx.ID_ANY, f"Group {len(groupable)} blocks → K-of-N")
+            item_k = menu.Append(wx.ID_ANY, f"Group {len(groupable)} blocks  K-of-N")
             self.Bind(wx.EVT_MENU, lambda e, ids=groupable: self._group_selected(ids, "k_of_n"), item_k)
             menu.AppendSeparator()
         

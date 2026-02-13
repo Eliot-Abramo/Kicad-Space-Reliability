@@ -1,29 +1,35 @@
 {
-  "$schema": "https://go.kicad.org/pcm/schemas/v1",
-  "name": "Space Reliability Calculator",
-  "description": "Professional-grade KiCad plugin to estimate system reliability based on IEC TR 62380 for space/aerospace and high-reliability electronics.",
-  "description_full": "A professional-grade KiCad plugin for calculating system reliability based on the IEC TR 62380 standard. Designed for space, aerospace, and high-reliability electronics applications.",
-  "identifier": "com-github-eliot-abramo-kicad-space-reliability",
-  "type": "plugin",
-  "author": {
-    "name": "Eliot Abramo",
-    "contact": {
-      "web": "https://github.com/Eliot-Abramo"
-    }
-  },
-  "license": "MIT",
-  "resources": {
+    "$schema": "https://go.kicad.org/pcm/schemas/v1",
+    "name": "Reliability Calculator",
+    "description": "IEC TR 62380 compliant reliability analysis for KiCad projects. Calculate component failure rates, build system block diagrams with series/parallel/k-of-n configurations, perform Monte Carlo and sensitivity analysis, and generate professional reports.",
+    "description_full": "The Reliability Calculator plugin provides comprehensive reliability analysis for electronic systems designed in KiCad.\n\nKey Features:\n- Component-level failure rate calculations (lambda) for ICs, discretes, passives, connectors\n- Visual block diagram editor for defining system topology\n- Series, parallel, and k-of-n redundancy configurations\n- Configurable EOS (Electrical OverStress) parameters\n- Working time ratio (tau_on) for duty-cycled operation\n- Thermal expansion mismatch calculations\n- Monte Carlo uncertainty analysis\n- Sobol sensitivity analysis\n- Professional reports in HTML, Markdown, CSV, JSON formats\n\nBased on IEC TR 62380:2004 standard.",
+    "identifier": "com-github-eliot-abramo-kicad-space-reliability",
+    "type": "plugin",
+    "author": {
+        "name": "Eliot Abramo",
+        "contact": {
+            "web": "https://github.com/Eliot-Abramo"
+        }
+    },
+    "maintainer": {
+        "name": "Eliot Abramo",
+        "contact": {
+            "web": "https://github.com/Eliot-Abramo"
+        }
+    },
+    "license": "MIT",
+    "resources": {
         "homepage": "https://github.com/reliability-calculator/kicad-plugin"
-  },
-  "versions": [
-    {
-      "version": "2.0",
-      "status": "stable",
-      "kicad_version": "8.0",
-      "download_url": "https://github.com/Eliot-Abramo/Kicad-Space-Reliability/blob/c707155ed49f8c5118fd557947fd473a046bea35/kicad-space-reliability.zip",
-      "download_sha256": "2fd0ffcd26d7f0d019bebfacd31c8e30e10fef45bd9388fc516988029d791b35",
-      "download_size": 123456,
-      "install_size": 456789
-    }
-  ]
+    },
+    "versions": [
+        {
+            "version": "2.0.0",
+            "status": "stable",
+            "kicad_version": "8.0",
+            "download_url": "https://github.com/Eliot-Abramo/Kicad-Space-Reliability/blob/c707155ed49f8c5118fd557947fd473a046bea35/kicad-space-reliability.zip",
+            "download_sha256": "2fd0ffcd26d7f0d019bebfacd31c8e30e10fef45bd9388fc516988029d791b35",
+            "download_size": 123456,
+            "install_size": 456789
+        }
+    ]
 }

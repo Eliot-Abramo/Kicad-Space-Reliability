@@ -1,10 +1,12 @@
 """
 Component Editor Dialog
 =======================
-UI for editing reliability fields with new IEC TR 62380 features:
+UI for editing reliability fields per IEC TR 62380:
 - Configurable EOS (interface type selection)
-- Working time ratio (τ_on)
+- Working time ratio (tau_on)
 - Thermal expansion materials
+
+Author:  Eliot Abramo
 """
 
 import wx
@@ -240,7 +242,7 @@ class ComponentEditorDialog(wx.Dialog):
             mttf_h = 1 / lam if lam > 0 else float('inf')
             mttf_y = mttf_h / 8760
             
-            text = f"λ (failure rate): {fit:.2f} FIT ({lam:.2e} /h)\n"
+            text = f"lambda (failure rate): {fit:.2f} FIT ({lam:.2e} /h)\n"
             text += f"R({self.mission_hours/8760:.1f} yr): {r:.6f} ({r*100:.4f}%)\n"
             text += f"MTTF: {mttf_y:.1f} years"
             
@@ -287,7 +289,7 @@ class BatchComponentEditorDialog(wx.Dialog):
         self.list.InsertColumn(0, "Ref", width=60)
         self.list.InsertColumn(1, "Value", width=90)
         self.list.InsertColumn(2, "Type", width=130)
-        self.list.InsertColumn(3, "λ (FIT)", width=80)
+        self.list.InsertColumn(3, "lambdaL (FIT)", width=80)
         
         for i, comp in enumerate(self.components):
             self.list.InsertItem(i, comp.reference)
@@ -450,36 +452,36 @@ class QuickReferenceDialog(wx.Dialog):
 =========================================
 
 Key Concepts:
-• λ (Lambda): Failure rate in FIT (Failures In Time = failures per 10^9 hours)
-• R(t): Reliability = probability of survival = exp(-λ × t)
-• MTTF: Mean Time To Failure = 1/λ
+ Lambda: Failure rate in FIT (Failures In Time = failures per 10^9 hours)
+ R(t): Reliability = probability of survival = exp(-lambda * t)
+ MTTF: Mean Time To Failure = 1 / lambda
 
 General Model:
-λ_component = (λ_die + λ_package + λ_EOS) × 10^-9 /h
+lambda_component = (lambda_die + lambda_package + lambda_EOS) * 10^-9 /h
 
 Temperature Factor (Arrhenius):
-π_t = exp(Ea × (1/T_ref - 1/(273+T_j)))
+pi_t = exp(Ea * (1/T_ref - 1/(273 + T_j)))
 
-Thermal Cycling Factor π_n:
-• n ≤ 8760: π_n = n^0.76
-• n > 8760: π_n = 1.7 × n^0.6
+Thermal Cycling Factor pi_n:
+ n <= 8760: pi_n = n^0.76
+ n >  8760: pi_n = 1.7 * n^0.6
 
-Working Time Ratio (τ_on):
-• Scales die contribution for duty-cycled operation
-• τ_on = 1.0 for continuous operation
-• τ_on = 0.5 for 50% duty cycle
+Working Time Ratio (tau_on):
+ Scales die contribution for duty-cycled operation
+ tau_on = 1.0 for continuous operation
+ tau_on = 0.5 for 50% duty cycle
 
 EOS (Electrical Overstress):
-• Interface circuits add λ_EOS based on environment type
-• Computer: 10 FIT, Telecom: 15-70 FIT, Avionics: 20 FIT
-• Power Supply: 40 FIT, Space: 25-35 FIT
+ Interface circuits add lambda_EOS based on environment type
+ Computer: 10 FIT, Telecom: 15-70 FIT, Avionics: 20 FIT
+ Power Supply: 40 FIT, Space: 25-35 FIT
 """)
         nb.AddPage(overview, "Overview")
         
         # EOS tab
         eos = wx.TextCtrl(nb, style=wx.TE_MULTILINE | wx.TE_READONLY)
         eos_text = "EOS (Electrical Overstress) Values\n" + "="*40 + "\n\n"
-        eos_text += f"{'Interface Type':<25} {'λ_EOS (FIT)':<15}\n"
+        eos_text += f"{'Interface Type':<25} {'lambda_EOS (FIT)':<15}\n"
         eos_text += "-"*40 + "\n"
         for name, vals in INTERFACE_EOS_VALUES.items():
             eos_text += f"{name:<25} {vals['l_eos']:<15}\n"
@@ -488,14 +490,14 @@ EOS (Electrical Overstress):
         
         # Materials tab
         mat = wx.TextCtrl(nb, style=wx.TE_MULTILINE | wx.TE_READONLY)
-        mat_text = "Thermal Expansion Coefficients (ppm/°C)\n" + "="*45 + "\n\n"
+        mat_text = "Thermal Expansion Coefficients (ppm/degC)\n" + "="*45 + "\n\n"
         mat_text += "SUBSTRATES:\n"
         for name, cte in THERMAL_EXPANSION_SUBSTRATE.items():
-            mat_text += f"  {name:<30} α = {cte}\n"
+            mat_text += f"  {name:<30} alpha = {cte}\n"
         mat_text += "\nPACKAGES:\n"
-        mat_text += "  Plastic (SOIC, QFP, BGA)       α = 21.5\n"
-        mat_text += "  Ceramic (CQFP, CPGA)           α = 6.5\n"
-        mat_text += "  Metal Can (TO)                  α = 17.0\n"
+        mat_text += "  Plastic (SOIC, QFP, BGA)        = 21.5\n"
+        mat_text += "  Ceramic (CQFP, CPGA)            = 6.5\n"
+        mat_text += "  Metal Can (TO)                   = 17.0\n"
         mat.SetValue(mat_text)
         nb.AddPage(mat, "Materials")
         

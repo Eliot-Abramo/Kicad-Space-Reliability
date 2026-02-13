@@ -1,5 +1,7 @@
 """
 KiCad Action Plugin for Reliability Calculation
+
+Author:  Eliot Abramo
 """
 
 import os
