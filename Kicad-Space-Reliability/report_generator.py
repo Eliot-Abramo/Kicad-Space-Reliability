@@ -2,6 +2,8 @@
 Enhanced Report Generator with Inline SVG Charts
 =================================================
 Professional reliability reports with embedded interactive visualizations.
+Supports tornado charts, design margin scenarios, configurable CI,
+and component override display.
 
 Author:  Eliot Abramo
 """
@@ -33,8 +35,10 @@ class ReportData:
 
     monte_carlo: Optional[Dict] = None
     sensitivity: Optional[Dict] = None
-    sheet_mc: Optional[Dict] = None  # per-sheet MC results
-    criticality: Optional[List] = None  # component criticality results
+    sheet_mc: Optional[Dict] = None
+    criticality: Optional[List] = None
+    tornado: Optional[Dict] = None
+    design_margin: Optional[Dict] = None
 
     generated_at: str = None
 
@@ -46,17 +50,16 @@ class ReportData:
 # === SVG Chart Generators ===
 
 def _svg_histogram(samples: list, mean: float, p5: float, p95: float,
-                   width: int = 600, height: int = 300, title: str = "Distribution") -> str:
-    """Generate an SVG histogram with mean and percentile lines."""
+                   width: int = 600, height: int = 300, title: str = "Distribution",
+                   ci_lower: float = None, ci_upper: float = None,
+                   ci_label: str = "90% CI") -> str:
     if not samples or len(samples) < 2:
         return ""
-
     n_bins = 35
     s_min, s_max = min(samples), max(samples)
     s_range = s_max - s_min
     if s_range < 1e-15:
         s_range = 1e-6
-
     bin_width = s_range / n_bins
     bins = [0] * n_bins
     for v in samples:
@@ -71,172 +74,232 @@ def _svg_histogram(samples: list, mean: float, p5: float, p95: float,
     svg += f'<rect width="{width}" height="{height}" fill="white" rx="8"/>\n'
     svg += f'<text x="{ml}" y="24" font-size="13" font-weight="bold" fill="#1e293b">{title}</text>\n'
 
-    # Grid lines
     for i in range(5):
         y = mt + ch * i // 4
         svg += f'<line x1="{ml}" y1="{y}" x2="{ml+cw}" y2="{y}" stroke="#f1f5f9" stroke-width="1"/>\n'
 
-    # Bars
     bw = max(1, cw // n_bins - 1)
-    for i, count in enumerate(bins):
-        if count > 0:
+    for i, cnt in enumerate(bins):
+        if cnt > 0:
             x = ml + i * cw // n_bins
-            bh = int((count / max_count) * ch)
-            y = mt + ch - bh
-            svg += f'<rect x="{x}" y="{y}" width="{bw}" height="{bh}" fill="#3b82f6" opacity="0.85" rx="1"/>\n'
+            bh = int((cnt / max_count) * ch)
+            svg += f'<rect x="{x}" y="{mt+ch-bh}" width="{bw}" height="{bh}" fill="#3b82f6" rx="1"/>\n'
 
-    # Reference lines
-    def val_to_x(v):
+    def vx(v):
         return ml + (v - s_min) / s_range * cw
 
-    # Mean
-    mx = val_to_x(mean)
-    svg += f'<line x1="{mx:.1f}" y1="{mt}" x2="{mx:.1f}" y2="{mt+ch}" stroke="#ef4444" stroke-width="2"/>\n'
-    svg += f'<text x="{mx+4:.1f}" y="{mt+14}" font-size="9" fill="#ef4444">Mean={mean:.5f}</text>\n'
+    # CI band (shaded area)
+    if ci_lower is not None and ci_upper is not None:
+        x1, x2 = vx(ci_lower), vx(ci_upper)
+        svg += f'<rect x="{x1:.1f}" y="{mt}" width="{x2-x1:.1f}" height="{ch}" fill="#22c55e" opacity="0.12"/>\n'
+        svg += f'<line x1="{x1:.1f}" y1="{mt}" x2="{x1:.1f}" y2="{mt+ch}" stroke="#22c55e" stroke-width="2" stroke-dasharray="5,3"/>\n'
+        svg += f'<line x1="{x2:.1f}" y1="{mt}" x2="{x2:.1f}" y2="{mt+ch}" stroke="#22c55e" stroke-width="2" stroke-dasharray="5,3"/>\n'
 
-    # Percentiles
-    if p5 is not None:
-        px = val_to_x(p5)
-        svg += f'<line x1="{px:.1f}" y1="{mt}" x2="{px:.1f}" y2="{mt+ch}" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="5,3"/>\n'
-        svg += f'<text x="{px+3:.1f}" y="{mt+ch-4}" font-size="8" fill="#f59e0b">5%={p5:.5f}</text>\n'
-    if p95 is not None:
-        px = val_to_x(p95)
-        svg += f'<line x1="{px:.1f}" y1="{mt}" x2="{px:.1f}" y2="{mt+ch}" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="5,3"/>\n'
-        svg += f'<text x="{px-80:.1f}" y="{mt+ch-4}" font-size="8" fill="#f59e0b">95%={p95:.5f}</text>\n'
+    # Mean line
+    xm = vx(mean)
+    svg += f'<line x1="{xm:.1f}" y1="{mt}" x2="{xm:.1f}" y2="{mt+ch}" stroke="#ef4444" stroke-width="2"/>\n'
 
-    # Axes
-    svg += f'<line x1="{ml}" y1="{mt+ch}" x2="{ml+cw}" y2="{mt+ch}" stroke="#64748b" stroke-width="1"/>\n'
+    # Percentile lines
+    for pv in [p5, p95]:
+        xp = vx(pv)
+        svg += f'<line x1="{xp:.1f}" y1="{mt}" x2="{xp:.1f}" y2="{mt+ch}" stroke="#f59e0b" stroke-width="2" stroke-dasharray="5,3"/>\n'
+
+    # Legend
+    lx = width - mr - 160
+    ly = mt + 5
+    svg += f'<line x1="{lx}" y1="{ly+6}" x2="{lx+20}" y2="{ly+6}" stroke="#ef4444" stroke-width="2"/>\n'
+    svg += f'<text x="{lx+25}" y="{ly+10}" font-size="10" fill="#475569">Mean</text>\n'
+    svg += f'<line x1="{lx}" y1="{ly+20}" x2="{lx+20}" y2="{ly+20}" stroke="#f59e0b" stroke-width="2" stroke-dasharray="5,3"/>\n'
+    svg += f'<text x="{lx+25}" y="{ly+24}" font-size="10" fill="#475569">5th/95th %ile</text>\n'
+    if ci_lower is not None:
+        svg += f'<rect x="{lx}" y="{ly+30}" width="20" height="10" fill="#22c55e" opacity="0.3" rx="2"/>\n'
+        svg += f'<text x="{lx+25}" y="{ly+39}" font-size="10" fill="#475569">{ci_label}</text>\n'
+
+    # X-axis
     for i in range(5):
-        v = s_min + s_range * i / 4
+        val = s_min + s_range * i / 4
         x = ml + cw * i // 4
-        svg += f'<text x="{x}" y="{mt+ch+18}" font-size="9" fill="#64748b" text-anchor="middle">{v:.4f}</text>\n'
-    svg += f'<text x="{ml+cw//2}" y="{height-6}" font-size="10" fill="#64748b" text-anchor="middle">Reliability R(t)</text>\n'
-
+        svg += f'<text x="{x}" y="{mt+ch+20}" font-size="9" text-anchor="middle" fill="#64748b">{val:.4f}</text>\n'
+    svg += f'<text x="{ml+cw//2}" y="{height-5}" font-size="10" text-anchor="middle" fill="#64748b">Reliability R(t)</text>\n'
     svg += '</svg>\n'
     return svg
 
 
-def _svg_bar_chart(data: List[Tuple[str, float]], width: int = 600, height: int = 350,
-                   title: str = "Chart", x_label: str = "Value", max_value: float = None,
-                   colors: List[str] = None) -> str:
-    """Generate an SVG horizontal bar chart."""
-    if not data:
-        return ""
-
-    default_colors = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6",
-                      "#ec4899", "#14b8a6", "#f97316", "#6366f1", "#84cc16"]
-    colors = colors or default_colors
-    max_val = max_value or max(d[1] for d in data) or 1.0
-    max_val = max(max_val, 0.001)
-
-    ml, mr, mt, mb = 140, 40, 40, 40
-    cw, ch = width - ml - mr, height - mt - mb
-    n = min(len(data), 15)
-    bar_h = min(22, max(12, ch // n - 4))
-    spacing = max(3, (ch - n * bar_h) // (n + 1))
-
-    svg = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" style="max-width:100%;height:auto;font-family:sans-serif;">\n'
-    svg += f'<rect width="{width}" height="{height}" fill="white" rx="8"/>\n'
-    svg += f'<text x="{ml}" y="24" font-size="13" font-weight="bold" fill="#1e293b">{title}</text>\n'
-
-    for i in range(5):
-        x = ml + cw * i // 4
-        svg += f'<line x1="{x}" y1="{mt}" x2="{x}" y2="{mt+ch}" stroke="#f1f5f9" stroke-width="1"/>\n'
-
-    for i, (name, val) in enumerate(data[:n]):
-        y = mt + spacing + i * (bar_h + spacing)
-        bw = max(2, int((val / max_val) * cw))
-        color = colors[i % len(colors)]
-
-        svg += f'<rect x="{ml}" y="{y}" width="{bw}" height="{bar_h}" fill="{color}" rx="3"/>\n'
-
-        display = name[:20] + "..." if len(name) > 20 else name
-        svg += f'<text x="{ml-6}" y="{y+bar_h//2+4}" font-size="9" fill="#1e293b" text-anchor="end">{display}</text>\n'
-
-        vt = f"{val:.4f}" if val < 1 else f"{val:.1f}"
-        tx = ml + bw + 6 if bw < cw * 0.7 else ml + 6
-        fc = "#1e293b" if bw < cw * 0.7 else "#ffffff"
-        svg += f'<text x="{tx}" y="{y+bar_h//2+4}" font-size="9" fill="{fc}">{vt}</text>\n'
-
-    svg += f'<line x1="{ml}" y1="{mt+ch}" x2="{ml+cw}" y2="{mt+ch}" stroke="#64748b" stroke-width="1"/>\n'
-    for i in range(5):
-        v = max_val * i / 4
-        x = ml + cw * i // 4
-        svg += f'<text x="{x}" y="{mt+ch+16}" font-size="8" fill="#64748b" text-anchor="middle">{v:.2f}</text>\n'
-    svg += f'<text x="{ml+cw//2}" y="{height-6}" font-size="10" fill="#64748b" text-anchor="middle">{x_label}</text>\n'
-    svg += '</svg>\n'
-    return svg
-
-
-def _svg_convergence(samples: list, width: int = 600, height: int = 200, title: str = "Convergence") -> str:
-    """Generate SVG running mean convergence plot."""
+def _svg_convergence(samples: list, width: int = 600, height: int = 300, title: str = "Convergence") -> str:
     if not samples or len(samples) < 10:
         return ""
-
     import numpy as np
     arr = np.array(samples)
     cumsum = np.cumsum(arr)
     running_mean = cumsum / np.arange(1, len(arr) + 1)
-
-    step = max(1, len(running_mean) // 100)
-    points = [(i, float(running_mean[i])) for i in range(0, len(running_mean), step)]
-    if len(running_mean) - 1 not in [p[0] for p in points]:
-        points.append((len(running_mean) - 1, float(running_mean[-1])))
-
-    vals = [p[1] for p in points]
+    step = max(1, len(running_mean) // 80)
+    pts = [(i, running_mean[i]) for i in range(0, len(running_mean), step)]
+    if len(running_mean) - 1 not in [p[0] for p in pts]:
+        pts.append((len(running_mean) - 1, running_mean[-1]))
+    vals = [p[1] for p in pts]
     v_min, v_max = min(vals), max(vals)
-    v_range = v_max - v_min
-    if v_range < 1e-12:
-        v_range = abs(v_max) * 0.01 if v_max != 0 else 0.01
-    v_min -= v_range * 0.1
-    v_max += v_range * 0.1
-    v_range = v_max - v_min
+    vr = v_max - v_min
+    if vr < 1e-12:
+        vr = abs(v_max) * 0.1 if v_max != 0 else 0.01
+    v_min -= vr * 0.1
+    v_max += vr * 0.1
+    vr = v_max - v_min
     n_max = len(arr)
-
-    ml, mr, mt, mb = 60, 20, 35, 35
+    ml, mr, mt, mb = 60, 30, 40, 50
     cw, ch = width - ml - mr, height - mt - mb
-
     svg = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" style="max-width:100%;height:auto;font-family:sans-serif;">\n'
     svg += f'<rect width="{width}" height="{height}" fill="white" rx="8"/>\n'
-    svg += f'<text x="{ml}" y="22" font-size="12" font-weight="bold" fill="#1e293b">{title}</text>\n'
-
+    svg += f'<text x="{ml}" y="24" font-size="13" font-weight="bold" fill="#1e293b">{title}</text>\n'
     for i in range(5):
         y = mt + ch * i // 4
         svg += f'<line x1="{ml}" y1="{y}" x2="{ml+cw}" y2="{y}" stroke="#f1f5f9" stroke-width="1"/>\n'
-
-    # Path
     path_d = ""
-    for idx, (n, v) in enumerate(points):
+    for n, v in pts:
         x = ml + (n / n_max) * cw
-        y = mt + ch - ((v - v_min) / v_range) * ch
-        path_d += f"{'M' if idx == 0 else 'L'}{x:.1f},{y:.1f} "
-
+        y = mt + ch - ((v - v_min) / vr) * ch
+        if not path_d:
+            path_d = f"M{x:.1f},{y:.1f}"
+        else:
+            path_d += f" L{x:.1f},{y:.1f}"
     svg += f'<path d="{path_d}" fill="none" stroke="#3b82f6" stroke-width="2"/>\n'
-
-    # Final value dashed line
-    final_y = mt + ch - ((float(running_mean[-1]) - v_min) / v_range) * ch
-    svg += f'<line x1="{ml}" y1="{final_y:.1f}" x2="{ml+cw}" y2="{final_y:.1f}" stroke="#22c55e" stroke-width="1" stroke-dasharray="4,3"/>\n'
-    svg += f'<text x="{ml+cw+4}" y="{final_y+4:.1f}" font-size="8" fill="#22c55e">{float(running_mean[-1]):.5f}</text>\n'
-
-    svg += f'<text x="{ml+cw//2}" y="{height-6}" font-size="9" fill="#64748b" text-anchor="middle">Simulations</text>\n'
+    fy = mt + ch - ((running_mean[-1] - v_min) / vr) * ch
+    svg += f'<line x1="{ml}" y1="{fy:.1f}" x2="{ml+cw}" y2="{fy:.1f}" stroke="#22c55e" stroke-width="1" stroke-dasharray="5,3"/>\n'
+    svg += f'<text x="{ml+cw//2}" y="{height-5}" font-size="10" text-anchor="middle" fill="#64748b">Simulations</text>\n'
     svg += '</svg>\n'
     return svg
 
 
+def _svg_bar_chart(data: list, width: int = 600, height: int = 400, title: str = "Chart",
+                   x_label: str = "Value", max_value: float = None,
+                   colors: list = None) -> str:
+    if not data:
+        return ""
+    default_colors = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6",
+                       "#ec4899", "#14b8a6", "#f97316", "#6366f1", "#06b6d4",
+                       "#84cc16", "#d946ef"]
+    colors = colors or default_colors
+    mv = max_value or max(abs(v) for _, v in data) or 1
+    ml, mr, mt, mb = 120, 30, 40, 50
+    cw, ch = width - ml - mr, height - mt - mb
+    n = min(len(data), 15)
+    bh = min(22, max(12, (ch - 10) // n))
+    sp = max(2, (ch - n * bh) // (n + 1))
+    svg = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" style="max-width:100%;height:auto;font-family:sans-serif;">\n'
+    svg += f'<rect width="{width}" height="{height}" fill="white" rx="8"/>\n'
+    svg += f'<text x="{ml}" y="24" font-size="13" font-weight="bold" fill="#1e293b">{title}</text>\n'
+    for i in range(5):
+        x = ml + cw * i // 4
+        svg += f'<line x1="{x}" y1="{mt}" x2="{x}" y2="{mt+ch}" stroke="#f1f5f9" stroke-width="1"/>\n'
+    for i, (name, val) in enumerate(data[:n]):
+        y = mt + sp + i * (bh + sp)
+        bw = max(2, int((abs(val) / mv) * cw))
+        c = colors[i % len(colors)]
+        svg += f'<rect x="{ml}" y="{y}" width="{bw}" height="{bh}" fill="{c}" rx="3"/>\n'
+        dn = name[:20]
+        svg += f'<text x="{ml-5}" y="{y+bh//2+4}" font-size="9" text-anchor="end" fill="#374151">{dn}</text>\n'
+        vt = f"{val:.3f}" if abs(val) < 10 else f"{val:.1f}"
+        if bw > 50:
+            svg += f'<text x="{ml+6}" y="{y+bh//2+4}" font-size="9" fill="white">{vt}</text>\n'
+        else:
+            svg += f'<text x="{ml+bw+6}" y="{y+bh//2+4}" font-size="9" fill="#374151">{vt}</text>\n'
+    for i in range(5):
+        val = mv * i / 4
+        x = ml + cw * i // 4
+        svg += f'<text x="{x}" y="{mt+ch+20}" font-size="9" text-anchor="middle" fill="#64748b">{val:.2f}</text>\n'
+    svg += f'<text x="{ml+cw//2}" y="{height-5}" font-size="10" text-anchor="middle" fill="#64748b">{x_label}</text>\n'
+    svg += '</svg>\n'
+    return svg
+
+
+def _svg_tornado(entries: list, base_value: float, width: int = 700, height: int = 400,
+                 title: str = "Tornado Sensitivity") -> str:
+    """Generate SVG tornado chart."""
+    if not entries:
+        return ""
+    n = min(len(entries), 12)
+    ml, mr, mt, mb = 140, 40, 45, 55
+    cw, ch = width - ml - mr, height - mt - mb
+    bh = min(24, max(14, (ch - 10) // n))
+    sp = max(3, (ch - n * bh) // (n + 1))
+
+    max_swing = max(max(abs(e.get("delta_low", 0)), abs(e.get("delta_high", 0))) for e in entries[:n])
+    if max_swing < 1e-9:
+        max_swing = 1.0
+    center_x = ml + cw // 2
+
+    svg = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" style="max-width:100%;height:auto;font-family:sans-serif;">\n'
+    svg += f'<rect width="{width}" height="{height}" fill="white" rx="8"/>\n'
+    svg += f'<text x="{ml}" y="26" font-size="13" font-weight="bold" fill="#1e293b">{title}</text>\n'
+
+    # Center line (base value)
+    svg += f'<line x1="{center_x}" y1="{mt}" x2="{center_x}" y2="{mt+ch}" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4,3"/>\n'
+
+    for i, e in enumerate(entries[:n]):
+        y = mt + sp + i * (bh + sp)
+        dl = e.get("delta_low", 0)
+        dh = e.get("delta_high", 0)
+
+        # Low side (left of center = improvement = green)
+        if abs(dl) > 1e-9:
+            w_low = int((abs(dl) / max_swing) * (cw / 2))
+            x_low = center_x - w_low
+            svg += f'<rect x="{x_low}" y="{y}" width="{w_low}" height="{bh}" fill="#22c55e" rx="2" opacity="0.85"/>\n'
+
+        # High side (right of center = degradation = red)
+        if abs(dh) > 1e-9:
+            w_high = int((abs(dh) / max_swing) * (cw / 2))
+            svg += f'<rect x="{center_x}" y="{y}" width="{w_high}" height="{bh}" fill="#ef4444" rx="2" opacity="0.85"/>\n'
+
+        # Label
+        name = e.get("name", "?")[:22]
+        svg += f'<text x="{ml-5}" y="{y+bh//2+4}" font-size="9" text-anchor="end" fill="#374151">{name}</text>\n'
+
+        # Value labels
+        swing = e.get("swing", 0)
+        svg += f'<text x="{center_x + int((abs(dh)/max_swing)*(cw/2)) + 5}" y="{y+bh//2+4}" font-size="8" fill="#64748b">{swing:.1f}</text>\n'
+
+    # X-axis labels
+    for sign, label_text in [(-1, f"-{max_swing:.1f}"), (0, f"Base: {base_value:.1f}"), (1, f"+{max_swing:.1f}")]:
+        x = center_x + sign * (cw // 2)
+        svg += f'<text x="{x}" y="{mt+ch+20}" font-size="9" text-anchor="middle" fill="#64748b">{label_text}</text>\n'
+
+    # Legend
+    lx = width - mr - 180
+    svg += f'<rect x="{lx}" y="{mt+2}" width="12" height="12" fill="#22c55e" rx="2" opacity="0.85"/>\n'
+    svg += f'<text x="{lx+16}" y="{mt+12}" font-size="9" fill="#475569">Improvement (lower FIT)</text>\n'
+    svg += f'<rect x="{lx}" y="{mt+18}" width="12" height="12" fill="#ef4444" rx="2" opacity="0.85"/>\n'
+    svg += f'<text x="{lx+16}" y="{mt+28}" font-size="9" fill="#475569">Degradation (higher FIT)</text>\n'
+
+    svg += f'<text x="{ml+cw//2}" y="{height-5}" font-size="10" text-anchor="middle" fill="#64748b">System Failure Rate Impact (FIT)</text>\n'
+    svg += '</svg>\n'
+    return svg
+
+
+# =============================================================================
+# Report Generator
+# =============================================================================
+
 class ReportGenerator:
     """Generate professional reliability reports with embedded SVG charts."""
 
-    def __init__(self, logo_path: Optional[str] = None):
+    def __init__(self, logo_path: Optional[str] = None, logo_mime: str = None):
         self.logo_path = logo_path
+        self.logo_mime = logo_mime or "image/png"
         self.logo_base64 = self._encode_logo() if logo_path else None
 
     def _encode_logo(self) -> Optional[str]:
         try:
-            if self.logo_path and Path(self.logo_path).exists():
-                with open(self.logo_path, 'rb') as f:
+            p = Path(self.logo_path) if self.logo_path else None
+            if p and p.exists():
+                # Detect MIME from extension if not provided
+                ext = p.suffix.lower()
+                mime_map = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                            ".svg": "image/svg+xml", ".bmp": "image/bmp", ".gif": "image/gif"}
+                self.logo_mime = mime_map.get(ext, "image/png")
+                with open(p, 'rb') as f:
                     return base64.b64encode(f.read()).decode('utf-8')
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[ReportGenerator] Logo encoding failed: {e}")
         return None
 
     def _css(self) -> str:
@@ -253,7 +316,7 @@ class ReportGenerator:
                   display:flex; align-items:center; justify-content:space-between; }
         .header h1 { font-size:2em; margin-bottom:6px; }
         .header .sub { opacity:0.9; font-size:0.95em; }
-        .header-logo { max-height:70px; max-width:140px; margin-left:20px; }
+        .header-logo { max-height:70px; max-width:160px; margin-left:20px; object-fit:contain; }
         .card { background:var(--card); border-radius:10px; padding:24px;
                 margin-bottom:20px; box-shadow:0 1px 4px rgba(0,0,0,0.06); }
         .card h2 { color:var(--primary); margin-bottom:14px; font-size:1.3em;
@@ -275,10 +338,10 @@ class ReportGenerator:
         .badge-ok { background:#dcfce7; color:#166534; }
         .badge-warn { background:#fef3c7; color:#92400e; }
         .badge-bad { background:#fecaca; color:#991b1b; }
+        .badge-override { background:#dbeafe; color:#1e40af; }
         .chart-row { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:16px 0; }
         .chart-single { margin:16px 0; }
         .footer { text-align:center; color:var(--text2); padding:20px; font-size:0.82em; }
-        .tab-container { margin:16px 0; }
         @media print { body { padding:16px; } .card { break-inside:avoid; box-shadow:none; border:1px solid var(--border); } }
         @media (max-width:768px) { .chart-row { grid-template-columns:1fr; } }
         """
@@ -286,13 +349,8 @@ class ReportGenerator:
     def generate_html(self, data: ReportData) -> str:
         fit = data.system_lambda * 1e9
         mttf_years = data.system_mttf_hours / 8760 if data.system_mttf_hours < float('inf') else float('inf')
-
-        if data.system_reliability >= 0.99:
-            sc, st = "ok", "Excellent"
-        elif data.system_reliability >= 0.95:
-            sc, st = "warn", "Acceptable"
-        else:
-            sc, st = "bad", "Review Required"
+        sc = "ok" if data.system_reliability >= 0.99 else "warn" if data.system_reliability >= 0.95 else "bad"
+        st = {"ok": "Excellent", "warn": "Acceptable", "bad": "Review Required"}[sc]
 
         html = f"""<!DOCTYPE html>
 <html lang="en"><head>
@@ -305,7 +363,7 @@ class ReportGenerator:
 <div class="sub">Project: <strong>{data.project_name}</strong> | {datetime.fromisoformat(data.generated_at).strftime('%Y-%m-%d %H:%M')} | IEC TR 62380:2004</div>
 </div>"""
         if self.logo_base64:
-            html += f'<img src="data:image/png;base64,{self.logo_base64}" alt="Logo" class="header-logo">'
+            html += f'<img src="data:{self.logo_mime};base64,{self.logo_base64}" alt="Logo" class="header-logo">'
         html += f"""</div>
 
 <div class="card"><h2>System Summary</h2>
@@ -319,27 +377,19 @@ class ReportGenerator:
 Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
 """
 
-        # Monte Carlo section with SVG charts
         if data.monte_carlo:
-            mc = data.monte_carlo
-            html += self._mc_section(mc)
-
-        # Sensitivity section with SVG charts
+            html += self._mc_section(data.monte_carlo)
+        if data.tornado:
+            html += self._tornado_section(data.tornado)
+        if data.design_margin:
+            html += self._design_margin_section(data.design_margin)
         if data.sensitivity:
             html += self._sensitivity_section(data.sensitivity)
-
-        # Component-level criticality analysis
         if data.criticality:
             html += self._criticality_section(data.criticality)
-
-        # Failure rate contributions
         html += self._contributions_section(data.sheets)
-
-        # Per-sheet MC results
         if data.sheet_mc:
             html += self._sheet_mc_section(data.sheet_mc)
-
-        # Sheet-by-sheet details
         html += self._sheets_section(data.sheets)
 
         html += """
@@ -358,22 +408,74 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
         std = mc.get('std', 0)
         n = mc.get('n_simulations', 0)
         conv = mc.get('converged', False)
+        cl = mc.get('confidence_level', 0.90)
+        ci_lo = mc.get('ci_lower', p5)
+        ci_hi = mc.get('ci_upper', p95)
+        cl_pct = cl * 100
 
         html = f"""<div class="card"><h2>Monte Carlo Uncertainty Analysis</h2>
 <div class="grid">
 <div class="metric"><div class="v">{mean:.6f}</div><div class="l">Mean Reliability</div></div>
 <div class="metric"><div class="v">{std:.6f}</div><div class="l">Standard Deviation</div></div>
-<div class="metric"><div class="v">{p5:.6f}</div><div class="l">5th Percentile</div></div>
-<div class="metric"><div class="v">{p95:.6f}</div><div class="l">95th Percentile</div></div>
+<div class="metric"><div class="v">{ci_lo:.6f}</div><div class="l">{cl_pct:.0f}% CI Lower</div></div>
+<div class="metric"><div class="v">{ci_hi:.6f}</div><div class="l">{cl_pct:.0f}% CI Upper</div></div>
 </div>
-<p style="margin-top:12px;color:var(--text2)">Based on {n:,} simulations {'(converged)' if conv else '(max iterations)'}</p>
+<p style="margin-top:12px;color:var(--text2)">Based on {n:,} simulations {'(converged)' if conv else '(max iterations)'} | {cl_pct:.0f}% Confidence Interval: [{ci_lo:.6f}, {ci_hi:.6f}]</p>
 """
         if isinstance(samples, list) and len(samples) > 10:
+            ci_label = f"{cl_pct:.0f}% CI"
             html += '<div class="chart-row">'
-            html += _svg_histogram(samples, mean, p5, p95, title="Reliability Distribution")
+            html += _svg_histogram(samples, mean, p5, p95, title="Reliability Distribution",
+                                   ci_lower=ci_lo, ci_upper=ci_hi, ci_label=ci_label)
             html += _svg_convergence(samples, title="Mean Convergence")
             html += '</div>'
         html += '</div>\n'
+        return html
+
+    def _tornado_section(self, tornado: Dict) -> str:
+        entries = tornado.get("entries", [])
+        if not entries:
+            return ""
+        base = tornado.get("base_lambda_fit", 0)
+        pct = tornado.get("perturbation_pct", 20)
+
+        html = f"""<div class="card"><h2>Sensitivity Analysis (Tornado)</h2>
+<p>One-at-a-time perturbation of +/-{pct:.0f}% showing system failure rate impact.</p>
+"""
+        html += '<div class="chart-single">'
+        html += _svg_tornado(entries, base, title=f"System FIT Sensitivity (+/-{pct:.0f}%)")
+        html += '</div>'
+
+        html += '<table><thead><tr><th>Parameter</th><th>Base (FIT)</th><th>Low (FIT)</th><th>High (FIT)</th><th>Swing (FIT)</th></tr></thead><tbody>\n'
+        for e in entries[:15]:
+            html += f'<tr><td>{e["name"]}</td><td class="mono">{e["base_value"]:.2f}</td>'
+            html += f'<td class="mono">{e["low_value"]:.2f}</td><td class="mono">{e["high_value"]:.2f}</td>'
+            html += f'<td class="mono">{e["swing"]:.2f}</td></tr>\n'
+        html += '</tbody></table></div>\n'
+        return html
+
+    def _design_margin_section(self, dm: Dict) -> str:
+        scenarios = dm.get("scenarios", [])
+        if not scenarios:
+            return ""
+        bl = dm.get("baseline_lambda_fit", 0)
+        br = dm.get("baseline_reliability", 1)
+
+        html = """<div class="card"><h2>Design Margin Analysis (What-If Scenarios)</h2>
+<p>Impact of environmental and design parameter changes on system reliability.</p>
+<table><thead><tr><th>Scenario</th><th>Description</th><th>Lambda (FIT)</th><th>R(t)</th><th>Delta Lambda</th><th>Delta R</th></tr></thead><tbody>
+"""
+        for s in scenarios:
+            dp = s.get("delta_lambda_pct", 0)
+            dr = s.get("delta_reliability", 0)
+            cls = "badge-bad" if dp > 5 else "badge-warn" if dp > 0 else "badge-ok"
+            html += f'<tr><td><strong>{s["name"]}</strong></td><td>{s["description"]}</td>'
+            html += f'<td class="mono">{s["lambda_fit"]:.2f}</td><td class="mono">{s["reliability"]:.6f}</td>'
+            html += f'<td><span class="badge {cls}">{dp:+.1f}%</span></td>'
+            html += f'<td class="mono">{dr:+.6f}</td></tr>\n'
+
+        html += f'</tbody></table>\n'
+        html += f'<p style="color:var(--text2);margin-top:8px">Baseline: {bl:.2f} FIT, R = {br:.6f}</p></div>\n'
         return html
 
     def _sensitivity_section(self, sens: Dict) -> str:
@@ -382,79 +484,45 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
         s_total = sens.get("S_total", [])
         if not params:
             return ""
-
         ranked = sorted(zip(params, s_first, s_total), key=lambda x: -x[2])
-
-        html = """<div class="card"><h2>Sensitivity Analysis (Sobol Indices)</h2>
+        html = """<div class="card"><h2>Sobol Sensitivity Indices</h2>
 <table><thead><tr><th>Parameter</th><th>S (First)</th><th>S (Total)</th><th>Interaction</th><th>Influence</th></tr></thead><tbody>
 """
         for name, sf, st_val in ranked[:15]:
             interact = st_val - sf
-            influence = "High" if st_val > 0.3 else "Medium" if st_val > 0.1 else "Low"
-            inf_cls = "badge-bad" if st_val > 0.3 else "badge-warn" if st_val > 0.1 else "badge-ok"
+            inf = "High" if st_val > 0.3 else "Medium" if st_val > 0.1 else "Low"
+            ic = "badge-bad" if st_val > 0.3 else "badge-warn" if st_val > 0.1 else "badge-ok"
             html += f'<tr><td>{name}</td><td class="mono">{sf:.4f}</td><td class="mono">{st_val:.4f}</td>'
-            html += f'<td class="mono">{interact:.4f}</td><td><span class="badge {inf_cls}">{influence}</span></td></tr>\n'
-
+            html += f'<td class="mono">{interact:.4f}</td><td><span class="badge {ic}">{inf}</span></td></tr>\n'
         html += '</tbody></table>\n'
-
-        # SVG charts
         first_data = [(n, sf) for n, sf, _ in ranked[:12]]
         total_data = [(n, st_val) for n, _, st_val in ranked[:12]]
         html += '<div class="chart-row">'
-        html += _svg_bar_chart(first_data, title="First-Order Indices (S)", x_label="S", max_value=1.0)
-        html += _svg_bar_chart(total_data, title="Total-Order Indices (S)", x_label="S", max_value=1.0,
-                               colors=["#10b981", "#14b8a6", "#06b6d4", "#0ea5e9", "#3b82f6",
-                                       "#6366f1", "#8b5cf6", "#a855f7", "#d946ef", "#ec4899"])
+        html += _svg_bar_chart(first_data, title="First-Order (S1)", x_label="S", max_value=1.0)
+        html += _svg_bar_chart(total_data, title="Total-Order (ST)", x_label="S", max_value=1.0,
+                               colors=["#10b981","#14b8a6","#06b6d4","#0ea5e9","#3b82f6","#6366f1","#8b5cf6","#a855f7","#d946ef","#ec4899"])
         html += '</div></div>\n'
         return html
 
     def _criticality_section(self, criticality: List) -> str:
-        """Render component-level parameter criticality analysis.
-        
-        Shows which input parameters have the greatest influence on each
-        component's failure rate, enabling focused validation effort.
-        IEC TR 62380 §4 - sensitivity of predictions to input parameters.
-        """
         html = '<div class="card"><h2>Component Parameter Criticality</h2>\n'
-        html += '<p>Parameter sensitivity analysis showing which inputs most influence '
-        html += 'each component\'s failure rate. Higher impact (%) = greater validation priority.</p>\n'
-
+        html += '<p>Parameter sensitivity showing which inputs most influence each component\'s failure rate.</p>\n'
         for entry in criticality:
             ref = entry.get("reference", "?")
             comp_type = entry.get("component_type", "Unknown")
             base_fit = entry.get("base_lambda_fit", 0)
             fields = entry.get("fields", [])
-
             if not fields:
                 continue
-
-            html += f'<h3 style="margin-top:18px">{ref} ({comp_type}) — Base: {base_fit:.2f} FIT</h3>\n'
-            html += '<table><thead><tr>'
-            html += '<th>Parameter</th><th>Value</th><th>Elasticity</th>'
-            html += '<th>Impact (%)</th><th>Direction</th>'
-            html += '</tr></thead><tbody>\n'
-
+            html += f'<h3>{ref} ({comp_type}) -- Base: {base_fit:.2f} FIT</h3>\n'
+            html += '<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>\n'
             for f in fields:
-                name = f.get("name", "")
-                val = f.get("value", "")
                 elast = f.get("elasticity", 0)
                 impact = f.get("impact_pct", 0)
-                direction = "↑ increases λ" if elast > 0 else "↓ decreases λ" if elast < 0 else "—"
-
-                # Color-code by impact severity
-                if abs(impact) > 20:
-                    cls = ' class="bad"'
-                elif abs(impact) > 10:
-                    cls = ' class="warn"'
-                else:
-                    cls = ''
-
-                html += f'<tr{cls}><td>{name}</td><td>{val}</td>'
-                html += f'<td>{elast:+.3f}</td><td>{impact:.1f}%</td>'
-                html += f'<td>{direction}</td></tr>\n'
-
+                d = "increases lambda" if elast > 0 else "decreases lambda" if elast < 0 else "--"
+                html += f'<tr><td>{f.get("name","")}</td><td>{f.get("value","")}</td>'
+                html += f'<td>{elast:+.3f}</td><td>{impact:.1f}%</td><td>{d}</td></tr>\n'
             html += '</tbody></table>\n'
-
         html += '</div>\n'
         return html
 
@@ -464,77 +532,64 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
         for path, data in sheets.items():
             lam = data.get('lambda', 0)
             if lam > 0:
-                name = path.rstrip('/').split('/')[-1] or 'Root'
-                contribs.append((name, lam, path))
+                contribs.append((path.rstrip('/').split('/')[-1] or 'Root', lam, path))
                 total_lam += lam
         if total_lam == 0:
             return ""
-
         contribs.sort(key=lambda x: -x[1])
-
         html = """<div class="card"><h2>Failure Rate Contributions</h2>
-<table><thead><tr><th>Sheet</th><th>lambda (FIT)</th><th>Contribution</th><th>Cumulative</th><th></th></tr></thead><tbody>
+<table><thead><tr><th>Sheet</th><th>Lambda (FIT)</th><th>Contribution</th><th>Cumulative</th><th></th></tr></thead><tbody>
 """
         cum = 0
         for name, lam, _ in contribs[:20]:
             pct = lam / total_lam * 100
             cum += pct
-            bar_w = min(100, pct)
             html += f'<tr><td>{name}</td><td class="mono">{lam*1e9:.2f}</td><td>{pct:.1f}%</td><td>{cum:.1f}%</td>'
             html += f'<td style="width:120px"><div style="height:8px;background:#e2e8f0;border-radius:4px;overflow:hidden">'
-            html += f'<div style="height:100%;width:{bar_w}%;background:linear-gradient(90deg,#3b82f6,#60a5fa);border-radius:4px"></div></div></td></tr>\n'
+            html += f'<div style="height:100%;width:{min(100,pct)}%;background:linear-gradient(90deg,#3b82f6,#60a5fa);border-radius:4px"></div></div></td></tr>\n'
         html += '</tbody></table>\n'
-
-        chart_data = [(n, l / total_lam) for n, l, _ in contribs[:12]]
+        chart_data = [(n, l/total_lam) for n, l, _ in contribs[:12]]
         html += '<div class="chart-single">'
-        html += _svg_bar_chart(chart_data, title="Relative Failure Rate Contributions", x_label="Fraction of Total lambda", max_value=1.0)
+        html += _svg_bar_chart(chart_data, title="Relative Contributions", x_label="Fraction", max_value=1.0)
         html += '</div></div>\n'
         return html
 
     def _sheet_mc_section(self, sheet_mc: Dict) -> str:
         if not sheet_mc:
             return ""
-
         html = """<div class="card"><h2>Per-Sheet Monte Carlo Analysis</h2>
-<table><thead><tr><th>Sheet</th><th>Mean R</th><th>Std</th><th>5th %ile</th><th>95th %ile</th><th>Sims</th></tr></thead><tbody>
+<table><thead><tr><th>Sheet</th><th>Mean R</th><th>Std</th><th>CI Lower</th><th>CI Upper</th><th>Sims</th></tr></thead><tbody>
 """
         for path, result in sorted(sheet_mc.items()):
-            mc = result if isinstance(result, dict) else result.get('mc_result', result) if isinstance(result, dict) else {}
-            if hasattr(result, 'mc_result'):
-                mc = result.mc_result
-                mc = {'mean': mc.mean, 'std': mc.std, 'percentile_5': mc.percentile_5,
-                      'percentile_95': mc.percentile_95, 'n_simulations': mc.n_simulations}
+            mc = result if isinstance(result, dict) else {}
             name = path.rstrip('/').split('/')[-1] or 'Root'
+            cl = mc.get("confidence_level", 0.90)
             html += f'<tr><td>{name}</td><td class="mono">{mc.get("mean",0):.6f}</td>'
             html += f'<td class="mono">{mc.get("std",0):.6f}</td>'
-            html += f'<td class="mono">{mc.get("percentile_5",0):.6f}</td>'
-            html += f'<td class="mono">{mc.get("percentile_95",0):.6f}</td>'
+            html += f'<td class="mono">{mc.get("ci_lower", mc.get("percentile_5",0)):.6f}</td>'
+            html += f'<td class="mono">{mc.get("ci_upper", mc.get("percentile_95",0)):.6f}</td>'
             html += f'<td>{mc.get("n_simulations",0):,}</td></tr>\n'
         html += '</tbody></table></div>\n'
         return html
 
     def _sheets_section(self, sheets: Dict) -> str:
         html = '<div class="card"><h2>Component Details by Sheet</h2>\n'
-
         for path, sheet_data in sorted(sheets.items()):
-            sheet_fit = sheet_data.get("lambda", 0) * 1e9
-            sheet_r = sheet_data.get("r", 1.0)
+            sf = sheet_data.get("lambda", 0) * 1e9
+            sr = sheet_data.get("r", 1.0)
             components = sheet_data.get("components", [])
-            sheet_name = path.rstrip("/").split("/")[-1] or "Root"
-
-            html += f'<h3>{sheet_name}</h3>\n'
-            html += f'<p style="color:var(--text2);margin-bottom:10px">Path: <code>{path}</code> | lambda = {sheet_fit:.2f} FIT | R = {sheet_r:.6f} | {len(components)} components</p>\n'
-            html += '<table><thead><tr><th>Ref</th><th>Value</th><th>Type</th><th>lambda (FIT)</th><th>R</th></tr></thead><tbody>\n'
-
+            sn = path.rstrip("/").split("/")[-1] or "Root"
+            html += f'<h3>{sn}</h3>\n'
+            html += f'<p style="color:var(--text2);margin-bottom:10px">Path: <code>{path}</code> | lambda = {sf:.2f} FIT | R = {sr:.6f} | {len(components)} components</p>\n'
+            html += '<table><thead><tr><th>Ref</th><th>Value</th><th>Type</th><th>Lambda (FIT)</th><th>R</th><th>Source</th></tr></thead><tbody>\n'
             for comp in components:
-                c_fit = comp.get("lambda", 0) * 1e9
-                c_r = comp.get("r", 1.0)
-                html += f'<tr><td><strong>{comp.get("ref", "?")}</strong></td>'
-                html += f'<td>{comp.get("value", "")}</td>'
-                html += f'<td>{comp.get("class", "Unknown")}</td>'
-                html += f'<td class="mono">{c_fit:.2f}</td>'
-                html += f'<td class="mono">{c_r:.6f}</td></tr>\n'
-
+                cf = comp.get("lambda", 0) * 1e9
+                cr = comp.get("r", 1.0)
+                override = comp.get("override_lambda")
+                src = '<span class="badge badge-override">Override</span>' if override is not None else "Calculated"
+                html += f'<tr><td><strong>{comp.get("ref","?")}</strong></td>'
+                html += f'<td>{comp.get("value","")}</td><td>{comp.get("class","Unknown")}</td>'
+                html += f'<td class="mono">{cf:.2f}</td><td class="mono">{cr:.6f}</td><td>{src}</td></tr>\n'
             html += '</tbody></table>\n'
         html += '</div>\n'
         return html
@@ -562,45 +617,33 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
 """
         if data.monte_carlo:
             mc = data.monte_carlo
+            cl = mc.get('confidence_level', 0.90) * 100
             md += f"""## Monte Carlo Analysis
 
 | Metric | Value |
 |--------|-------|
 | Mean | {mc.get('mean',0):.6f} |
 | Std Dev | {mc.get('std',0):.6f} |
-| 5th %ile | {mc.get('percentile_5',0):.6f} |
-| 95th %ile | {mc.get('percentile_95',0):.6f} |
+| {cl:.0f}% CI Lower | {mc.get('ci_lower',0):.6f} |
+| {cl:.0f}% CI Upper | {mc.get('ci_upper',0):.6f} |
 | Simulations | {mc.get('n_simulations',0):,} |
 
 """
-        if data.sensitivity:
-            sens = data.sensitivity
-            md += "## Sensitivity Analysis\n\n| Parameter | S1 | ST |\n|---|---|---|\n"
-            ranked = sorted(zip(sens.get("parameters",[]), sens.get("S_first",[]), sens.get("S_total",[])), key=lambda x: -x[2])
-            for name, sf, st_val in ranked[:10]:
-                md += f"| {name} | {sf:.4f} | {st_val:.4f} |\n"
+        if data.tornado:
+            md += "## Tornado Sensitivity\n\n| Parameter | Swing (FIT) |\n|---|---|\n"
+            for e in data.tornado.get("entries", [])[:10]:
+                md += f"| {e['name']} | {e['swing']:.2f} |\n"
             md += "\n"
 
-        # Criticality analysis
-        if data.criticality:
-            md += "## Component Parameter Criticality\n\n"
-            for entry in data.criticality:
-                ref = entry.get("reference", "?")
-                comp_type = entry.get("component_type", "Unknown")
-                base_fit = entry.get("base_lambda_fit", 0)
-                fields = entry.get("fields", [])
-                if not fields:
-                    continue
-                md += f"**{ref}** ({comp_type}) — Base: {base_fit:.2f} FIT\n\n"
-                md += "| Parameter | Value | Elasticity | Impact (%) |\n|---|---|---|---|\n"
-                for f in fields:
-                    md += f"| {f.get('name','')} | {f.get('value','')} | {f.get('elasticity',0):+.3f} | {f.get('impact_pct',0):.1f}% |\n"
-                md += "\n"
+        if data.design_margin:
+            md += "## Design Margin Scenarios\n\n| Scenario | Lambda (FIT) | Delta |\n|---|---|---|\n"
+            for s in data.design_margin.get("scenarios", []):
+                md += f"| {s['name']} | {s['lambda_fit']:.2f} | {s['delta_lambda_pct']:+.1f}% |\n"
+            md += "\n"
 
         for path, sd in sorted(data.sheets.items()):
             name = path.rstrip('/').split('/')[-1] or 'Root'
-            md += f"### {name}\n\nlambda = {sd.get('lambda',0)*1e9:.2f} FIT | R = {sd.get('r',1):.6f}\n\n"
-            md += "| Ref | Value | Type | lambda (FIT) | R |\n|---|---|---|---|---|\n"
+            md += f"### {name}\n\n| Ref | Value | Type | Lambda (FIT) | R |\n|---|---|---|---|---|\n"
             for c in sd.get('components',[])[:20]:
                 md += f"| {c.get('ref','?')} | {c.get('value','')} | {c.get('class','')} | {c.get('lambda',0)*1e9:.2f} | {c.get('r',1):.6f} |\n"
             md += "\n"
@@ -608,27 +651,29 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
         return md
 
     def generate_csv(self, data: ReportData) -> str:
-        lines = ["Sheet,Reference,Value,Type,Lambda_FIT,Reliability"]
+        lines = ["Sheet,Reference,Value,Type,Lambda_FIT,Reliability,Source"]
         for path, sd in sorted(data.sheets.items()):
             for c in sd.get("components", []):
-                lines.append(f'"{path}","{c.get("ref","")}","{c.get("value","")}","{c.get("class","")}",{c.get("lambda",0)*1e9:.4f},{c.get("r",1):.8f}')
+                src = "override" if c.get("override_lambda") is not None else "calculated"
+                lines.append(f'"{path}","{c.get("ref","")}","{c.get("value","")}","{c.get("class","")}",{c.get("lambda",0)*1e9:.4f},{c.get("r",1):.8f},{src}')
         return "\n".join(lines)
 
     def generate_json(self, data: ReportData) -> str:
         output = {
             "meta": {"project": data.project_name, "generated": data.generated_at, "standard": "IEC TR 62380:2004"},
-            "mission": {"hours": data.mission_hours, "years": data.mission_years,
-                        "thermal_cycles": data.n_cycles, "delta_t": data.delta_t},
-            "system": {"reliability": data.system_reliability, "lambda": data.system_lambda,
-                       "lambda_fit": data.system_lambda * 1e9, "mttf_hours": data.system_mttf_hours},
+            "mission": {"hours": data.mission_hours, "years": data.mission_years, "thermal_cycles": data.n_cycles, "delta_t": data.delta_t},
+            "system": {"reliability": data.system_reliability, "lambda": data.system_lambda, "lambda_fit": data.system_lambda*1e9, "mttf_hours": data.system_mttf_hours},
             "sheets": {p: {k: v for k, v in sd.items() if k != 'components'} for p, sd in data.sheets.items()},
         }
         if data.monte_carlo:
-            mc = dict(data.monte_carlo)
-            mc.pop('samples', None)
+            mc = dict(data.monte_carlo); mc.pop('samples', None)
             output["monte_carlo"] = mc
         if data.sensitivity:
             output["sensitivity"] = data.sensitivity
+        if data.tornado:
+            output["tornado"] = data.tornado
+        if data.design_margin:
+            output["design_margin"] = data.design_margin
         if data.criticality:
             output["criticality"] = data.criticality
         return json.dumps(output, indent=2, default=str)

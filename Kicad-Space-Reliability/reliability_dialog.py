@@ -839,12 +839,14 @@ class ReliabilityMainDialog(wx.Dialog):
                 system_lambda=sys_lam,
                 mission_hours=self.settings_panel.get_hours(),
                 sheet_data=self.sheet_data,
+                blocks=self.editor.blocks,
                 project_path=self.project_path,
                 logo_path=(
                     str(self.project_manager.get_available_logo_path())
                     if self.project_manager and self.project_manager.logo_exists()
                     else None
                 ),
+                logo_mime=self.project_manager.get_logo_mime_type(),
                 n_cycles=int(self.settings_panel.cycles.GetValue()),
                 delta_t=float(self.settings_panel.dt.GetValue()),
                 title="System Reliability Analysis",
