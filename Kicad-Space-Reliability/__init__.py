@@ -15,7 +15,7 @@ Features:
 - Professional HTML/Markdown/CSV/JSON reports with SVG charts
 
 New in v3.0.0:
-- Complete rewrite of reliability_math.py (1281 lines)
+- Complete rewrite of reliability_math.py
 - 12 component types: IC, Diode, Transistor, Optocoupler, Thyristor,
   Capacitor, Resistor, Inductor, Relay, Connector, PCB/Solder, Misc
 - Full stress derating models (voltage, current, temperature, thermal cycling)
@@ -24,12 +24,6 @@ New in v3.0.0:
 - Component-level parameter criticality (elasticity analysis)
 - Defensive input validation - plugin never crashes on bad data
 - All formulas cite IEC TR 62380 section/table/page references
-
-Installation:
-    Copy this folder to your KiCad plugins directory:
-    - Linux: ~/.local/share/kicad/9.0/scripting/plugins/
-    - Windows: %APPDATA%\\kicad\\9.0\\scripting\\plugins\\
-    - macOS: ~/Library/Preferences/kicad/9.0/scripting/plugins/
 
 Designed and developed by Eliot Abramo
 License: MIT
@@ -40,9 +34,11 @@ __author__ = "Eliot Abramo"
 
 try:
     from .plugin import ReliabilityPlugin
+
     ReliabilityPlugin().register()
 except Exception as e:
     import logging
+
     logging.warning(f"Could not register ReliabilityPlugin: {e}")
 
 # Expose main classes for external use

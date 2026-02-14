@@ -16,6 +16,7 @@ import time
 @dataclass
 class MonteCarloResult:
     """Results from Monte Carlo simulation."""
+
     mean: float
     std: float
     percentile_5: float
@@ -33,21 +34,28 @@ class MonteCarloResult:
 
     def confidence_interval(self, level: float = 0.90) -> Tuple[float, float]:
         alpha = (1 - level) / 2
-        return (float(np.percentile(self.samples, alpha * 100)),
-                float(np.percentile(self.samples, (1 - alpha) * 100)))
+        return (
+            float(np.percentile(self.samples, alpha * 100)),
+            float(np.percentile(self.samples, (1 - alpha) * 100)),
+        )
 
     def to_dict(self) -> Dict:
         return {
-            "mean": self.mean, "std": self.std,
-            "percentile_5": self.percentile_5, "percentile_50": self.percentile_50,
-            "percentile_95": self.percentile_95, "converged": self.converged,
-            "n_simulations": self.n_simulations, "runtime_seconds": self.runtime_seconds,
+            "mean": self.mean,
+            "std": self.std,
+            "percentile_5": self.percentile_5,
+            "percentile_50": self.percentile_50,
+            "percentile_95": self.percentile_95,
+            "converged": self.converged,
+            "n_simulations": self.n_simulations,
+            "runtime_seconds": self.runtime_seconds,
         }
 
 
 @dataclass
 class ComponentMCInput:
     """Component input for Monte Carlo analysis."""
+
     reference: str
     component_type: str
     base_params: Dict[str, float]
@@ -57,6 +65,7 @@ class ComponentMCInput:
 @dataclass
 class SheetMCResult:
     """Monte Carlo results for a single sheet/block."""
+
     sheet_path: str
     mc_result: MonteCarloResult
     lambda_samples: np.ndarray
@@ -64,31 +73,46 @@ class SheetMCResult:
 
 def _import_reliability_math():
     try:
-        from .reliability_math import calculate_component_lambda, reliability_from_lambda
+        from .reliability_math import (
+            calculate_component_lambda,
+            reliability_from_lambda,
+        )
+
         return calculate_component_lambda, reliability_from_lambda
     except ImportError:
         from reliability_math import calculate_component_lambda, reliability_from_lambda
+
         return calculate_component_lambda, reliability_from_lambda
 
 
 def _import_classify_component():
     try:
         from .component_editor import classify_component
+
         return classify_component
     except ImportError:
         try:
             from component_editor import classify_component
+
             return classify_component
         except ImportError:
+
             def classify_component(ref, value, fields):
                 ref = ref.upper()
-                if ref.startswith('R'): return 'Resistor'
-                if ref.startswith('C'): return 'Capacitor'
-                if ref.startswith('L'): return 'Inductor/Transformer'
-                if ref.startswith('D'): return 'Diode'
-                if ref.startswith('Q') or ref.startswith('T'): return 'Transistor'
-                if ref.startswith('U'): return 'Integrated Circuit'
-                return 'Resistor'
+                if ref.startswith("R"):
+                    return "Resistor"
+                if ref.startswith("C"):
+                    return "Capacitor"
+                if ref.startswith("L"):
+                    return "Inductor/Transformer"
+                if ref.startswith("D"):
+                    return "Diode"
+                if ref.startswith("Q") or ref.startswith("T"):
+                    return "Transistor"
+                if ref.startswith("U"):
+                    return "Integrated Circuit"
+                return "Resistor"
+
             return classify_component
 
 
@@ -119,7 +143,7 @@ def monte_carlo_components(
     for i, comp in enumerate(components):
         try:
             result = calculate_component_lambda(comp.component_type, comp.base_params)
-            nominal_lambdas[i] = result.get('lambda_total', 0)
+            nominal_lambdas[i] = result.get("lambda_total", 0)
         except Exception:
             nominal_lambdas[i] = 0.0
 
@@ -151,8 +175,10 @@ def monte_carlo_components(
         convergence_history.append((cp, float(np.mean(system_r_samples[:cp]))))
     if len(convergence_history) >= 3:
         last_means = [h[1] for h in convergence_history[-3:]]
-        rel_changes = [abs(last_means[i] - last_means[i - 1]) / max(abs(last_means[i - 1]), 1e-15)
-                       for i in range(1, len(last_means))]
+        rel_changes = [
+            abs(last_means[i] - last_means[i - 1]) / max(abs(last_means[i - 1]), 1e-15)
+            for i in range(1, len(last_means))
+        ]
         if rel_changes and max(rel_changes) < 0.001:
             converged = True
 
@@ -185,21 +211,28 @@ def monte_carlo_sheet(
     classify_component = _import_classify_component()
     mc_inputs = []
     for comp in sheet_components:
-        comp_type = comp.get('class', 'Resistor')
-        if not comp_type or comp_type == 'Unknown':
-            comp_type = classify_component(comp.get('ref', 'R1'), comp.get('value', ''), {})
-        base_params = comp.get('params', {})
+        comp_type = comp.get("class", "Resistor")
+        if not comp_type or comp_type == "Unknown":
+            comp_type = classify_component(
+                comp.get("ref", "R1"), comp.get("value", ""), {}
+            )
+        base_params = comp.get("params", {})
         if not base_params:
             base_params = {
-                't_ambient': 25.0, 't_junction': 85.0,
-                'n_cycles': 5256, 'delta_t': 3.0,
-                'operating_power': 0.01, 'rated_power': 0.125,
+                "t_ambient": 25.0,
+                "t_junction": 85.0,
+                "n_cycles": 5256,
+                "delta_t": 3.0,
+                "operating_power": 0.01,
+                "rated_power": 0.125,
             }
-        mc_inputs.append(ComponentMCInput(
-            reference=comp.get('ref', '?'),
-            component_type=comp_type,
-            base_params=base_params,
-        ))
+        mc_inputs.append(
+            ComponentMCInput(
+                reference=comp.get("ref", "?"),
+                component_type=comp_type,
+                base_params=base_params,
+            )
+        )
     return monte_carlo_components(
         mc_inputs, mission_hours, n_simulations, uncertainty_percent, seed
     )
@@ -220,17 +253,19 @@ def quick_monte_carlo(
     if components and len(components) > 0:
         mc_inputs = []
         for comp in components:
-            comp_type = comp.get('type', comp.get('class', 'Resistor'))
-            base_params = comp.get('params', {})
-            if 't_junction' not in base_params and 't_ambient' not in base_params:
-                base_params['t_ambient'] = 25.0
-            base_params.setdefault('n_cycles', 5256)
-            base_params.setdefault('delta_t', 3.0)
-            mc_inputs.append(ComponentMCInput(
-                reference=comp.get('ref', comp.get('reference', '?')),
-                component_type=comp_type,
-                base_params=base_params,
-            ))
+            comp_type = comp.get("type", comp.get("class", "Resistor"))
+            base_params = comp.get("params", {})
+            if "t_junction" not in base_params and "t_ambient" not in base_params:
+                base_params["t_ambient"] = 25.0
+            base_params.setdefault("n_cycles", 5256)
+            base_params.setdefault("delta_t", 3.0)
+            mc_inputs.append(
+                ComponentMCInput(
+                    reference=comp.get("ref", comp.get("reference", "?")),
+                    component_type=comp_type,
+                    base_params=base_params,
+                )
+            )
         result, _ = monte_carlo_components(
             mc_inputs, mission_hours, n_simulations, uncertainty_percent, seed
         )
@@ -271,19 +306,29 @@ def monte_carlo_blocks(
     results = {}
     base_seed = seed if seed is not None else int(time.time())
     for idx, (sheet_path, data) in enumerate(block_data.items()):
-        components = data.get('components', [])
+        components = data.get("components", [])
         if not components:
             continue
-        sheet_components = [{
-            'ref': c.get('ref', '?'), 'value': c.get('value', ''),
-            'class': c.get('class', 'Resistor'), 'params': c.get('params', {}),
-        } for c in components]
+        sheet_components = [
+            {
+                "ref": c.get("ref", "?"),
+                "value": c.get("value", ""),
+                "class": c.get("class", "Resistor"),
+                "params": c.get("params", {}),
+            }
+            for c in components
+        ]
         mc_result, lambda_samples = monte_carlo_sheet(
-            sheet_components, mission_hours, n_simulations,
-            uncertainty_percent, seed=base_seed + idx,
+            sheet_components,
+            mission_hours,
+            n_simulations,
+            uncertainty_percent,
+            seed=base_seed + idx,
         )
         results[sheet_path] = SheetMCResult(
-            sheet_path=sheet_path, mc_result=mc_result, lambda_samples=lambda_samples,
+            sheet_path=sheet_path,
+            mc_result=mc_result,
+            lambda_samples=lambda_samples,
         )
         if progress_callback:
             progress_callback(sheet_path, idx + 1, len(block_data))
