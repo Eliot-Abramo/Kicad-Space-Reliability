@@ -40,9 +40,11 @@ class ReliabilityPlugin(pcbnew.ActionPlugin):
         self.category = "Analysis"
         self.description = "IEC TR 62380 reliability analysis with block diagram editor"
         self.show_toolbar_button = True
-        icon_path = os.path.join(os.path.dirname(__file__), "icon.png")
+        plugin_dir = os.path.dirname(os.path.abspath(__file__))
+        icon_path = os.path.join(plugin_dir, "icon.png")
         if os.path.exists(icon_path):
             self.icon_file_name = icon_path
+            self.dark_icon_file_name = icon_path
     
     def Run(self):
         """Main entry point."""

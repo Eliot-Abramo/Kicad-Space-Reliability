@@ -497,13 +497,20 @@ class ReliabilityMainDialog(wx.Dialog):
                 edited = self.component_edits.get(path, {}).get(c.reference, {})
                 if edited:
                     ct = edited.get("_component_type", "Resistor")
-                    params = edited.copy()
-                    params.setdefault("n_cycles", cycles)
-                    params.setdefault("delta_t", dt)
-                    params.setdefault("tau_on", tau_on)
-                    result = calculate_component_lambda(ct, params)
-                    lam = float(result.get("lambda_total", 0) or 0)
-                    cls_name = ct
+                    # Check for lambda override FIRST
+                    ovr = edited.get("override_lambda")
+                    if ovr is not None:
+                        lam = float(ovr) * 1e-9   # override is in FIT, convert to /h
+                        cls_name = ct
+                        params = edited.copy()
+                    else:
+                        params = edited.copy()
+                        params.setdefault("n_cycles", cycles)
+                        params.setdefault("delta_t", dt)
+                        params.setdefault("tau_on", tau_on)
+                        result = calculate_component_lambda(ct, params)
+                        lam = float(result.get("lambda_total", 0) or 0)
+                        cls_name = ct
                 else:
                     cls = c.get_field("Reliability_Class", c.get_field("Class", ""))
                     if not cls:
@@ -523,16 +530,18 @@ class ReliabilityMainDialog(wx.Dialog):
                 r = reliability_from_lambda(lam, hours)
                 total_lam += lam
                 # Store params for Monte Carlo uncertainty analysis
-                comp_data.append(
-                    {
-                        "ref": c.reference,
-                        "value": c.value,
-                        "class": cls_name,
-                        "lambda": lam,
-                        "r": r,
-                        "params": params,
-                    }
-                )
+                comp_entry = {
+                    "ref": c.reference,
+                    "value": c.value,
+                    "class": cls_name,
+                    "lambda": lam,
+                    "r": r,
+                    "params": params,
+                }
+                # Propagate override flag so sensitivity/MC can skip this component
+                if edited and edited.get("override_lambda") is not None:
+                    comp_entry["override_lambda"] = edited["override_lambda"]
+                comp_data.append(comp_entry)
 
             sheet_r = reliability_from_lambda(total_lam, hours)
             self.sheet_data[path] = {

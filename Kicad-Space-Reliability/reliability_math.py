@@ -141,16 +141,22 @@ class ActivationEnergy:
 # =============================================================================
 
 INTERFACE_EOS_VALUES = {
+    # IEC TR 62380, Section 7.3.1, Interface circuits table
+    # lambda_EOS in FIT, pi_I factor
     "Not Interface": {"pi_i": 0, "l_eos": 0},
     "Computer": {"pi_i": 1, "l_eos": 10},
     "Telecom (Switching)": {"pi_i": 1, "l_eos": 15},
-    "Telecom (Subscriber)": {"pi_i": 1, "l_eos": 70},
-    "Avionics": {"pi_i": 1, "l_eos": 20},
-    "Power Supply": {"pi_i": 1, "l_eos": 40},
+    "Telecom (Transmitting)": {"pi_i": 1, "l_eos": 40},
+    "Telecom (Access/Subscriber Cards)": {"pi_i": 1, "l_eos": 70},
+    "Telecom (Subscriber Equipment)": {"pi_i": 1, "l_eos": 100},
+    "Railways / Payphone": {"pi_i": 1, "l_eos": 100},
+    "Avionics (On Board)": {"pi_i": 1, "l_eos": 20},
+    "Power Supply / Converters": {"pi_i": 1, "l_eos": 40},
+    # Extended (common engineering contexts beyond table)
     "Industrial": {"pi_i": 1, "l_eos": 30},
+    "Automotive": {"pi_i": 1, "l_eos": 50},
     "Space (LEO)": {"pi_i": 1, "l_eos": 25},
     "Space (GEO)": {"pi_i": 1, "l_eos": 35},
-    "Automotive": {"pi_i": 1, "l_eos": 50},
     "Military": {"pi_i": 1, "l_eos": 45},
 }
 
@@ -160,18 +166,21 @@ INTERFACE_EOS_VALUES = {
 # =============================================================================
 
 THERMAL_EXPANSION_SUBSTRATE = {
-    "FR4 (Epoxy Glass)": 16.0,
-    "Polyimide Flex": 6.5,
-    "Alumina (Ceramic)": 6.5,
+    # IEC TR 62380, Table 14 -- alpha_S (substrate) in ppm/degC
+    "FR4 / Epoxy Glass (G-10)": 16.0,
+    "PTFE Glass (Polytetrafluoroethylene)": 20.0,
+    "Polyimide / Flex (Aramid)": 6.5,
+    "Cu/Invar/Cu (20/60/20)": 5.4,
     "Aluminum (Metal Core)": 23.0,
-    "Rogers (PTFE)": 10.0,
-    "BT (Bismaleimide)": 14.0,
+    "Rogers (PTFE Blend)": 10.0,
+    "BT (Bismaleimide Triazine)": 14.0,
 }
 
 THERMAL_EXPANSION_PACKAGE = {
-    "Plastic (SOIC, QFP, BGA)": 21.5,
-    "Ceramic (CQFP, CPGA)": 6.5,
-    "Metal Can (TO)": 17.0,
+    # IEC TR 62380, Table 14 -- alpha_C (component) in ppm/degC
+    "Epoxy (Plastic package)": 21.5,
+    "Alumina (Ceramic package)": 6.5,
+    "Kovar (Metallic package)": 5.0,
     "Bare Die / Flip Chip": 2.6,
 }
 
@@ -182,27 +191,235 @@ THERMAL_EXPANSION_PACKAGE = {
 # =============================================================================
 
 IC_DIE_TABLE = {
-    "MOS_DIGITAL": {"l1": 3.4e-6, "l2": 1.7, "ea": ActivationEnergy.MOS},
-    "MOS_LCA": {"l1": 1.2e-5, "l2": 10.0, "ea": ActivationEnergy.MOS},
-    "MOS_CPLD": {"l1": 4.0e-5, "l2": 8.8, "ea": ActivationEnergy.MOS},
-    "MOS_MEMORY": {"l1": 5.0e-7, "l2": 2.0, "ea": ActivationEnergy.MOS},
-    "MOS_FLASH": {"l1": 1.0e-6, "l2": 4.0, "ea": ActivationEnergy.MOS},
-    "MOS_ADC_DAC": {"l1": 2.0e-4, "l2": 15.0, "ea": ActivationEnergy.MOS},
-    "BIPOLAR_LINEAR": {"l1": 2.7e-2, "l2": 20.0, "ea": ActivationEnergy.BIPOLAR},
-    "BICMOS_LOW_V": {"l1": 2.7e-4, "l2": 20.0, "ea": ActivationEnergy.MOS},
-    "BICMOS_HIGH_V": {"l1": 2.7e-3, "l2": 20.0, "ea": ActivationEnergy.BIPOLAR},
+    # =========================================================================
+    # IEC TR 62380, Table 16 -- Values of lambda_1 and lambda_2
+    # for integrated circuits families
+    #
+    # Key fields:
+    #   l1      : per-transistor base failure rate (FIT)
+    #   l2      : technology base failure rate (FIT)
+    #   ea      : Arrhenius activation energy constant (Ea/k_B in K)
+    #   t_ref   : Reference temperature (K) for pi_t calculation
+    #   n_unit  : What "N" counts (for help text / GUI)
+    #   n_per   : Multiplier to convert user-visible count to transistors
+    #             e.g. "4 per gate" means 1 gate = 4 transistors
+    # =========================================================================
+
+    # --- Silicon: MOS Standard circuits (3) ---
+    "MOS_DIGITAL": {
+        "l1": 3.4e-6, "l2": 1.7, "ea": ActivationEnergy.MOS, "t_ref": 328,
+        "n_unit": "gates", "n_per": 4,
+        "desc": "Digital circuits, Micros, DSP",
+    },
+    "MOS_LINEAR": {
+        "l1": 1.0e-2, "l2": 4.2, "ea": ActivationEnergy.MOS, "t_ref": 328,
+        "n_unit": "transistors", "n_per": 1,
+        "desc": "Linear circuits (MOS)",
+    },
+    "MOS_DIG_LIN_TELECOM": {
+        "l1": 2.7e-4, "l2": 20.0, "ea": ActivationEnergy.MOS, "t_ref": 328,
+        "n_unit": "transistors", "n_per": 1,
+        "desc": "Digital/linear (Telecom, CAN, CNA, RAMDAC)",
+    },
+    "MOS_ROM": {
+        "l1": 1.7e-7, "l2": 8.8, "ea": ActivationEnergy.MOS, "t_ref": 328,
+        "n_unit": "bits", "n_per": 1,
+        "desc": "ROM - Read only memory",
+    },
+    "MOS_DRAM": {
+        "l1": 1.0e-7, "l2": 5.6, "ea": ActivationEnergy.MOS, "t_ref": 328,
+        "n_unit": "bits", "n_per": 1,
+        "desc": "DRAM / VideoRAM / AudioRAM",
+    },
+    "MOS_SRAM_FAST": {
+        "l1": 1.7e-7, "l2": 8.8, "ea": ActivationEnergy.MOS, "t_ref": 328,
+        "n_unit": "bits", "n_per": 4,
+        "desc": "High-speed SRAM, FIFO (mixed MOS)",
+    },
+    "MOS_SRAM_LOW": {
+        "l1": 1.7e-7, "l2": 8.8, "ea": ActivationEnergy.MOS, "t_ref": 328,
+        "n_unit": "bits", "n_per": 6,
+        "desc": "Low-consumption SRAM (CMOS)",
+    },
+    "MOS_SRAM_DUAL": {
+        "l1": 1.7e-7, "l2": 8.8, "ea": ActivationEnergy.MOS, "t_ref": 328,
+        "n_unit": "bits", "n_per": 8,
+        "desc": "Dual-access Static RAM",
+    },
+    "MOS_EPROM": {
+        "l1": 2.6e-7, "l2": 34.0, "ea": ActivationEnergy.MOS, "t_ref": 328,
+        "n_unit": "prog. points", "n_per": 1,
+        "desc": "EPROM / UVPROM / REPROM / OTP / FLASH (block erase)",
+    },
+    "MOS_EEPROM": {
+        "l1": 6.5e-7, "l2": 16.0, "ea": ActivationEnergy.MOS, "t_ref": 328,
+        "n_unit": "prog. points", "n_per": 2,
+        "desc": "EEPROM / Flash EEPROM (word-erasable)",
+    },
+
+    # --- Silicon: MOS ASIC circuits ---
+    "MOS_ASIC_STDCELL": {
+        "l1": 1.2e-5, "l2": 10.0, "ea": ActivationEnergy.MOS, "t_ref": 328,
+        "n_unit": "gates", "n_per": 4,
+        "desc": "ASIC Standard Cell / Full Custom",
+    },
+    "MOS_ASIC_GATE_ARRAY": {
+        "l1": 2.0e-5, "l2": 10.0, "ea": ActivationEnergy.MOS, "t_ref": 328,
+        "n_unit": "gates", "n_per": 4,
+        "desc": "ASIC Gate Arrays",
+    },
+    "MOS_LCA": {
+        "l1": 4.0e-5, "l2": 8.8, "ea": ActivationEnergy.MOS, "t_ref": 328,
+        "n_unit": "gates", "n_per": 40,
+        "desc": "LCA / FPGA (RAM-based, ext. memory configured)",
+    },
+    "MOS_PLD": {
+        "l1": 1.2e-3, "l2": 16.0, "ea": ActivationEnergy.MOS, "t_ref": 328,
+        "n_unit": "grid points", "n_per": 3,
+        "desc": "PLD (GAL, PAL) - AND/OR array",
+    },
+    "MOS_CPLD": {
+        "l1": 2.0e-5, "l2": 34.0, "ea": ActivationEnergy.MOS, "t_ref": 328,
+        "n_unit": "macrocells", "n_per": 100,
+        "desc": "CPLD / EPLD / MAX / FLEX / FPGA (flash/antifuse)",
+    },
+
+    # --- Silicon: Bipolar circuits (1) ---
+    "BIPOLAR_DIGITAL": {
+        "l1": 6.0e-4, "l2": 1.7, "ea": ActivationEnergy.BIPOLAR, "t_ref": 328,
+        "n_unit": "gates", "n_per": 3,
+        "desc": "Bipolar digital circuits",
+    },
+    "BIPOLAR_LINEAR": {
+        "l1": 2.2e-2, "l2": 3.3, "ea": ActivationEnergy.BIPOLAR, "t_ref": 328,
+        "n_unit": "transistors", "n_per": 1,
+        "desc": "Bipolar linear circuits (FET, others)",
+    },
+    "BIPOLAR_MMIC": {
+        "l1": 1.0, "l2": 3.3, "ea": ActivationEnergy.BIPOLAR, "t_ref": 328,
+        "n_unit": "transistors", "n_per": 1,
+        "desc": "Bipolar MMIC",
+    },
+    "BIPOLAR_LOW_V": {
+        "l1": 2.7e-3, "l2": 20.0, "ea": ActivationEnergy.BIPOLAR, "t_ref": 328,
+        "n_unit": "transistors", "n_per": 1,
+        "desc": "Bipolar linear/digital, low voltage (<30V)",
+    },
+    "BIPOLAR_HIGH_V": {
+        "l1": 2.7e-2, "l2": 20.0, "ea": ActivationEnergy.BIPOLAR, "t_ref": 328,
+        "n_unit": "transistors", "n_per": 1,
+        "desc": "Bipolar linear/digital, high voltage (>=30V)",
+    },
+    "BIPOLAR_SRAM": {
+        "l1": 3.0e-4, "l2": 1.7, "ea": ActivationEnergy.BIPOLAR, "t_ref": 328,
+        "n_unit": "bits", "n_per": 2.5,
+        "desc": "Bipolar static read-access memories",
+    },
+    "BIPOLAR_PROM": {
+        "l1": 1.5e-4, "l2": 32.0, "ea": ActivationEnergy.BIPOLAR, "t_ref": 328,
+        "n_unit": "prog. points", "n_per": 1.2,
+        "desc": "Bipolar programmable read-only memory",
+    },
+    "BIPOLAR_PLA": {
+        "l1": 1.5e-4, "l2": 32.0, "ea": ActivationEnergy.BIPOLAR, "t_ref": 328,
+        "n_unit": "grid points", "n_per": 1.6,
+        "desc": "Bipolar one-time prog. logic array (AND/OR)",
+    },
+    "BIPOLAR_GATE_ARRAY": {
+        "l1": 1.0e-3, "l2": 10.0, "ea": ActivationEnergy.BIPOLAR, "t_ref": 328,
+        "n_unit": "gates", "n_per": 3,
+        "desc": "Bipolar gate arrays (PROM, PLD/PAL)",
+    },
+
+    # --- Silicon: BiCMOS (Bipolar and MOS circuits) ---
+    "BICMOS_DIGITAL": {
+        "l1": 1.0e-6, "l2": 1.7, "ea": ActivationEnergy.MOS, "t_ref": 328,
+        "n_unit": "gates", "n_per": 4,
+        "desc": "BiCMOS digital circuits",
+    },
+    "BICMOS_LOW_V": {
+        "l1": 2.7e-4, "l2": 20.0, "ea": ActivationEnergy.MOS, "t_ref": 328,
+        "n_unit": "transistors", "n_per": 1,
+        "desc": "BiCMOS linear/digital, low voltage (<6V)",
+    },
+    "BICMOS_HIGH_V": {
+        "l1": 2.7e-3, "l2": 20.0, "ea": ActivationEnergy.BIPOLAR, "t_ref": 328,
+        "n_unit": "transistors", "n_per": 1,
+        "desc": "BiCMOS linear/digital, high voltage (>=6V) / Smart Power",
+    },
+    "BICMOS_SRAM": {
+        "l1": 6.8e-7, "l2": 8.8, "ea": ActivationEnergy.MOS, "t_ref": 328,
+        "n_unit": "bits", "n_per": 4,
+        "desc": "BiCMOS Static Read Access Memory",
+    },
+    "BICMOS_GATE_ARRAY": {
+        "l1": 6.4e-5, "l2": 10.0, "ea": ActivationEnergy.MOS, "t_ref": 328,
+        "n_unit": "gates", "n_per": 4,
+        "desc": "BiCMOS gate arrays",
+    },
+
+    # --- Gallium arsenide ---
+    "GAAS_DIGITAL_NOR": {
+        "l1": 2.5, "l2": 25.0, "ea": ActivationEnergy.MOS, "t_ref": 373,
+        "n_unit": "gates", "n_per": 5,
+        "desc": "GaAs digital - normally-on transistors only",
+    },
+    "GAAS_DIGITAL_MIXED": {
+        "l1": 4.5e-4, "l2": 16.0, "ea": ActivationEnergy.BIPOLAR, "t_ref": 373,
+        "n_unit": "gates", "n_per": 3,
+        "desc": "GaAs digital - normally-off & normally-on",
+    },
+    "GAAS_MMIC_LOW": {
+        "l1": 2.0, "l2": 20.0, "ea": ActivationEnergy.MOS, "t_ref": 373,
+        "n_unit": "transistors", "n_per": 1,
+        "desc": "GaAs MMIC - low noise / low power (<100mW)",
+    },
+    "GAAS_MMIC_POWER": {
+        "l1": 4.0, "l2": 40.0, "ea": ActivationEnergy.BIPOLAR, "t_ref": 373,
+        "n_unit": "transistors", "n_per": 1,
+        "desc": "GaAs MMIC - power (>100mW)",
+    },
 }
 
 IC_TYPE_CHOICES = {
-    "Microcontroller/DSP": "MOS_DIGITAL",
-    "FPGA (RAM-based)": "MOS_LCA",
-    "CPLD/FPGA (Flash)": "MOS_CPLD",
-    "SRAM / DRAM": "MOS_MEMORY",
-    "Flash Memory": "MOS_FLASH",
-    "ADC / DAC": "MOS_ADC_DAC",
-    "Op-Amp/Comparator": "BIPOLAR_LINEAR",
-    "LDO Regulator": "BICMOS_LOW_V",
-    "DC-DC Controller": "BICMOS_HIGH_V",
+    # --- MOS Standard ---
+    "MOS Digital (Micro/DSP)": "MOS_DIGITAL",
+    "MOS Linear": "MOS_LINEAR",
+    "MOS Digital/Linear (Telecom, CAN, RAMDAC)": "MOS_DIG_LIN_TELECOM",
+    "MOS ROM": "MOS_ROM",
+    "MOS DRAM / VideoRAM / AudioRAM": "MOS_DRAM",
+    "MOS SRAM High-Speed / FIFO": "MOS_SRAM_FAST",
+    "MOS SRAM Low-Consumption (CMOS)": "MOS_SRAM_LOW",
+    "MOS SRAM Dual-Access": "MOS_SRAM_DUAL",
+    "MOS EPROM / UVPROM / OTP / Flash (block)": "MOS_EPROM",
+    "MOS EEPROM / Flash EEPROM (word)": "MOS_EEPROM",
+    # --- MOS ASIC ---
+    "ASIC Standard Cell / Full Custom": "MOS_ASIC_STDCELL",
+    "ASIC Gate Array": "MOS_ASIC_GATE_ARRAY",
+    "FPGA / LCA (RAM-based)": "MOS_LCA",
+    "PLD (GAL, PAL)": "MOS_PLD",
+    "CPLD / EPLD / FPGA (flash/antifuse)": "MOS_CPLD",
+    # --- Bipolar ---
+    "Bipolar Digital": "BIPOLAR_DIGITAL",
+    "Bipolar Linear (Op-Amp, Comparator)": "BIPOLAR_LINEAR",
+    "Bipolar MMIC": "BIPOLAR_MMIC",
+    "Bipolar Linear/Digital Low Voltage (<30V)": "BIPOLAR_LOW_V",
+    "Bipolar Linear/Digital High Voltage (>=30V)": "BIPOLAR_HIGH_V",
+    "Bipolar SRAM": "BIPOLAR_SRAM",
+    "Bipolar PROM": "BIPOLAR_PROM",
+    "Bipolar Prog. Logic Array (AND/OR)": "BIPOLAR_PLA",
+    "Bipolar Gate Array": "BIPOLAR_GATE_ARRAY",
+    # --- BiCMOS ---
+    "BiCMOS Digital": "BICMOS_DIGITAL",
+    "BiCMOS Low Voltage (<6V) / LDO": "BICMOS_LOW_V",
+    "BiCMOS High Voltage (>=6V) / DC-DC / Smart Power": "BICMOS_HIGH_V",
+    "BiCMOS SRAM": "BICMOS_SRAM",
+    "BiCMOS Gate Array": "BICMOS_GATE_ARRAY",
+    # --- Gallium arsenide ---
+    "GaAs Digital (normally-on only)": "GAAS_DIGITAL_NOR",
+    "GaAs Digital (normally-off & on)": "GAAS_DIGITAL_MIXED",
+    "GaAs MMIC Low Power (<100mW)": "GAAS_MMIC_LOW",
+    "GaAs MMIC Power (>100mW)": "GAAS_MMIC_POWER",
 }
 
 
@@ -212,47 +429,196 @@ IC_TYPE_CHOICES = {
 # =============================================================================
 
 IC_PACKAGE_CHOICES = {
-    "DIP-8": ("DIP", 8),
-    "DIP-14": ("DIP", 14),
-    "DIP-16": ("DIP", 16),
-    "DIP-28": ("DIP", 28),
-    "DIP-40": ("DIP", 40),
-    "SOIC-8": ("SO", 8),
-    "SOIC-14": ("SO", 14),
-    "SOIC-16": ("SO", 16),
+    # --- DIP (Through-hole, Table 17a: PDIL/CDIL) ---
+    "PDIL-8 (Plastic DIP)": ("PDIL", 8),
+    "PDIL-14": ("PDIL", 14),
+    "PDIL-16": ("PDIL", 16),
+    "PDIL-20": ("PDIL", 20),
+    "PDIL-28": ("PDIL", 28),
+    "PDIL-40": ("PDIL", 40),
+    "PDIL-64": ("PDIL", 64),
+    "CDIL-8 (Ceramic DIP)": ("CDIL", 8),
+    "CDIL-14": ("CDIL", 14),
+    "CDIL-16": ("CDIL", 16),
+    "CDIL-28": ("CDIL", 28),
+    "CDIL-40": ("CDIL", 40),
+    "CDIL-64": ("CDIL", 64),
+    # --- SO / SOP (Table 17a: 0.012 x S^1.65) ---
+    "SO-8 (1.27mm pitch)": ("SO", 8),
+    "SO-14": ("SO", 14),
+    "SO-16": ("SO", 16),
+    "SO-20": ("SO", 20),
+    "SO-28": ("SO", 28),
+    "Power SO": ("SO", 8),
+    # --- SOJ (Table 17a: 0.023 x S^1.5) ---
+    "SOJ-28": ("SOJ", 28),
+    "SOJ-32": ("SOJ", 32),
+    "SOJ-40": ("SOJ", 40),
+    "SOJ-44": ("SOJ", 44),
+    # --- VSOP (Table 17a: 0.011 x S^1.47) ---
+    "VSOP-40": ("VSOP", 40),
+    "VSOP-48": ("VSOP", 48),
+    "VSOP-56": ("VSOP", 56),
+    # --- SSOP (Table 17a: 0.013 x S^1.35) ---
+    "SSOP-8": ("SSOP", 8),
+    "SSOP-16": ("SSOP", 16),
+    "SSOP-28": ("SSOP", 28),
+    "SSOP-48": ("SSOP", 48),
+    "SSOP-56": ("SSOP", 56),
+    # --- TSSOP (Table 17a: 0.011 x S^1.4) ---
+    "TSSOP-8": ("TSSOP", 8),
     "TSSOP-14": ("TSSOP", 14),
     "TSSOP-20": ("TSSOP", 20),
     "TSSOP-28": ("TSSOP", 28),
-    "QFP-44 (10x10mm)": ("TQFP-10x10", 44),
-    "QFP-48 (7x7mm)": ("TQFP-7x7", 48),
-    "QFP-64 (10x10mm)": ("TQFP-10x10", 64),
-    "QFP-100 (14x14mm)": ("TQFP-14x14", 100),
-    "QFP-144 (20x20mm)": ("TQFP-20x20", 144),
+    "TSSOP-38": ("TSSOP", 38),
+    # --- TSOP I (Table 17a: two pitch variants) ---
+    "TSOP-I-32 (0.55mm)": ("TSOP_I_055", 32),
+    "TSOP-I-32 (0.5mm)": ("TSOP_I_050", 32),
+    # --- TSOP II (Table 17a: four pitch variants) ---
+    "TSOP-II-28 (0.8mm)": ("TSOP_II_080", 28),
+    "TSOP-II-44 (0.8mm)": ("TSOP_II_080", 44),
+    "TSOP-II-54 (0.8mm)": ("TSOP_II_080", 54),
+    "TSOP-II-40 (0.65mm)": ("TSOP_II_065", 40),
+    "TSOP-II-54 (0.65mm)": ("TSOP_II_065", 54),
+    "TSOP-II-60 (0.65mm)": ("TSOP_II_065", 60),
+    "TSOP-II-40 (0.5mm)": ("TSOP_II_050", 40),
+    "TSOP-II-60 (0.5mm)": ("TSOP_II_050", 60),
+    "TSOP-II-40 (0.4mm)": ("TSOP_II_040", 40),
+    "TSOP-II-60 (0.4mm)": ("TSOP_II_040", 60),
+    # --- PLCC / CLCC (Table 17a: 0.021 x S^1.57) ---
+    "PLCC-20": ("PLCC", 20),
+    "PLCC-28": ("PLCC", 28),
+    "PLCC-44": ("PLCC", 44),
+    "PLCC-52": ("PLCC", 52),
+    "PLCC-68": ("PLCC", 68),
+    "PLCC-84": ("PLCC", 84),
+    "CLCC (Ceramic Leadless)": ("PLCC", 44),
+    # --- QFP / TQFP / PQFP (Table 17a: fixed values by body size) ---
+    "QFP-32 (5x5mm)": ("PQFP-5x5", 32),
+    "QFP-44 (10x10mm)": ("PQFP-10x10", 44),
+    "QFP-48 (7x7mm)": ("PQFP-7x7", 48),
+    "QFP-64 (10x10mm)": ("PQFP-10x10", 64),
+    "QFP-80 (14x14mm)": ("PQFP-14x14", 80),
+    "QFP-100 (14x14mm)": ("PQFP-14x14", 100),
+    "QFP-100 (14x20mm)": ("PQFP-14x20", 100),
+    "QFP-112 (20x20mm)": ("PQFP-20x20", 112),
+    "QFP-128 (14x20mm)": ("PQFP-14x20", 128),
+    "QFP-144 (20x20mm)": ("PQFP-20x20", 144),
+    "QFP-176 (28x28mm)": ("PQFP-28x28", 176),
+    "QFP-208 (28x28mm)": ("PQFP-28x28", 208),
+    "QFP-240 (32x32mm)": ("PQFP-32x32", 240),
+    "QFP-304 (40x40mm)": ("PQFP-40x40", 304),
+    "CQFP (Ceramic QFP)": ("PQFP-14x14", 100),
+    "MQFP (Metal QFP)": ("PQFP-14x14", 100),
+    # --- QFN (Table 17b Method 2: peripheral, 0.048 x D^1.68) ---
     "QFN-16 (3x3mm)": ("QFN", 16, 4.24),
+    "QFN-20 (4x4mm)": ("QFN", 20, 5.66),
     "QFN-32 (5x5mm)": ("QFN", 32, 7.07),
     "QFN-48 (7x7mm)": ("QFN", 48, 9.90),
-    "CSP / WLCSP": ("CSP", 0, 3.0),
-    "BGA-256": ("PBGA-17x19", 256),
-    "BGA-484": ("PBGA-23x23", 484),
-    "BGA-676": ("PBGA-27x27", 676),
-    "PLCC-44": ("PLCC", 44),
-    "PLCC-68": ("PLCC", 68),
+    "QFN-64 (9x9mm)": ("QFN", 64, 12.73),
+    # --- BGA (Table 17a: fixed values by body size) ---
+    "PBGA-64 (13.5x15mm)": ("PBGA-13x15", 64),
+    "PBGA-256 (17x19mm)": ("PBGA-17x19", 256),
+    "PBGA-484 (23x23mm)": ("PBGA-23x23", 484),
+    "PBGA-676 (27x27mm)": ("PBGA-27x27", 676),
+    "PBGA-900 (35x35mm)": ("PBGA-35x35", 900),
+    "SBGA-580 (42.5x42.5mm)": ("SBGA-42x42", 580),
+    "SBGA-672 (27x27mm)": ("SBGA-27x27", 672),
+    "CBGA (Ceramic BGA)": ("PBGA-23x23", 484),
+    # --- CSP / WLCSP (Table 17b Method 2: matrix, 0.073 x D^1.68) ---
+    "CSP / uBGA (small)": ("CSP", 0, 3.0),
+    "CSP / uBGA (medium)": ("CSP", 0, 5.0),
+    "WLCSP": ("CSP", 0, 2.5),
+    # --- PGA (Table 17a: 9 + 0.09 x S) ---
+    "PPGA-68 (Plastic PGA)": ("PPGA", 68),
+    "PPGA-100": ("PPGA", 100),
+    "PPGA-160": ("PPGA", 160),
+    "CPGA-68 (Ceramic PGA)": ("CPGA", 68),
+    "CPGA-100": ("CPGA", 100),
+    "CPGA-160": ("CPGA", 160),
+    # --- COB (Table 17b: bare die) ---
+    "COB (Chip on Board)": ("COB", 0, 3.0),
 }
 
 IC_PACKAGE_TABLE = {
-    "DIP": {"formula": "pins", "coef": 0.014, "exp": 1.20},
+    # =========================================================================
+    # IEC TR 62380, Table 17a -- lambda_3 as function of S (pin count)
+    # Table 17b -- lambda_3 as function of D (package diagonal)
+    #
+    # formula types:
+    #   "pins"     -> coef * S^exp
+    #   "linear"   -> offset + coef * S
+    #   "fixed"    -> constant value
+    #   "diagonal" -> coef * D^exp   (D = package diagonal in mm)
+    # =========================================================================
+
+    # --- Through-hole DIP: Table 17a -> lambda_3 = 9 + 0.09 * S ---
+    "PDIL": {"formula": "linear", "offset": 9.0, "coef": 0.09},
+    "CDIL": {"formula": "linear", "offset": 9.0, "coef": 0.09},
+
+    # --- SO / SOP (1.27mm pitch): 0.012 * S^1.65 ---
     "SO": {"formula": "pins", "coef": 0.012, "exp": 1.65},
+
+    # --- SOJ (1.27mm pitch): 0.023 * S^1.5 ---
+    "SOJ": {"formula": "pins", "coef": 0.023, "exp": 1.50},
+
+    # --- VSOP (0.76mm pitch): 0.011 * S^1.47 ---
+    "VSOP": {"formula": "pins", "coef": 0.011, "exp": 1.47},
+
+    # --- SSOP (0.65mm pitch): 0.013 * S^1.35 ---
+    "SSOP": {"formula": "pins", "coef": 0.013, "exp": 1.35},
+
+    # --- TSSOP (0.65mm pitch): 0.011 * S^1.4 ---
     "TSSOP": {"formula": "pins", "coef": 0.011, "exp": 1.40},
-    "PLCC": {"formula": "pins", "coef": 0.013, "exp": 1.50},
-    "TQFP-7x7": {"formula": "fixed", "value": 2.5},
-    "TQFP-10x10": {"formula": "fixed", "value": 4.1},
-    "TQFP-14x14": {"formula": "fixed", "value": 7.2},
-    "TQFP-20x20": {"formula": "fixed", "value": 12.0},
+
+    # --- TSOP I (two pitch variants) ---
+    "TSOP_I_055": {"formula": "pins", "coef": 0.54, "exp": 0.40},
+    "TSOP_I_050": {"formula": "pins", "coef": 1.0, "exp": 0.36},
+
+    # --- TSOP II (four pitch variants) ---
+    "TSOP_II_080": {"formula": "pins", "coef": 0.04, "exp": 1.20},
+    "TSOP_II_065": {"formula": "pins", "coef": 0.042, "exp": 1.10},
+    "TSOP_II_050": {"formula": "pins", "coef": 0.075, "exp": 0.90},
+    "TSOP_II_040": {"formula": "pins", "coef": 0.13, "exp": 0.70},
+
+    # --- PLCC (1.27mm pitch): 0.021 * S^1.57 ---
+    "PLCC": {"formula": "pins", "coef": 0.021, "exp": 1.57},
+
+    # --- PQFP / TQFP: fixed values by body size (Table 17a) ---
+    "PQFP-5x5": {"formula": "fixed", "value": 1.3},
+    "PQFP-7x7": {"formula": "fixed", "value": 2.5},
+    "PQFP-10x10": {"formula": "fixed", "value": 4.1},
+    "PQFP-14x14": {"formula": "fixed", "value": 7.2},
+    "PQFP-14x20": {"formula": "fixed", "value": 10.2},
+    "PQFP-20x20": {"formula": "fixed", "value": 12.0},
+    "PQFP-28x28": {"formula": "fixed", "value": 23.0},
+    "PQFP-32x32": {"formula": "fixed", "value": 29.0},
+    "PQFP-40x40": {"formula": "fixed", "value": 42.0},
+
+    # --- PBGA: fixed values by body size (Table 17a) ---
+    "PBGA-13x15": {"formula": "fixed", "value": 11.4},
     "PBGA-17x19": {"formula": "fixed", "value": 16.6},
-    "PBGA-23x23": {"formula": "fixed", "value": 25.0},
+    "PBGA-23x23": {"formula": "fixed", "value": 26.6},
     "PBGA-27x27": {"formula": "fixed", "value": 33.0},
+    "PBGA-35x35": {"formula": "fixed", "value": 51.3},
+
+    # --- SBGA ---
+    "SBGA-42x42": {"formula": "fixed", "value": 71.0},
+    "SBGA-27x27": {"formula": "fixed", "value": 33.0},
+
+    # --- PGA: Table 17a -> lambda_3 = 9 + 0.09 * S ---
+    "PPGA": {"formula": "linear", "offset": 9.0, "coef": 0.09},
+    "CPGA": {"formula": "linear", "offset": 9.0, "coef": 0.09},
+
+    # --- Table 17b Method 2: diagonal-based ---
+    # Two rows (SO, TSOP etc.): 0.024 * D^1.68
+    "TWO_ROW": {"formula": "diagonal", "coef": 0.024, "exp": 1.68},
+    # Peripheral (PLCC, QFP, QFN): 0.048 * D^1.68
     "QFN": {"formula": "diagonal", "coef": 0.048, "exp": 1.68},
-    "CSP": {"formula": "diagonal", "coef": 0.055, "exp": 1.55},
+    # Matrix (BGA, CSP, uBGA): 0.073 * D^1.68
+    "CSP": {"formula": "diagonal", "coef": 0.073, "exp": 1.68},
+    # COB (bare die): 0.048 * D^1.68
+    "COB": {"formula": "diagonal", "coef": 0.048, "exp": 1.68},
 }
 
 
@@ -553,20 +919,22 @@ def lambda_eos(is_interface: bool, interface_type: str = "Not Interface") -> flo
 
 
 def calculate_ic_lambda3(pkg_type: str, pins: int = None, diag: float = None) -> float:
-    """IC package stress contribution (lambda_3) in FIT. IEC TR 62380, Section 8.2."""
+    """IC package stress contribution (lambda_3) in FIT. IEC TR 62380, Table 17a/17b."""
     pkg = IC_PACKAGE_TABLE.get(pkg_type)
     if not pkg:
         return 4.0
     formula = pkg.get("formula", "fixed")
     if formula == "fixed":
         return _safe_float(pkg.get("value", 4.0))
+    elif formula == "linear" and pins and pins > 0:
+        return _safe_float(pkg.get("offset", 0.0)) + _safe_float(pkg.get("coef", 0.09)) * pins
     elif formula == "pins" and pins and pins > 0:
         return _safe_float(pkg.get("coef", 0.01)) * (
             pins ** _safe_float(pkg.get("exp", 1.5))
         )
     elif formula == "diagonal" and diag and diag > 0:
         return _safe_float(pkg.get("coef", 0.05)) * (
-            diag ** _safe_float(pkg.get("exp", 1.6))
+            diag ** _safe_float(pkg.get("exp", 1.68))
         )
     return 4.0
 
@@ -581,7 +949,7 @@ def lambda_integrated_circuit(
     transistor_count=10000,
     construction_year=2020,
     t_junction=85.0,
-    package_type="TQFP-10x10",
+    package_type="PQFP-10x10",
     pins=48,
     substrate_alpha=16.0,
     package_alpha=21.5,
@@ -592,7 +960,13 @@ def lambda_integrated_circuit(
     tau_on=1.0,
     **kw,
 ):
-    """IC failure rate per IEC TR 62380, Section 8."""
+    """IC failure rate per IEC TR 62380, Section 7.
+
+    The transistor_count parameter is interpreted according to the n_per
+    field in IC_DIE_TABLE: for digital circuits counted "4 per gate", if
+    the user enters 10000 gates the effective N = 10000 * 4 = 40000
+    transistors.  The n_per multiplier is applied automatically.
+    """
     tau_on = validate_ratio(tau_on, "tau_on")
     transistor_count = max(1, _safe_int(transistor_count, 10000))
     construction_year = _safe_int(construction_year, 2020)
@@ -602,10 +976,15 @@ def lambda_integrated_circuit(
 
     dp = IC_DIE_TABLE.get(ic_type, IC_DIE_TABLE["MOS_DIGITAL"])
     l1, l2, ea = dp["l1"], dp["l2"], dp["ea"]
+    t_ref = dp.get("t_ref", 328)           # 328 K for Si, 373 K for GaAs
+    n_per = _safe_float(dp.get("n_per", 1), 1.0)
+
+    # Effective transistor count (user enters in the n_unit described by the type)
+    effective_n = transistor_count * n_per
 
     a = max(0, construction_year - 1998)
-    pi_t = pi_temperature(t_junction, ea, 328)
-    lambda_die = (l1 * transistor_count * math.exp(-0.35 * a) + l2) * pi_t * tau_on
+    pi_t = pi_temperature(t_junction, ea, t_ref)
+    lambda_die = (l1 * effective_n * math.exp(-0.35 * a) + l2) * pi_t * tau_on
 
     l3 = calculate_ic_lambda3(package_type, pins)
     pi_a = pi_alpha(substrate_alpha, package_alpha)
@@ -1206,19 +1585,20 @@ def get_field_definitions(ct):
             "ic_type": {
                 "type": "choice",
                 "choices": list(IC_TYPE_CHOICES.keys()),
-                "default": "Microcontroller/DSP",
+                "default": "MOS Digital (Micro/DSP)",
                 "required": True,
+                "help": "IC technology and function (Table 16)",
             },
             "transistor_count": {
                 "type": "int",
                 "default": 10000,
                 "required": True,
-                "help": "Number of transistors/gates",
+                "help": "Count in type's native unit (gates, bits, macrocells, transistors - see Table 16)",
             },
             "construction_year": {
                 "type": "int",
                 "default": 2020,
-                "help": "Fabrication year (technology maturity)",
+                "help": "Fabrication year (technology maturity, a = year - 1998)",
             },
             "t_junction": {
                 "type": "float",
@@ -1231,11 +1611,13 @@ def get_field_definitions(ct):
                 "choices": list(IC_PACKAGE_CHOICES.keys()),
                 "default": "QFP-48 (7x7mm)",
                 "required": True,
+                "help": "Package type (Table 17a/17b)",
             },
             "substrate": {
                 "type": "choice",
                 "choices": list(THERMAL_EXPANSION_SUBSTRATE.keys()),
-                "default": "FR4 (Epoxy Glass)",
+                "default": "FR4 / Epoxy Glass (G-10)",
+                "help": "PCB substrate material (Table 14)",
             },
             **iface,
             **common,
@@ -1530,12 +1912,12 @@ def calculate_component_lambda(ct, params):
     try:
         if ct == "Integrated Circuit":
             ic_key = IC_TYPE_CHOICES.get(
-                params.get("ic_type", "Microcontroller/DSP"), "MOS_DIGITAL"
+                params.get("ic_type", "MOS Digital (Micro/DSP)"), "MOS_DIGITAL"
             )
             pkg = params.get("package", "QFP-48 (7x7mm)")
-            pkg_info = IC_PACKAGE_CHOICES.get(pkg, ("TQFP-7x7", 48))
+            pkg_info = IC_PACKAGE_CHOICES.get(pkg, ("PQFP-7x7", 48))
             sub = THERMAL_EXPANSION_SUBSTRATE.get(
-                params.get("substrate", "FR4 (Epoxy Glass)"), 16.0
+                params.get("substrate", "FR4 / Epoxy Glass (G-10)"), 16.0
             )
             return lambda_integrated_circuit(
                 ic_type=ic_key,

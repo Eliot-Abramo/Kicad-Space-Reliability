@@ -431,6 +431,25 @@ class BatchComponentEditorDialog(wx.Dialog):
         type_row.Add(self.type_combo, 1, wx.ALL, 3)
         right_sizer.Add(type_row, 0, wx.EXPAND)
         
+        # --- Lambda Override Box in Quick Edit ---
+        ovr_box = wx.StaticBox(right, label="Lambda Override")
+        ovr_sizer = wx.StaticBoxSizer(ovr_box, wx.VERTICAL)
+        self.quick_override_cb = wx.CheckBox(right, label="Override with fixed FIT value")
+        self.quick_override_cb.SetToolTip(
+            "Use a manufacturer-provided or measured failure rate\n"
+            "instead of the IEC TR 62380 model.")
+        self.quick_override_cb.Bind(wx.EVT_CHECKBOX, self._on_quick_override_toggle)
+        ovr_sizer.Add(self.quick_override_cb, 0, wx.ALL, 4)
+        ovr_val_row = wx.BoxSizer(wx.HORIZONTAL)
+        ovr_val_row.Add(wx.StaticText(right, label="Lambda:"), 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 4)
+        self.quick_override_val = wx.SpinCtrlDouble(right, min=0, max=1e9, initial=0, inc=0.1, size=(100, -1))
+        self.quick_override_val.SetDigits(3)
+        self.quick_override_val.Enable(False)
+        ovr_val_row.Add(self.quick_override_val, 0, wx.ALL, 4)
+        ovr_val_row.Add(wx.StaticText(right, label="FIT"), 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 4)
+        ovr_sizer.Add(ovr_val_row, 0, wx.EXPAND)
+        right_sizer.Add(ovr_sizer, 0, wx.EXPAND | wx.ALL, 5)
+        
         self.field_panel = FieldEditorPanel(right, "Resistor", {}, None)
         right_sizer.Add(self.field_panel, 1, wx.EXPAND | wx.ALL, 5)
         
@@ -469,9 +488,26 @@ class BatchComponentEditorDialog(wx.Dialog):
             ct = fields.get("_component_type", comp.component_type)
             self.type_combo.SetValue(ct)
             self.field_panel.set_component_type(ct, fields)
+            # Populate override controls
+            ovr = fields.get("override_lambda")
+            if ovr is not None:
+                self.quick_override_cb.SetValue(True)
+                self.quick_override_val.SetValue(float(ovr))
+                self.quick_override_val.Enable(True)
+                self.field_panel.Enable(False)
+            else:
+                self.quick_override_cb.SetValue(False)
+                self.quick_override_val.SetValue(0.0)
+                self.quick_override_val.Enable(False)
+                self.field_panel.Enable(True)
     
     def _on_quick_type(self, event):
         self.field_panel.set_component_type(self.type_combo.GetValue(), {})
+    
+    def _on_quick_override_toggle(self, event):
+        enabled = self.quick_override_cb.GetValue()
+        self.quick_override_val.Enable(enabled)
+        self.field_panel.Enable(not enabled)
     
     def _on_apply_quick(self, event):
         idx = self.list.GetFirstSelected()
@@ -479,6 +515,11 @@ class BatchComponentEditorDialog(wx.Dialog):
         comp = self.components[idx]
         fields = self.field_panel.get_values()
         fields["_component_type"] = self.type_combo.GetValue()
+        # Handle override from quick edit panel
+        if self.quick_override_cb.GetValue():
+            fields["override_lambda"] = self.quick_override_val.GetValue()
+        else:
+            fields["override_lambda"] = None
         self.results[comp.reference] = fields
         comp.component_type = self.type_combo.GetValue()
         comp.fields = fields
@@ -608,10 +649,11 @@ EOS (Electrical Overstress):
         mat_text += "SUBSTRATES:\n"
         for name, cte in THERMAL_EXPANSION_SUBSTRATE.items():
             mat_text += f"  {name:<30} alpha = {cte}\n"
-        mat_text += "\nPACKAGES:\n"
-        mat_text += "  Plastic (SOIC, QFP, BGA)        = 21.5\n"
-        mat_text += "  Ceramic (CQFP, CPGA)            = 6.5\n"
-        mat_text += "  Metal Can (TO)                   = 17.0\n"
+        mat_text += "\nPACKAGES (alpha_C):\n"
+        mat_text += "  Epoxy (Plastic package)          = 21.5\n"
+        mat_text += "  Alumina (Ceramic package)        = 6.5\n"
+        mat_text += "  Kovar (Metallic package)         = 5.0\n"
+        mat_text += "  Bare Die / Flip Chip             = 2.6\n"
         mat.SetValue(mat_text)
         nb.AddPage(mat, "Materials")
         
