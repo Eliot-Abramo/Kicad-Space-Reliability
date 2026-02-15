@@ -1,4 +1,3 @@
-
 """
 ECSS field and category loader.
 
@@ -15,12 +14,65 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 BASE_DIR = Path(__file__).resolve().parent
 
 _CATEGORIES: Dict[str, Any] = {}
 _TABLES: Dict[str, Any] = {}
+
+# Maps reliability_math.py type names -> ECSS category keys
+# These are the EXACT strings from get_component_types()
+_MATH_TYPE_TO_ECSS = {
+    "Integrated Circuit":   "ic_digital",
+    "Diode":                "diode",
+    "Transistor":           "bjt",
+    "Optocoupler":          "optocoupler",
+    "Thyristor/TRIAC":      "thyristor",
+    "Capacitor":            "capacitor_ceramic",
+    "Resistor":             "resistor",
+    "Inductor/Transformer": "inductor",
+    "Relay":                "relay",
+    "Connector":            "connector",
+    "PCB/Solder":           "pcb_solder",
+    "Miscellaneous":        "miscellaneous",
+    "Crystal/Oscillator":   "crystal",
+    "DC/DC Converter":      "converter",
+}
+
+# For display: maps ECSS category key -> user-friendly group name
+_ECSS_TO_DISPLAY_GROUP = {
+    "resistor":             "Resistors",
+    "capacitor_ceramic":    "Capacitors (Ceramic)",
+    "capacitor_tantalum":   "Capacitors (Tantalum)",
+    "diode":                "Diodes",
+    "bjt":                  "Bipolar Transistors",
+    "mosfet":               "MOSFETs",
+    "ic_digital":           "ICs (Digital / MCU / Logic)",
+    "ic_analog":            "ICs (Analog / Mixed-Signal)",
+    "fpga":                 "ICs (FPGA / Complex Digital)",
+    "connector":            "Connectors",
+    "converter":            "DC/DC Converters",
+    "inductor":             "Inductors / Transformers",
+    "crystal":              "Crystals / Oscillators",
+    "battery":              "Batteries",
+    "relay":                "Relays",
+    "optocoupler":          "Optocouplers",
+    "thyristor":            "Thyristors / TRIACs",
+    "pcb_solder":           "PCB / Solder Joints",
+    "miscellaneous":        "Miscellaneous",
+}
+
+# Canonical order for UI display (grouped logically)
+CATEGORY_DISPLAY_ORDER = [
+    "ic_digital", "ic_analog", "fpga",
+    "resistor",
+    "capacitor_ceramic", "capacitor_tantalum",
+    "diode", "bjt", "mosfet",
+    "inductor", "connector", "converter",
+    "crystal", "relay", "battery",
+    "optocoupler", "thyristor", "pcb_solder", "miscellaneous",
+]
 
 
 def _load_json(name: str) -> Dict[str, Any]:
@@ -55,67 +107,117 @@ def get_category_fields(category: str) -> Dict[str, Any]:
     """Return full definition dict for a category key."""
     cat = _CATEGORIES.get(category)
     if not cat:
-        # Fallback with empty fields so the dialog still works
-        return {"display_name": category, "fields": {}}
+        return {"display_name": _ECSS_TO_DISPLAY_GROUP.get(category, category), "fields": {}}
     return cat
+
+
+def get_display_group(ecss_key: str) -> str:
+    """Human-readable group name for an ECSS category key."""
+    return _ECSS_TO_DISPLAY_GROUP.get(ecss_key, ecss_key.replace("_", " ").title())
+
+
+def get_all_ic_categories() -> List[str]:
+    """Return all ECSS keys that represent ICs."""
+    return ["ic_digital", "ic_analog", "fpga"]
+
+
+def math_type_to_ecss(math_type: str) -> str:
+    """Convert a reliability_math type name to an ECSS category key.
+    Falls back to infer_category_from_class for unknown types."""
+    if math_type in _MATH_TYPE_TO_ECSS:
+        return _MATH_TYPE_TO_ECSS[math_type]
+    return infer_category_from_class(math_type)
+
+
+def get_ordered_categories_present(category_set: set) -> List[str]:
+    """Return categories from category_set in canonical UI display order."""
+    ordered = []
+    for key in CATEGORY_DISPLAY_ORDER:
+        if key in category_set:
+            ordered.append(key)
+    # Add any remaining not in canonical order
+    for key in sorted(category_set):
+        if key not in ordered:
+            ordered.append(key)
+    return ordered
 
 
 def infer_category_from_class(component_class: str, footprint: str = "") -> str:
     """Heuristic mapping from KiCad 'Class' / 'Reliability_Class' + footprint
     to an ECSS category key defined in the JSON.
 
-    This is intentionally simple; you can always override the category in the
-    ECSS dialog itself.
+    Handles BOTH:
+    - reliability_math type names: "Integrated Circuit", "Diode", "Transistor", ...
+    - KiCad class names: "R", "C", "IC", "MOSFET", ...
     """
-    cls = (component_class or "").lower()
+    cls = (component_class or "").strip()
+
+    # 1) Direct match against reliability_math type names (exact)
+    if cls in _MATH_TYPE_TO_ECSS:
+        return _MATH_TYPE_TO_ECSS[cls]
+
+    # 2) Lowercase heuristic matching for KiCad class names
+    lc = cls.lower()
     fp = (footprint or "").lower()
 
     # Passives
-    if "res" in cls or "resistor" in cls:
+    if "res" in lc or "resistor" in lc:
         return "resistor"
-    if "cap" in cls or "capa" in cls:
-        if "tant" in cls or "tant" in fp:
+    if "cap" in lc or "capa" in lc:
+        if "tant" in lc or "tant" in fp:
             return "capacitor_tantalum"
         return "capacitor_ceramic"
 
     # Diodes / transistors
-    if "diod" in cls or "diode" in cls or "led" in cls or "zener" in cls or "tvs" in cls:
+    if "diod" in lc or "diode" in lc or "led" in lc or "zener" in lc or "tvs" in lc:
         return "diode"
-    if "bjt" in cls or "npn" in cls or "pnp" in cls or "bipolar" in cls:
+    if "bjt" in lc or "npn" in lc or "pnp" in lc or "bipolar" in lc:
         return "bjt"
-    if "mosfet" in cls or "fet" in cls or "igbt" in cls:
+    if "mosfet" in lc or "fet" in lc or "igbt" in lc:
         return "mosfet"
 
-    # ICs
-    if "fpga" in cls:
+    # ICs (must come after transistors to avoid "ic" matching in "triac")
+    if "fpga" in lc:
         return "fpga"
-    if "opamp" in cls or "opa" in cls or "analog" in cls:
+    if "opamp" in lc or "opa" in lc or "analog" in lc:
         return "ic_analog"
-    if "ic" in cls or cls.startswith("u") or "mcu" in cls or "logic" in cls or "asic" in cls:
+    if "ic" in lc or lc.startswith("u") or "mcu" in lc or "logic" in lc or "asic" in lc:
+        return "ic_digital"
+    if "integrated" in lc:
         return "ic_digital"
 
+    # Optocouplers / thyristors
+    if "opto" in lc:
+        return "optocoupler"
+    if "thyristor" in lc or "triac" in lc or "scr" in lc:
+        return "thyristor"
+
     # Connectors
-    if "conn" in cls or "hdr" in fp or "connector" in cls:
+    if "conn" in lc or "hdr" in fp or "connector" in lc:
         return "connector"
 
     # Power modules
-    if "dcdc" in cls or "dc-dc" in cls or "converter" in cls or "regulator" in cls:
+    if "dcdc" in lc or "dc-dc" in lc or "converter" in lc or "regulator" in lc:
         return "converter"
 
     # Magnetics
-    if "inductor" in cls or "choke" in cls or "transformer" in cls:
+    if "inductor" in lc or "choke" in lc or "transformer" in lc:
         return "inductor"
 
     # Crystals / oscillators
-    if "crystal" in cls or "osc" in cls:
+    if "crystal" in lc or "osc" in lc:
         return "crystal"
 
+    # PCB / solder
+    if "pcb" in lc or "solder" in lc:
+        return "pcb_solder"
+
     # Batteries
-    if "battery" in cls or "cell" in cls:
+    if "battery" in lc or "cell" in lc:
         return "battery"
 
     # Relays
-    if "relay" in cls:
+    if "relay" in lc:
         return "relay"
 
     # Fallback

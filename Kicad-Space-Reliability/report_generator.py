@@ -682,3 +682,174 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
         return {"html": self.generate_html, "markdown": self.generate_markdown,
                 "md": self.generate_markdown, "csv": self.generate_csv,
                 "json": self.generate_json}.get(format.lower(), self.generate_html)(data)
+
+    @staticmethod
+    def html_to_pdf(html_content: str, output_path: str):
+        """Convert HTML report to PDF using reportlab.
+
+        Falls back through multiple strategies:
+        1. weasyprint (best quality, may not be installed)
+        2. reportlab with manual layout (always available)
+        """
+        # Strategy 1: Try weasyprint for high-fidelity HTML->PDF
+        try:
+            from weasyprint import HTML as WeasyprintHTML
+            WeasyprintHTML(string=html_content).write_pdf(output_path)
+            return
+        except ImportError:
+            pass
+
+        # Strategy 2: reportlab PDF generation from structured data
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.units import mm
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.colors import HexColor
+        from reportlab.platypus import (
+            SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
+            PageBreak, HRFlowable
+        )
+        from reportlab.lib.enums import TA_CENTER, TA_LEFT
+
+        doc = SimpleDocTemplate(
+            output_path, pagesize=A4,
+            leftMargin=20*mm, rightMargin=20*mm,
+            topMargin=20*mm, bottomMargin=20*mm
+        )
+
+        styles = getSampleStyleSheet()
+        styles.add(ParagraphStyle(
+            'ReportTitle', parent=styles['Title'],
+            fontSize=18, spaceAfter=6, textColor=HexColor('#1e40af')
+        ))
+        styles.add(ParagraphStyle(
+            'SectionHead', parent=styles['Heading2'],
+            fontSize=13, spaceBefore=14, spaceAfter=6,
+            textColor=HexColor('#2563eb'),
+            borderWidth=0, borderPadding=0,
+        ))
+        styles.add(ParagraphStyle(
+            'MetricLabel', parent=styles['Normal'],
+            fontSize=8, textColor=HexColor('#64748b'), alignment=TA_CENTER
+        ))
+        styles.add(ParagraphStyle(
+            'MetricValue', parent=styles['Normal'],
+            fontSize=14, textColor=HexColor('#2563eb'),
+            alignment=TA_CENTER, fontName='Helvetica-Bold'
+        ))
+        styles.add(ParagraphStyle(
+            'TableCell', parent=styles['Normal'], fontSize=8, leading=10
+        ))
+        styles.add(ParagraphStyle(
+            'FooterStyle', parent=styles['Normal'],
+            fontSize=7, textColor=HexColor('#64748b'), alignment=TA_CENTER
+        ))
+
+        story = []
+
+        # --- Extract data from HTML using simple regex ---
+        import re
+
+        def _extract_text(pattern, text, default=""):
+            m = re.search(pattern, text, re.DOTALL)
+            return m.group(1).strip() if m else default
+
+        project = _extract_text(r'Project:\s*<strong>(.*?)</strong>', html_content, "Reliability Report")
+        date_str = _extract_text(r'</strong>\s*\|\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})', html_content, "")
+
+        # Title
+        story.append(Paragraph("Reliability Analysis Report", styles['ReportTitle']))
+        story.append(Paragraph(
+            f"Project: <b>{project}</b> | {date_str} | IEC TR 62380:2004",
+            styles['Normal']
+        ))
+        story.append(Spacer(1, 8*mm))
+
+        # Extract metric values from HTML
+        metric_pattern = r'<div class="v">(.*?)</div>\s*<div class="l">(.*?)</div>'
+        metrics = re.findall(metric_pattern, html_content)
+
+        if metrics:
+            story.append(Paragraph("System Summary", styles['SectionHead']))
+            metric_data = []
+            metric_labels = []
+            for val, label in metrics[:4]:
+                metric_data.append(Paragraph(f'<b>{val}</b>', styles['MetricValue']))
+                metric_labels.append(Paragraph(label, styles['MetricLabel']))
+            if metric_data:
+                t = Table([metric_data, metric_labels], colWidths=[doc.width/len(metric_data)]*len(metric_data))
+                t.setStyle(TableStyle([
+                    ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                    ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                    ('BACKGROUND', (0,0), (-1,0), HexColor('#f1f5f9')),
+                    ('TOPPADDING', (0,0), (-1,-1), 8),
+                    ('BOTTOMPADDING', (0,0), (-1,-1), 8),
+                    ('BOX', (0,0), (-1,-1), 0.5, HexColor('#e2e8f0')),
+                ]))
+                story.append(t)
+                story.append(Spacer(1, 4*mm))
+
+        # Extract tables from HTML
+        table_pattern = r'<h2>(.*?)</h2>.*?<table>(.*?)</table>'
+        tables = re.findall(table_pattern, html_content, re.DOTALL)
+
+        for title, table_html in tables:
+            title_clean = re.sub(r'<[^>]+>', '', title)
+            story.append(Paragraph(title_clean, styles['SectionHead']))
+
+            # Parse rows
+            header_match = re.findall(r'<th[^>]*>(.*?)</th>', table_html, re.DOTALL)
+            headers = [re.sub(r'<[^>]+>', '', h).strip() for h in header_match]
+
+            row_pattern = r'<tr>(.*?)</tr>'
+            rows_html = re.findall(row_pattern, table_html, re.DOTALL)
+
+            all_rows = []
+            if headers:
+                all_rows.append([Paragraph(f'<b>{h}</b>', styles['TableCell']) for h in headers])
+
+            for row_html in rows_html:
+                cells = re.findall(r'<td[^>]*>(.*?)</td>', row_html, re.DOTALL)
+                if cells:
+                    clean = [Paragraph(re.sub(r'<[^>]+>', '', c).strip(), styles['TableCell']) for c in cells]
+                    if len(clean) == len(headers) or not headers:
+                        all_rows.append(clean)
+
+            if len(all_rows) > 1:
+                n_cols = len(all_rows[0])
+                col_w = doc.width / n_cols if n_cols > 0 else doc.width
+                try:
+                    t = Table(all_rows, colWidths=[col_w]*n_cols, repeatRows=1)
+                    style_cmds = [
+                        ('FONTSIZE', (0,0), (-1,-1), 7),
+                        ('LEADING', (0,0), (-1,-1), 9),
+                        ('TOPPADDING', (0,0), (-1,-1), 3),
+                        ('BOTTOMPADDING', (0,0), (-1,-1), 3),
+                        ('GRID', (0,0), (-1,-1), 0.4, HexColor('#e2e8f0')),
+                        ('BACKGROUND', (0,0), (-1,0), HexColor('#f1f5f9')),
+                        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                        ('ROWBACKGROUNDS', (0,1), (-1,-1), [HexColor('#ffffff'), HexColor('#f8fafc')]),
+                    ]
+                    t.setStyle(TableStyle(style_cmds))
+                    story.append(t)
+                except Exception:
+                    pass  # Skip malformed tables
+            story.append(Spacer(1, 3*mm))
+
+        # Footer
+        story.append(Spacer(1, 10*mm))
+        story.append(HRFlowable(width="100%", color=HexColor('#e2e8f0')))
+        story.append(Paragraph(
+            "Designed and developed by Eliot Abramo | KiCad Reliability Plugin v3.0.0 | IEC TR 62380:2004",
+            styles['FooterStyle']
+        ))
+        story.append(Paragraph(
+            "This report is for engineering reference. Verify critical calculations independently.",
+            styles['FooterStyle']
+        ))
+
+        doc.build(story)
+
+    def generate_pdf(self, data: ReportData, output_path: str):
+        """Generate PDF report."""
+        html = self.generate_html(data)
+        self.html_to_pdf(html, output_path)

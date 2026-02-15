@@ -244,6 +244,37 @@ class ComponentEditorDialog(wx.Dialog):
         
         main.Add(wx.StaticLine(panel), 0, wx.EXPAND | wx.ALL, 5)
         
+        # --- Lambda Override Box ---
+        ovr_box = wx.StaticBox(panel, label="Lambda Override (use measured / datasheet value)")
+        ovr_sizer = wx.StaticBoxSizer(ovr_box, wx.VERTICAL)
+        ovr_row = wx.BoxSizer(wx.HORIZONTAL)
+        self.override_cb = wx.CheckBox(panel, label="Override calculated lambda with fixed value")
+        self.override_cb.SetToolTip(
+            "When checked, the plugin uses your specified FIT value directly\n"
+            "instead of computing it from the IEC TR 62380 model.\n"
+            "Use this for components with manufacturer-provided failure rates,\n"
+            "FIDES data, or field-measured reliability figures.")
+        init_override = self.component.fields.get("override_lambda")
+        self.override_cb.SetValue(init_override is not None)
+        self.override_cb.Bind(wx.EVT_CHECKBOX, self._on_override_toggle)
+        ovr_row.Add(self.override_cb, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 4)
+        ovr_sizer.Add(ovr_row, 0, wx.EXPAND)
+        
+        ovr_val_row = wx.BoxSizer(wx.HORIZONTAL)
+        ovr_val_row.Add(wx.StaticText(panel, label="Fixed Lambda:"), 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 4)
+        self.override_val = wx.SpinCtrlDouble(panel, min=0, max=1e9, initial=float(init_override or 0),
+                                               inc=0.1, size=(120, -1))
+        self.override_val.SetDigits(3)
+        self.override_val.Enable(init_override is not None)
+        self.override_val.Bind(wx.EVT_SPINCTRLDOUBLE, lambda e: self._update_preview())
+        ovr_val_row.Add(self.override_val, 0, wx.ALL, 4)
+        ovr_val_row.Add(wx.StaticText(panel, label="FIT"), 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 4)
+        ovr_help = wx.StaticText(panel, label="(1 FIT = 1 failure per 10^9 hours)")
+        ovr_help.SetForegroundColour(wx.Colour(100, 100, 100))
+        ovr_val_row.Add(ovr_help, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 4)
+        ovr_sizer.Add(ovr_val_row, 0, wx.EXPAND)
+        main.Add(ovr_sizer, 0, wx.EXPAND | wx.ALL, 5)
+        
         # Field editor
         self.field_panel = FieldEditorPanel(panel, self.component.component_type,
                                             self.component.fields, on_change=self._update_preview)
@@ -272,8 +303,27 @@ class ComponentEditorDialog(wx.Dialog):
         self.field_panel.set_component_type(self.type_combo.GetValue(), {})
         self._update_preview()
     
+    def _on_override_toggle(self, event):
+        enabled = self.override_cb.GetValue()
+        self.override_val.Enable(enabled)
+        self.field_panel.Enable(not enabled)
+        self._update_preview()
+    
     def _update_preview(self):
         try:
+            # Check override first
+            if self.override_cb.GetValue():
+                fit = self.override_val.GetValue()
+                lam = fit * 1e-9
+                r = reliability_from_lambda(lam, self.mission_hours)
+                mttf_h = 1 / lam if lam > 0 else float('inf')
+                mttf_y = mttf_h / 8760
+                text = f"[OVERRIDE] lambda = {fit:.2f} FIT ({lam:.2e} /h)\n"
+                text += f"R({self.mission_hours/8760:.1f} yr): {r:.6f} ({r*100:.4f}%)\n"
+                text += f"MTTF: {mttf_y:.1f} years"
+                self.preview.SetValue(text)
+                return
+
             ct = self.type_combo.GetValue()
             params = self.field_panel.get_values()
             result = calculate_component_lambda(ct, params)
@@ -299,6 +349,10 @@ class ComponentEditorDialog(wx.Dialog):
     def _on_ok(self, event):
         self.result_fields = self.field_panel.get_values()
         self.result_fields["_component_type"] = self.type_combo.GetValue()
+        if self.override_cb.GetValue():
+            self.result_fields["override_lambda"] = self.override_val.GetValue()
+        else:
+            self.result_fields["override_lambda"] = None
         self.EndModal(wx.ID_OK)
     
     def get_result(self) -> Optional[Dict[str, Any]]:
@@ -328,19 +382,26 @@ class BatchComponentEditorDialog(wx.Dialog):
         
         self.list = wx.ListCtrl(left, style=wx.LC_REPORT | wx.LC_SINGLE_SEL)
         self.list.InsertColumn(0, "Ref", width=60)
-        self.list.InsertColumn(1, "Value", width=90)
-        self.list.InsertColumn(2, "Type", width=130)
-        self.list.InsertColumn(3, "lambdaL (FIT)", width=80)
+        self.list.InsertColumn(1, "Value", width=80)
+        self.list.InsertColumn(2, "Type", width=120)
+        self.list.InsertColumn(3, "Lambda (FIT)", width=80)
+        self.list.InsertColumn(4, "Source", width=60)
         
         for i, comp in enumerate(self.components):
             self.list.InsertItem(i, comp.reference)
             self.list.SetItem(i, 1, comp.value or "")
             self.list.SetItem(i, 2, comp.component_type)
-            try:
-                result = calculate_component_lambda(comp.component_type, comp.fields)
-                self.list.SetItem(i, 3, f"{result.get('fit_total', 0):.1f}")
-            except:
-                self.list.SetItem(i, 3, "?")
+            ovr = comp.fields.get("override_lambda")
+            if ovr is not None:
+                self.list.SetItem(i, 3, f"{ovr:.1f}")
+                self.list.SetItem(i, 4, "OVR")
+            else:
+                try:
+                    result = calculate_component_lambda(comp.component_type, comp.fields)
+                    self.list.SetItem(i, 3, f"{result.get('fit_total', 0):.1f}")
+                except:
+                    self.list.SetItem(i, 3, "?")
+                self.list.SetItem(i, 4, "Calc")
         
         self.list.Bind(wx.EVT_LIST_ITEM_SELECTED, self._on_select)
         self.list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self._on_edit)
@@ -422,11 +483,17 @@ class BatchComponentEditorDialog(wx.Dialog):
         comp.component_type = self.type_combo.GetValue()
         comp.fields = fields
         self.list.SetItem(idx, 2, comp.component_type)
-        try:
-            result = calculate_component_lambda(comp.component_type, fields)
-            self.list.SetItem(idx, 3, f"{result.get('fit_total', 0):.1f}")
-        except:
-            self.list.SetItem(idx, 3, "?")
+        ovr = fields.get("override_lambda")
+        if ovr is not None:
+            self.list.SetItem(idx, 3, f"{ovr:.1f}")
+            self.list.SetItem(idx, 4, "OVR")
+        else:
+            try:
+                result = calculate_component_lambda(comp.component_type, fields)
+                self.list.SetItem(idx, 3, f"{result.get('fit_total', 0):.1f}")
+            except:
+                self.list.SetItem(idx, 3, "?")
+            self.list.SetItem(idx, 4, "Calc")
     
     def _on_edit(self, event):
         idx = self.list.GetFirstSelected()
@@ -446,11 +513,17 @@ class BatchComponentEditorDialog(wx.Dialog):
                 comp.component_type = result.get("_component_type", comp.component_type)
                 comp.fields = result
                 self.list.SetItem(idx, 2, comp.component_type)
-                try:
-                    calc = calculate_component_lambda(comp.component_type, result)
-                    self.list.SetItem(idx, 3, f"{calc.get('fit_total', 0):.1f}")
-                except:
-                    self.list.SetItem(idx, 3, "?")
+                ovr = result.get("override_lambda")
+                if ovr is not None:
+                    self.list.SetItem(idx, 3, f"{ovr:.1f}")
+                    self.list.SetItem(idx, 4, "OVR")
+                else:
+                    try:
+                        calc = calculate_component_lambda(comp.component_type, result)
+                        self.list.SetItem(idx, 3, f"{calc.get('fit_total', 0):.1f}")
+                    except:
+                        self.list.SetItem(idx, 3, "?")
+                    self.list.SetItem(idx, 4, "Calc")
                 self._load_component(idx)
         dlg.Destroy()
     

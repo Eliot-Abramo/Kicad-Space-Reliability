@@ -28,6 +28,10 @@ from .sensitivity_analysis import (
 )
 from .reliability_math import reliability_from_lambda, calculate_component_lambda
 from .report_generator import ReportGenerator, ReportData
+from .ecss_fields import (
+    get_category_fields, infer_category_from_class, get_display_group,
+    get_ordered_categories_present, math_type_to_ecss,
+)
 
 
 # =============================================================================
@@ -382,6 +386,8 @@ class AnalysisDialog(wx.Dialog):
         self.design_margin_result: Optional[DesignMarginResult] = None
         self.sheet_mc_results: Dict[str, SheetMCResult] = {}
         self.criticality_results: List[Dict] = []
+        self.excluded_types: set = set()  # Component types excluded from analysis
+        self._type_checkboxes: Dict[str, wx.CheckBox] = {}  # type_name -> checkbox
 
         self._create_ui()
         self.Centre()
@@ -490,6 +496,31 @@ class AnalysisDialog(wx.Dialog):
         panel.SetBackgroundColour(Colors.BG_LIGHT)
         main = wx.BoxSizer(wx.VERTICAL)
 
+        # Explanation panel
+        expl_panel = wx.Panel(panel)
+        expl_panel.SetBackgroundColour(wx.Colour(239, 246, 255))
+        expl_sizer = wx.BoxSizer(wx.VERTICAL)
+        expl_title = wx.StaticText(expl_panel, label="One-At-a-Time (OAT) Sensitivity Analysis")
+        expl_title.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        expl_title.SetForegroundColour(Colors.PRIMARY)
+        expl_sizer.Add(expl_title, 0, wx.ALL, 6)
+        expl_text = (
+            "For each factor (sheet or parameter), the analysis perturbs it by +/- X% while holding "
+            "all others constant, then measures the resulting change in system FIT. This is the standard "
+            "one-at-a-time (OAT) deterministic sensitivity method per IEC 60300-3-1.\n\n"
+            "How to use:\n"
+            "  Sheet-level: identifies which subsystem (PCB sheet) contributes most to system FIT.\n"
+            "    -> Focus redesign on the sheet with the largest swing.\n"
+            "  Parameter-level: identifies which design parameter (temperature, power, ...) has the\n"
+            "    greatest leverage across all components. -> Prioritise thermal management or derating."
+        )
+        expl = wx.StaticText(expl_panel, label=expl_text)
+        expl.SetForegroundColour(Colors.TEXT_MEDIUM)
+        expl.Wrap(900)
+        expl_sizer.Add(expl, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+        expl_panel.SetSizer(expl_sizer)
+        main.Add(expl_panel, 0, wx.EXPAND | wx.ALL, 8)
+
         ctrl_panel = wx.Panel(panel)
         ctrl_panel.SetBackgroundColour(Colors.BG_WHITE)
         ctrl = wx.BoxSizer(wx.HORIZONTAL)
@@ -539,6 +570,34 @@ class AnalysisDialog(wx.Dialog):
         panel.SetBackgroundColour(Colors.BG_LIGHT)
         main = wx.BoxSizer(wx.VERTICAL)
 
+        # Explanation panel
+        expl_panel = wx.Panel(panel)
+        expl_panel.SetBackgroundColour(wx.Colour(255, 251, 235))
+        expl_sizer = wx.BoxSizer(wx.VERTICAL)
+        expl_title = wx.StaticText(expl_panel, label="Design Margin / What-If Scenario Analysis")
+        expl_title.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        expl_title.SetForegroundColour(wx.Colour(146, 64, 14))
+        expl_sizer.Add(expl_title, 0, wx.ALL, 6)
+        expl_text = (
+            "This tab evaluates your design's robustness against realistic environmental and "
+            "operational changes. Each scenario modifies one design parameter globally and "
+            "recomputes every component's lambda from scratch using the IEC TR 62380 models.\n\n"
+            "How to use:\n"
+            "  - 'Temp +10/+20 C': Will the board survive a hotter enclosure? If Delta Lambda > 10%,\n"
+            "    consider better thermal management or component derating.\n"
+            "  - 'Power derate 50/70%': Quantifies the reliability gain from running components below\n"
+            "    rated power -- a key ECSS/MIL derating strategy.\n"
+            "  - 'Thermal cycles x2 / Delta-T x2': Evaluates vulnerability to harsher thermal profiles\n"
+            "    (vibration, altitude changes, day/night cycling).\n"
+            "  - '50% duty cycle': Shows impact of reducing operating time (sleep modes, intermittent use)."
+        )
+        expl = wx.StaticText(expl_panel, label=expl_text)
+        expl.SetForegroundColour(Colors.TEXT_MEDIUM)
+        expl.Wrap(900)
+        expl_sizer.Add(expl, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+        expl_panel.SetSizer(expl_sizer)
+        main.Add(expl_panel, 0, wx.EXPAND | wx.ALL, 8)
+
         ctrl_panel = wx.Panel(panel)
         ctrl_panel.SetBackgroundColour(Colors.BG_WHITE)
         ctrl = wx.BoxSizer(wx.HORIZONTAL)
@@ -547,9 +606,6 @@ class AnalysisDialog(wx.Dialog):
         self.btn_dm.SetForegroundColour(Colors.TEXT_WHITE)
         self.btn_dm.Bind(wx.EVT_BUTTON, self._on_run_design_margin)
         ctrl.Add(self.btn_dm, 0, wx.ALL, 8)
-        note = wx.StaticText(ctrl_panel, label="Evaluates built-in what-if scenarios on active sheets only.")
-        note.SetForegroundColour(Colors.TEXT_MEDIUM)
-        ctrl.Add(note, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 12)
         ctrl_panel.SetSizer(ctrl)
         main.Add(ctrl_panel, 0, wx.EXPAND | wx.ALL, 8)
 
@@ -567,12 +623,41 @@ class AnalysisDialog(wx.Dialog):
         return panel
 
     # =========================================================================
-    # Contributions Tab
+    # Contributions Tab (with component type exclusion)
     # =========================================================================
     def _create_contributions_tab(self):
         panel = wx.Panel(self.notebook)
         panel.SetBackgroundColour(Colors.BG_LIGHT)
         main = wx.BoxSizer(wx.VERTICAL)
+
+        # Component type filter panel
+        filter_panel = wx.Panel(panel)
+        filter_panel.SetBackgroundColour(Colors.BG_WHITE)
+        filter_sizer = wx.BoxSizer(wx.VERTICAL)
+        filter_label = wx.StaticText(filter_panel, label="Include Component Types in Analysis:")
+        filter_label.SetFont(wx.Font(9, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        filter_sizer.Add(filter_label, 0, wx.ALL, 6)
+
+        filter_help = wx.StaticText(filter_panel,
+            label="Uncheck a type to exclude it from ALL analyses (Monte Carlo, Tornado, Design Margin, Criticality). "
+                  "Useful for ignoring connectors, test points, or mechanical parts.")
+        filter_help.SetForegroundColour(Colors.TEXT_MEDIUM)
+        filter_help.Wrap(900)
+        filter_sizer.Add(filter_help, 0, wx.LEFT | wx.BOTTOM, 6)
+
+        type_row = wx.WrapSizer(wx.HORIZONTAL)
+        types_in_data = self._get_component_types_in_data()
+        self._type_checkboxes = {}
+        for type_name in sorted(types_in_data):
+            cb = wx.CheckBox(filter_panel, label=type_name)
+            cb.SetValue(True)
+            cb.Bind(wx.EVT_CHECKBOX, self._on_type_filter_change)
+            type_row.Add(cb, 0, wx.ALL, 4)
+            self._type_checkboxes[type_name] = cb
+        filter_sizer.Add(type_row, 0, wx.LEFT, 12)
+        filter_panel.SetSizer(filter_sizer)
+        main.Add(filter_panel, 0, wx.EXPAND | wx.ALL, 8)
+
         self.contrib_chart = HorizontalBarPanel(panel, "Failure Rate Contributions")
         main.Add(self.contrib_chart, 1, wx.EXPAND | wx.ALL, 8)
         self.contrib_list = wx.ListCtrl(panel, style=wx.LC_REPORT | wx.BORDER_SIMPLE)
@@ -587,7 +672,7 @@ class AnalysisDialog(wx.Dialog):
         return panel
 
     # =========================================================================
-    # Criticality Tab (with field picker)
+    # Criticality Tab (with improved field picker)
     # =========================================================================
     def _create_criticality_tab(self):
         panel = wx.Panel(self.notebook)
@@ -612,32 +697,36 @@ class AnalysisDialog(wx.Dialog):
         ctrl1.SetSizer(row1)
         main.Add(ctrl1, 0, wx.EXPAND | wx.ALL, 8)
 
-        # Field picker
+        # Field picker with proper IC support
         fp_panel = wx.Panel(panel)
         fp_panel.SetBackgroundColour(Colors.BG_WHITE)
         fp_sizer = wx.BoxSizer(wx.VERTICAL)
-        fp_label = wx.StaticText(fp_panel, label="Field Selection per Component Category (leave empty = analyze all fields):")
+        fp_label = wx.StaticText(fp_panel, label="Field Selection per Component Category (uncheck to exclude from criticality analysis):")
         fp_label.SetFont(wx.Font(9, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
         fp_sizer.Add(fp_label, 0, wx.ALL, 8)
 
-        # Detect categories present in active data
-        self._categories_in_data = self._get_categories_in_data()
-        self._field_checkboxes = {}  # {category: {field_name: wx.CheckBox}}
+        # Detect categories present in active data using the improved mapper
+        self._categories_in_data = self._get_ecss_categories_in_data()
+        self._field_checkboxes = {}  # {category_key: {field_name: wx.CheckBox}}
 
-        scroll = scrolled.ScrolledPanel(fp_panel, size=(-1, 150))
+        scroll = scrolled.ScrolledPanel(fp_panel, size=(-1, 180))
         scroll.SetBackgroundColour(Colors.BG_WHITE)
         scroll_sizer = wx.BoxSizer(wx.VERTICAL)
 
-        try:
-            from .ecss_fields import get_category_fields
-        except ImportError:
-            from ecss_fields import get_category_fields
+        # Use canonical ordering so ICs appear first
+        ordered_cats = get_ordered_categories_present(self._categories_in_data)
 
-        for cat_key in sorted(self._categories_in_data):
+        for cat_key in ordered_cats:
             cat_def = get_category_fields(cat_key)
-            display = cat_def.get("display_name", cat_key)
+            display = get_display_group(cat_key)
             fields = cat_def.get("fields", {})
             if not fields:
+                # Even categories without ECSS JSON fields should appear
+                # (e.g. IC types that use reliability_math fields)
+                no_fields_label = wx.StaticText(scroll, label=f"  {display}:  (uses reliability_math model fields)")
+                no_fields_label.SetFont(wx.Font(9, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+                no_fields_label.SetForegroundColour(Colors.TEXT_MEDIUM)
+                scroll_sizer.Add(no_fields_label, 0, wx.TOP | wx.LEFT, 4)
                 continue
 
             cat_label = wx.StaticText(scroll, label=f"  {display}:")
@@ -694,9 +783,9 @@ class AnalysisDialog(wx.Dialog):
         btn_html = wx.Button(panel, label="Export HTML")
         btn_html.Bind(wx.EVT_BUTTON, self._on_export_html)
         btn_row.Add(btn_html, 0, wx.RIGHT, 8)
-        btn_csv = wx.Button(panel, label="Export CSV")
-        btn_csv.Bind(wx.EVT_BUTTON, self._on_export_csv)
-        btn_row.Add(btn_csv, 0)
+        btn_pdf = wx.Button(panel, label="Export PDF")
+        btn_pdf.Bind(wx.EVT_BUTTON, self._on_export_pdf)
+        btn_row.Add(btn_pdf, 0)
         main.Add(btn_row, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
         panel.SetSizer(main)
         self._update_report()
@@ -722,27 +811,56 @@ class AnalysisDialog(wx.Dialog):
         sel = self.mc_ci.GetStringSelection()
         return {"80%": 0.80, "90%": 0.90, "95%": 0.95, "99%": 0.99}.get(sel, 0.90)
 
-    def _get_categories_in_data(self) -> set:
-        """Find which ECSS categories are present in the active data."""
-        try:
-            from .ecss_fields import infer_category_from_class
-        except ImportError:
-            from ecss_fields import infer_category_from_class
+    def _get_component_types_in_data(self) -> set:
+        """Find which component types (reliability_math names) are in the data."""
+        types = set()
+        for data in self._active_data.values():
+            for comp in data.get("components", []):
+                cls = comp.get("class", "")
+                if cls:
+                    types.add(cls)
+        return types
+
+    def _get_ecss_categories_in_data(self) -> set:
+        """Find which ECSS categories are present in the active data.
+        Uses the improved math_type_to_ecss for proper IC mapping."""
         cats = set()
         for data in self._active_data.values():
             for comp in data.get("components", []):
                 cls = comp.get("class", "")
                 if cls:
-                    cats.add(infer_category_from_class(cls))
+                    cats.add(math_type_to_ecss(cls))
         return cats
+
+    def _on_type_filter_change(self, event):
+        """Update excluded_types set and refilter active data."""
+        self.excluded_types = {
+            type_name for type_name, cb in self._type_checkboxes.items()
+            if not cb.GetValue()
+        }
+        self._update_contributions()
+
+    def _get_filtered_active_data(self) -> Dict:
+        """Return active data with excluded component types removed."""
+        if not self.excluded_types:
+            return self._active_data
+        filtered = {}
+        for path, data in self._active_data.items():
+            new_comps = [c for c in data.get("components", [])
+                         if c.get("class", "") not in self.excluded_types]
+            if new_comps:
+                new_data = dict(data)
+                new_data["components"] = new_comps
+                new_data["lambda"] = sum(c.get("lambda", 0) for c in new_comps)
+                filtered[path] = new_data
+        return filtered
+
+    def _get_categories_in_data(self) -> set:
+        """Legacy: Find which ECSS categories are present in the active data."""
+        return self._get_ecss_categories_in_data()
 
     def _get_target_fields(self) -> Optional[Dict[str, List[str]]]:
         """Build target_fields dict from checkbox state. Returns None if all checked."""
-        try:
-            from .ecss_fields import infer_category_from_class
-        except ImportError:
-            from ecss_fields import infer_category_from_class
-
         result = {}
         all_checked = True
         for cat_key, fields in self._field_checkboxes.items():
@@ -752,18 +870,16 @@ class AnalysisDialog(wx.Dialog):
             result[cat_key] = selected
 
         # Map component class names to ECSS category keys for the target_fields
-        # The analyze_board_criticality uses comp["class"] as the category key
-        # So we need to map both ways
         expanded = {}
         for cat_key, field_list in result.items():
             expanded[cat_key] = field_list
-            # Also add common class names that map to this category
         return None if all_checked else expanded
 
     def _extract_components_for_mc(self) -> List[Dict]:
-        """Extract component data from active sheet_data."""
+        """Extract component data from active sheet_data (respecting type exclusion)."""
         components = []
-        for sheet_path, data in self._active_data.items():
+        data_source = self._get_filtered_active_data()
+        for sheet_path, data in data_source.items():
             for comp in data.get("components", []):
                 comp_type = comp.get("class", "Resistor")
                 if comp_type in ("Unknown", "", None):
@@ -868,7 +984,8 @@ class AnalysisDialog(wx.Dialog):
             self.btn_mc_sheets.Enable()
 
     def _on_run_tornado(self, event):
-        if not self._active_data:
+        filtered = self._get_filtered_active_data()
+        if not filtered:
             wx.MessageBox("No active data.", "No Data", wx.OK | wx.ICON_WARNING)
             return
         self.status.SetLabel("Running tornado analysis...")
@@ -880,11 +997,11 @@ class AnalysisDialog(wx.Dialog):
 
             if mode == 0:  # Sheet-level
                 result = tornado_sheet_sensitivity(
-                    self.sheet_data, self.mission_hours, pct, self.active_sheets)
+                    filtered, self.mission_hours, pct, list(filtered.keys()))
                 self.tornado_result = result
             else:  # Parameter-level
                 result = tornado_parameter_sensitivity(
-                    self.sheet_data, self.mission_hours, pct, self.active_sheets)
+                    filtered, self.mission_hours, pct, list(filtered.keys()))
                 self.param_tornado_result = result
 
             # Update chart
@@ -916,7 +1033,8 @@ class AnalysisDialog(wx.Dialog):
             self.btn_tornado.Enable()
 
     def _on_run_design_margin(self, event):
-        if not self._active_data:
+        filtered = self._get_filtered_active_data()
+        if not filtered:
             wx.MessageBox("No active data.", "No Data", wx.OK | wx.ICON_WARNING)
             return
         self.status.SetLabel("Running design margin analysis...")
@@ -924,7 +1042,7 @@ class AnalysisDialog(wx.Dialog):
         wx.Yield()
         try:
             self.design_margin_result = design_margin_analysis(
-                self.sheet_data, self.mission_hours, self.active_sheets)
+                filtered, self.mission_hours, list(filtered.keys()))
 
             self.dm_list.DeleteAllItems()
             # Baseline row
@@ -953,7 +1071,8 @@ class AnalysisDialog(wx.Dialog):
             self.btn_dm.Enable()
 
     def _on_run_criticality(self, event):
-        if not self._active_data:
+        filtered = self._get_filtered_active_data()
+        if not filtered:
             wx.MessageBox("No active data.", "No Data", wx.OK | wx.ICON_WARNING)
             return
         self.status.SetLabel("Running criticality analysis...")
@@ -965,7 +1084,7 @@ class AnalysisDialog(wx.Dialog):
             target_fields = self._get_target_fields()
 
             all_comps = []
-            for data in self._active_data.values():
+            for data in filtered.values():
                 all_comps.extend(data.get("components", []))
 
             self.criticality_results = analyze_board_criticality(
@@ -999,11 +1118,12 @@ class AnalysisDialog(wx.Dialog):
             self.btn_crit.Enable()
 
     def _update_contributions(self):
-        if not self._active_data:
+        data_source = self._get_filtered_active_data()
+        if not data_source:
             return
         contribs = []
         total_lam = 0
-        for path, data in self._active_data.items():
+        for path, data in data_source.items():
             lam = data.get("lambda", 0)
             if lam > 0:
                 contribs.append((path.rstrip("/").split("/")[-1] or "Root", lam))
@@ -1088,19 +1208,30 @@ class AnalysisDialog(wx.Dialog):
             self.status.SetLabel(f"Exported: {dlg.GetPath()}")
         dlg.Destroy()
 
-    def _on_export_csv(self, event):
-        dlg = wx.FileDialog(self, "Export CSV", wildcard="CSV (*.csv)|*.csv",
+    def _on_export_pdf(self, event):
+        dlg = wx.FileDialog(self, "Export PDF", wildcard="PDF (*.pdf)|*.pdf",
                             style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT)
         if dlg.ShowModal() == wx.ID_OK:
-            csv = self._generate_csv()
-            with open(dlg.GetPath(), "w", encoding="utf-8") as f:
-                f.write(csv)
-            self.status.SetLabel(f"Exported: {dlg.GetPath()}")
+            try:
+                html = self._generate_html()
+                from .report_generator import ReportGenerator
+                ReportGenerator.html_to_pdf(html, dlg.GetPath())
+                self.status.SetLabel(f"PDF exported: {dlg.GetPath()}")
+            except Exception as e:
+                import traceback; traceback.print_exc()
+                wx.MessageBox(f"PDF export failed: {e}\n\nFalling back: saving HTML for manual conversion.",
+                              "PDF Error", wx.OK | wx.ICON_WARNING)
+                # Fallback: save HTML
+                fallback = dlg.GetPath().replace('.pdf', '.html')
+                with open(fallback, "w", encoding="utf-8") as f:
+                    f.write(html)
+                self.status.SetLabel(f"HTML fallback exported: {fallback}")
         dlg.Destroy()
 
     def _generate_html(self) -> str:
         r = reliability_from_lambda(self.system_lambda, self.mission_hours)
         years = self.mission_hours / (365 * 24)
+        filtered = self._get_filtered_active_data()
 
         mc_dict = None
         if self.mc_result:
@@ -1136,7 +1267,7 @@ class AnalysisDialog(wx.Dialog):
             system_reliability=r,
             system_lambda=self.system_lambda,
             system_mttf_hours=1.0 / self.system_lambda if self.system_lambda > 0 else float("inf"),
-            sheets=self._active_data,
+            sheets=filtered,
             blocks=[],
             monte_carlo=mc_dict,
             sensitivity=sens_dict,
@@ -1148,24 +1279,3 @@ class AnalysisDialog(wx.Dialog):
 
         generator = ReportGenerator(logo_path=self.logo_path, logo_mime=self.logo_mime)
         return generator.generate_html(report_data)
-
-    def _generate_csv(self) -> str:
-        lines = ["Section,Item,Parameter,Value"]
-        r = reliability_from_lambda(self.system_lambda, self.mission_hours)
-        lines.append(f"System,Summary,Lambda_FIT,{self.system_lambda*1e9:.6f}")
-        lines.append(f"System,Summary,Reliability,{r:.6f}")
-        if self.mc_result:
-            mc = self.mc_result
-            ci_lo, ci_hi = mc.confidence_interval()
-            lines.append(f"MonteCarlo,Summary,Mean,{mc.mean:.6f}")
-            lines.append(f"MonteCarlo,Summary,StdDev,{mc.std:.6f}")
-            lines.append(f"MonteCarlo,Summary,CI_Lower,{ci_lo:.6f}")
-            lines.append(f"MonteCarlo,Summary,CI_Upper,{ci_hi:.6f}")
-            lines.append(f"MonteCarlo,Summary,Confidence,{mc.confidence_level:.2f}")
-        for path, data in self._active_data.items():
-            name = path.rstrip("/").split("/")[-1] or "Root"
-            for c in data.get("components", []):
-                ref = c.get("ref", "?")
-                ovr = "override" if c.get("override_lambda") is not None else "calc"
-                lines.append(f"Component,{ref},Lambda_FIT,{c.get('lambda',0)*1e9:.6f},{ovr}")
-        return "\n".join(lines)

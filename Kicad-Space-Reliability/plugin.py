@@ -40,7 +40,7 @@ class ReliabilityPlugin(pcbnew.ActionPlugin):
         self.category = "Analysis"
         self.description = "IEC TR 62380 reliability analysis with block diagram editor"
         self.show_toolbar_button = True
-        icon_path = os.path.join(os.path.dirname(__file__), "ressources/icon.png")
+        icon_path = os.path.join(os.path.dirname(__file__), "icon.png")
         if os.path.exists(icon_path):
             self.icon_file_name = icon_path
     
@@ -49,7 +49,7 @@ class ReliabilityPlugin(pcbnew.ActionPlugin):
         parent = None
         try:
             tops = [w for w in wx.GetTopLevelWindows() if w and w.IsShown()]
-            parent = tops[0] if tops else None
+            parent = tops[1] if tops else None
         except Exception:
             pass
         
