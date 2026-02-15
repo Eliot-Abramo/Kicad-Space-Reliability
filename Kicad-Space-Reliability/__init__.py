@@ -3,33 +3,37 @@ KiCad Reliability Calculator Plugin
 ====================================
 IEC TR 62380 Reliability Analysis for KiCad
 
-Version: 3.0.0
+Version: 3.1.0
 
 Features:
 - 12 component classes with full IEC TR 62380 stress models
 - Visual block diagram editor for system topology
 - Series/Parallel/K-of-N redundancy modeling
 - Monte Carlo uncertainty analysis with convergence detection
+- Correlated Monte Carlo with Cholesky decomposition
 - Sobol sensitivity analysis with interaction detection
 - Component-level parameter criticality analysis
-- Professional HTML/Markdown/CSV/JSON reports with SVG charts
+- Multi-phase mission profile support (IEC TR 62380 phasing)
+- Reliability budget allocation (equal, proportional, criticality)
+- Derating guidance engine with inverse calculations
+- Component swap analysis (package, type, technology)
+- Reliability growth tracking across design revisions
+- Professional HTML/PDF reports with SVG charts
 
-New in v3.0.0:
-- Complete rewrite of reliability_math.py
-- 12 component types: IC, Diode, Transistor, Optocoupler, Thyristor,
-  Capacitor, Resistor, Inductor, Relay, Connector, PCB/Solder, Misc
-- Full stress derating models (voltage, current, temperature, thermal cycling)
-- Coffin-Manson thermal cycling with CTE mismatch
-- Arrhenius temperature acceleration with technology-specific Ea
-- Component-level parameter criticality (elasticity analysis)
-- Defensive input validation - plugin never crashes on bad data
-- All formulas cite IEC TR 62380 section/table/page references
+New in v3.1.0 (Co-Design Overhaul):
+- Mission profile phasing: multi-phase environmental conditions per standard
+- Reliability budget allocation: system target decomposed to component level
+- Derating guidance: prescriptive recommendations with required parameter values
+- Component swap analysis: one-click what-if for package/type changes
+- Reliability growth tracking: snapshot versioning with before/after attribution
+- Correlated Monte Carlo: Cholesky-based correlated sampling with auto-grouping
+- Predefined mission profile templates (LEO, GEO, Automotive, Avionics, etc.)
 
 Designed and developed by Eliot Abramo
 License: MIT
 """
 
-__version__ = "3.0.0"
+__version__ = "3.1.0"
 __author__ = "Eliot Abramo"
 
 try:
@@ -72,6 +76,55 @@ from .sensitivity_analysis import (
     SobolResult,
     quick_sensitivity,
     analyze_board_criticality,
+)
+
+# v3.1.0 Co-Design modules
+from .mission_profile import (
+    MissionPhase,
+    MissionProfile,
+    MISSION_TEMPLATES,
+    compute_phased_lambda,
+    estimate_phasing_impact,
+)
+
+from .budget_allocation import (
+    allocate_budget,
+    BudgetAllocationResult,
+    AllocationStrategy,
+    compute_max_fit_for_target,
+)
+
+from .derating_engine import (
+    compute_derating_guidance,
+    DeratingResult,
+    DeratingRecommendation,
+)
+
+from .component_swap import (
+    analyze_package_swaps,
+    analyze_type_swaps,
+    quick_swap_comparison,
+    rank_all_swaps,
+    SwapAnalysisResult,
+)
+
+from .growth_tracking import (
+    create_snapshot,
+    save_snapshot,
+    load_snapshots,
+    compare_revisions,
+    build_growth_timeline,
+    ReliabilitySnapshot,
+    RevisionComparison,
+    GrowthTimeline,
+)
+
+from .correlated_mc import (
+    correlated_monte_carlo,
+    CorrelationGroup,
+    CorrelatedMCResult,
+    auto_group_by_sheet,
+    auto_group_by_type,
 )
 
 from .reliability_dialog import ReliabilityMainDialog

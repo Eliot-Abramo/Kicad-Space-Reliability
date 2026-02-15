@@ -35,6 +35,7 @@ from .component_editor import (
 from .schematic_parser import SchematicParser, create_test_data
 from .project_manager import ProjectManager
 from .report_generator import ReportGenerator, ReportData
+from .mission_profile import MissionPhase, MissionProfile, MISSION_TEMPLATES
 
 
 # Design system colors
@@ -114,19 +115,109 @@ class SheetPanel(wx.Panel):
             )
 
 
+class MissionPhaseDialog(wx.Dialog):
+    """Dialog for editing a single mission phase."""
+
+    def __init__(self, parent, phase: MissionPhase = None, title="Edit Mission Phase"):
+        super().__init__(parent, title=title, size=(380, 320),
+                         style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+        self.SetBackgroundColour(Colors.PANEL_BG)
+
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        form = wx.FlexGridSizer(7, 2, 8, 10)
+        form.AddGrowableCol(1, 1)
+
+        # Phase name
+        form.Add(wx.StaticText(self, label="Phase Name:"), 0, wx.ALIGN_CENTER_VERTICAL)
+        self.name_ctrl = wx.TextCtrl(self, value=phase.name if phase else "Phase 1")
+        form.Add(self.name_ctrl, 0, wx.EXPAND)
+
+        # Duration fraction
+        form.Add(wx.StaticText(self, label="Duration (%):"), 0, wx.ALIGN_CENTER_VERTICAL)
+        self.duration_ctrl = wx.SpinCtrlDouble(self, min=0.1, max=100.0,
+            initial=(phase.duration_frac * 100) if phase else 100.0, inc=1.0, size=(100, -1))
+        self.duration_ctrl.SetDigits(1)
+        form.Add(self.duration_ctrl, 0)
+
+        # T_ambient
+        form.Add(wx.StaticText(self, label="T_ambient (degC):"), 0, wx.ALIGN_CENTER_VERTICAL)
+        self.t_amb_ctrl = wx.SpinCtrlDouble(self, min=-55, max=200,
+            initial=phase.t_ambient if phase else 25.0, inc=5.0, size=(100, -1))
+        self.t_amb_ctrl.SetDigits(1)
+        form.Add(self.t_amb_ctrl, 0)
+
+        # T_junction
+        form.Add(wx.StaticText(self, label="T_junction (degC):"), 0, wx.ALIGN_CENTER_VERTICAL)
+        self.t_junc_ctrl = wx.SpinCtrlDouble(self, min=-55, max=250,
+            initial=phase.t_junction if phase else 85.0, inc=5.0, size=(100, -1))
+        self.t_junc_ctrl.SetDigits(1)
+        form.Add(self.t_junc_ctrl, 0)
+
+        # n_cycles
+        form.Add(wx.StaticText(self, label="Thermal cycles/yr:"), 0, wx.ALIGN_CENTER_VERTICAL)
+        self.cycles_ctrl = wx.SpinCtrl(self, min=0, max=50000,
+            initial=phase.n_cycles if phase else 5256, size=(100, -1))
+        form.Add(self.cycles_ctrl, 0)
+
+        # delta_t
+        form.Add(wx.StaticText(self, label="Delta_T (degC):"), 0, wx.ALIGN_CENTER_VERTICAL)
+        self.dt_ctrl = wx.SpinCtrlDouble(self, min=0.0, max=100.0,
+            initial=phase.delta_t if phase else 3.0, inc=0.5, size=(100, -1))
+        self.dt_ctrl.SetDigits(1)
+        form.Add(self.dt_ctrl, 0)
+
+        # tau_on
+        form.Add(wx.StaticText(self, label="tau_on (0-1):"), 0, wx.ALIGN_CENTER_VERTICAL)
+        self.tau_ctrl = wx.SpinCtrlDouble(self, min=0.0, max=1.0,
+            initial=phase.tau_on if phase else 1.0, inc=0.05, size=(100, -1))
+        self.tau_ctrl.SetDigits(2)
+        form.Add(self.tau_ctrl, 0)
+
+        sizer.Add(form, 1, wx.EXPAND | wx.ALL, 15)
+
+        # Buttons
+        btn_sizer = self.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL)
+        sizer.Add(btn_sizer, 0, wx.EXPAND | wx.ALL, 10)
+        self.SetSizer(sizer)
+
+    def get_phase(self) -> MissionPhase:
+        return MissionPhase(
+            name=self.name_ctrl.GetValue(),
+            duration_frac=self.duration_ctrl.GetValue() / 100.0,
+            t_ambient=self.t_amb_ctrl.GetValue(),
+            t_junction=self.t_junc_ctrl.GetValue(),
+            n_cycles=self.cycles_ctrl.GetValue(),
+            delta_t=self.dt_ctrl.GetValue(),
+            tau_on=self.tau_ctrl.GetValue(),
+        )
+
+
 class SettingsPanel(wx.Panel):
-    """Mission profile settings with tau_on."""
+    """Mission profile settings with single-phase defaults and multi-phase support."""
 
     def __init__(self, parent):
         super().__init__(parent)
         self.SetBackgroundColour(Colors.PANEL_BG)
         self.on_change = None
+        self._mission_profile = None  # None = use single-phase from controls
 
         main = wx.BoxSizer(wx.VERTICAL)
 
+        # --- Single-phase defaults ---
         lbl = wx.StaticText(self, label="Mission Profile")
         lbl.SetFont(lbl.GetFont().Bold())
         main.Add(lbl, 0, wx.ALL, 10)
+
+        # Template selector row
+        tmpl_row = wx.BoxSizer(wx.HORIZONTAL)
+        tmpl_row.Add(wx.StaticText(self, label="Template:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        templates = ["(Single-Phase)"] + sorted(MISSION_TEMPLATES.keys())
+        self.template_combo = wx.Choice(self, choices=templates, size=(160, -1))
+        self.template_combo.SetSelection(0)
+        self.template_combo.Bind(wx.EVT_CHOICE, self._on_template_select)
+        tmpl_row.Add(self.template_combo, 1)
+        main.Add(tmpl_row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
+        main.AddSpacer(6)
 
         form = wx.FlexGridSizer(4, 3, 8, 10)
         form.AddGrowableCol(1, 1)
@@ -167,6 +258,39 @@ class SettingsPanel(wx.Panel):
         form.Add(wx.StaticText(self, label="(0-1)"), 0, wx.ALIGN_CENTER_VERTICAL)
 
         main.Add(form, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
+        main.AddSpacer(6)
+
+        # --- Multi-phase editor ---
+        self.phase_label = wx.StaticText(self, label="Phases: (single-phase mode)")
+        self.phase_label.SetFont(self.phase_label.GetFont().MakeItalic())
+        main.Add(self.phase_label, 0, wx.LEFT | wx.RIGHT, 10)
+
+        self.phase_list = wx.ListCtrl(self, style=wx.LC_REPORT | wx.LC_SINGLE_SEL | wx.BORDER_SIMPLE, size=(-1, 90))
+        self.phase_list.InsertColumn(0, "Phase", width=80)
+        self.phase_list.InsertColumn(1, "Dur%", width=45)
+        self.phase_list.InsertColumn(2, "T_amb", width=45)
+        self.phase_list.InsertColumn(3, "T_junc", width=48)
+        self.phase_list.InsertColumn(4, "Cycles", width=50)
+        self.phase_list.InsertColumn(5, "dT", width=35)
+        self.phase_list.InsertColumn(6, "tau", width=35)
+        self.phase_list.Hide()
+        main.Add(self.phase_list, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
+
+        btn_row = wx.BoxSizer(wx.HORIZONTAL)
+        self.btn_add_phase = wx.Button(self, label="+ Phase", size=(65, -1))
+        self.btn_edit_phase = wx.Button(self, label="Edit", size=(50, -1))
+        self.btn_remove_phase = wx.Button(self, label="- Phase", size=(65, -1))
+        self.btn_add_phase.Bind(wx.EVT_BUTTON, self._on_add_phase)
+        self.btn_edit_phase.Bind(wx.EVT_BUTTON, self._on_edit_phase)
+        self.btn_remove_phase.Bind(wx.EVT_BUTTON, self._on_remove_phase)
+        btn_row.Add(self.btn_add_phase, 0, wx.RIGHT, 4)
+        btn_row.Add(self.btn_edit_phase, 0, wx.RIGHT, 4)
+        btn_row.Add(self.btn_remove_phase, 0)
+        self.btn_add_phase.Hide()
+        self.btn_edit_phase.Hide()
+        self.btn_remove_phase.Hide()
+        main.Add(btn_row, 0, wx.LEFT | wx.RIGHT | wx.TOP, 10)
+        main.AddSpacer(4)
 
         help_btn = wx.Button(self, label="IEC 62380 Reference...")
         help_btn.Bind(wx.EVT_BUTTON, self._on_help)
@@ -185,6 +309,124 @@ class SettingsPanel(wx.Panel):
 
     def get_tau_on(self) -> float:
         return float(self.tau_on.GetValue())
+
+    def get_mission_profile(self) -> 'MissionProfile':
+        """Return the current mission profile (multi-phase or single-phase)."""
+        if self._mission_profile and not self._mission_profile.is_single_phase:
+            return self._mission_profile
+        return MissionProfile.single_phase(
+            years=self.years.GetValue(),
+            n_cycles=self.cycles.GetValue(),
+            delta_t=self.dt.GetValue(),
+            tau_on=self.tau_on.GetValue(),
+        )
+
+    def set_mission_profile(self, profile: 'MissionProfile'):
+        """Set and display a mission profile."""
+        self._mission_profile = profile
+        if profile and not profile.is_single_phase:
+            self.years.SetValue(int(profile.mission_years))
+            self._show_multi_phase()
+            self._refresh_phase_list()
+            # Find matching template
+            for i, name in enumerate(["(Single-Phase)"] + sorted(MISSION_TEMPLATES.keys())):
+                if name == profile.name:
+                    self.template_combo.SetSelection(i)
+                    break
+        else:
+            self._show_single_phase()
+            self.template_combo.SetSelection(0)
+
+    def _on_template_select(self, event):
+        sel = self.template_combo.GetStringSelection()
+        if sel == "(Single-Phase)":
+            self._mission_profile = None
+            self._show_single_phase()
+        elif sel in MISSION_TEMPLATES:
+            self._mission_profile = MISSION_TEMPLATES[sel]
+            self.years.SetValue(int(self._mission_profile.mission_years))
+            self._show_multi_phase()
+            self._refresh_phase_list()
+        self._on_change(event)
+
+    def _show_multi_phase(self):
+        self.phase_list.Show()
+        self.btn_add_phase.Show()
+        self.btn_edit_phase.Show()
+        self.btn_remove_phase.Show()
+        n = len(self._mission_profile.phases) if self._mission_profile else 0
+        self.phase_label.SetLabel(f"Phases: ({n} defined)")
+        self.GetSizer().Layout()
+        self.GetParent().Layout()
+
+    def _show_single_phase(self):
+        self.phase_list.Hide()
+        self.btn_add_phase.Hide()
+        self.btn_edit_phase.Hide()
+        self.btn_remove_phase.Hide()
+        self.phase_label.SetLabel("Phases: (single-phase mode)")
+        self.GetSizer().Layout()
+        self.GetParent().Layout()
+
+    def _refresh_phase_list(self):
+        self.phase_list.DeleteAllItems()
+        if not self._mission_profile:
+            return
+        for i, p in enumerate(self._mission_profile.phases):
+            idx = self.phase_list.InsertItem(i, p.name[:15])
+            self.phase_list.SetItem(idx, 1, f"{p.duration_frac*100:.0f}")
+            self.phase_list.SetItem(idx, 2, f"{p.t_ambient:.0f}")
+            self.phase_list.SetItem(idx, 3, f"{p.t_junction:.0f}")
+            self.phase_list.SetItem(idx, 4, f"{p.n_cycles}")
+            self.phase_list.SetItem(idx, 5, f"{p.delta_t:.1f}")
+            self.phase_list.SetItem(idx, 6, f"{p.tau_on:.2f}")
+
+    def _on_add_phase(self, event):
+        dlg = MissionPhaseDialog(self, title="Add Mission Phase")
+        if dlg.ShowModal() == wx.ID_OK:
+            phase = dlg.get_phase()
+            if self._mission_profile is None:
+                self._mission_profile = MissionProfile(
+                    name="Custom", mission_years=self.years.GetValue(), phases=[])
+            self._mission_profile.phases.append(phase)
+            # Renormalize fractions
+            total = sum(p.duration_frac for p in self._mission_profile.phases)
+            if total > 0:
+                for p in self._mission_profile.phases:
+                    p.duration_frac = p.duration_frac / total
+            self._refresh_phase_list()
+            self._on_change(event)
+        dlg.Destroy()
+
+    def _on_edit_phase(self, event):
+        sel = self.phase_list.GetFirstSelected()
+        if sel < 0 or not self._mission_profile:
+            return
+        dlg = MissionPhaseDialog(self, phase=self._mission_profile.phases[sel],
+                                 title="Edit Mission Phase")
+        if dlg.ShowModal() == wx.ID_OK:
+            self._mission_profile.phases[sel] = dlg.get_phase()
+            self._refresh_phase_list()
+            self._on_change(event)
+        dlg.Destroy()
+
+    def _on_remove_phase(self, event):
+        sel = self.phase_list.GetFirstSelected()
+        if sel < 0 or not self._mission_profile:
+            return
+        self._mission_profile.phases.pop(sel)
+        if len(self._mission_profile.phases) == 0:
+            self._mission_profile = None
+            self._show_single_phase()
+            self.template_combo.SetSelection(0)
+        else:
+            # Renormalize
+            total = sum(p.duration_frac for p in self._mission_profile.phases)
+            if total > 0:
+                for p in self._mission_profile.phases:
+                    p.duration_frac = p.duration_frac / total
+            self._refresh_phase_list()
+        self._on_change(event)
 
     def _on_change(self, event):
         if self.on_change:
@@ -790,6 +1032,7 @@ class ReliabilityMainDialog(wx.Dialog):
                     "dt": self.settings_panel.dt.GetValue(),
                     "tau_on": self.settings_panel.tau_on.GetValue(),
                 },
+                "mission_profile": self.settings_panel.get_mission_profile().to_dict(),
                 "component_edits": self.component_edits,
             }
             with open(dlg.GetPath(), "w", encoding="utf-8") as f:
@@ -820,6 +1063,17 @@ class ReliabilityMainDialog(wx.Dialog):
                 self.settings_panel.cycles.SetValue(settings.get("cycles", 5256))
                 self.settings_panel.dt.SetValue(settings.get("dt", 3.0))
                 self.settings_panel.tau_on.SetValue(settings.get("tau_on", 1.0))
+                # Load mission profile if present
+                mp_data = config.get("mission_profile")
+                if mp_data:
+                    self.settings_panel.set_mission_profile(MissionProfile.from_dict(mp_data))
+                else:
+                    self.settings_panel.set_mission_profile(MissionProfile.single_phase(
+                        years=settings.get("years", 5),
+                        n_cycles=settings.get("cycles", 5256),
+                        delta_t=settings.get("dt", 3.0),
+                        tau_on=settings.get("tau_on", 1.0),
+                    ))
                 self.component_edits = config.get("component_edits", {})
                 self.editor.load_structure(config.get("structure", {}))
                 self._recalculate_all()

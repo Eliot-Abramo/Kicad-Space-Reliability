@@ -32,6 +32,22 @@ from .ecss_fields import (
     get_category_fields, infer_category_from_class, get_display_group,
     get_ordered_categories_present, math_type_to_ecss,
 )
+from .budget_allocation import allocate_budget, BudgetAllocationResult
+from .derating_engine import compute_derating_guidance, DeratingResult
+from .component_swap import (
+    analyze_package_swaps, analyze_type_swaps,
+    quick_swap_comparison, rank_all_swaps, SwapAnalysisResult,
+)
+from .growth_tracking import (
+    create_snapshot, save_snapshot, load_snapshots,
+    compare_revisions, build_growth_timeline,
+    ReliabilitySnapshot, RevisionComparison,
+)
+from .correlated_mc import (
+    correlated_monte_carlo, CorrelationGroup, CorrelatedMCResult,
+    auto_group_by_sheet, auto_group_by_type, auto_group_all_on_board,
+)
+from .mission_profile import MissionProfile, MISSION_TEMPLATES
 
 
 # =============================================================================
@@ -388,6 +404,12 @@ class AnalysisDialog(wx.Dialog):
         self.criticality_results: List[Dict] = []
         self.excluded_types: set = set()  # Component types excluded from analysis
         self._type_checkboxes: Dict[str, wx.CheckBox] = {}  # type_name -> checkbox
+        self.budget_result: Optional[BudgetAllocationResult] = None
+        self.derating_result: Optional[DeratingResult] = None
+        self.swap_results: List[Dict] = []
+        self.correlated_mc_result: Optional[CorrelatedMCResult] = None
+        self.growth_snapshots: List[Dict] = []
+        self.growth_comparisons: List[Dict] = []
 
         self._create_ui()
         self.Centre()
@@ -409,6 +431,11 @@ class AnalysisDialog(wx.Dialog):
         self.notebook.AddPage(self._create_design_margin_tab(), "Design Margin")
         self.notebook.AddPage(self._create_contributions_tab(), "Contributions")
         self.notebook.AddPage(self._create_criticality_tab(), "Criticality")
+        self.notebook.AddPage(self._create_budget_tab(), "Budget Allocation")
+        self.notebook.AddPage(self._create_derating_tab(), "Derating Guidance")
+        self.notebook.AddPage(self._create_swap_tab(), "Component Swap")
+        self.notebook.AddPage(self._create_correlated_mc_tab(), "Correlated MC")
+        self.notebook.AddPage(self._create_growth_tab(), "Growth Tracking")
         self.notebook.AddPage(self._create_report_tab(), "Full Report")
         main_sizer.Add(self.notebook, 1, wx.EXPAND | wx.ALL, 12)
 
@@ -767,6 +794,516 @@ class AnalysisDialog(wx.Dialog):
 
         panel.SetSizer(main)
         return panel
+
+    # =========================================================================
+    # Budget Allocation Tab (Phase 3)
+    # =========================================================================
+    def _create_budget_tab(self):
+        panel = wx.Panel(self.notebook)
+        panel.SetBackgroundColour(Colors.BG_LIGHT)
+        main = wx.BoxSizer(wx.VERTICAL)
+
+        # Controls
+        ctrl_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        ctrl_sizer.Add(wx.StaticText(panel, label="Target R:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        self.budget_target_r = wx.TextCtrl(panel, value="0.999", size=(80, -1))
+        ctrl_sizer.Add(self.budget_target_r, 0, wx.RIGHT, 15)
+
+        ctrl_sizer.Add(wx.StaticText(panel, label="Strategy:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        self.budget_strategy = wx.Choice(panel, choices=["Proportional (ARINC)", "Equal", "Complexity-Weighted", "Criticality-Weighted"])
+        self.budget_strategy.SetSelection(0)
+        ctrl_sizer.Add(self.budget_strategy, 0, wx.RIGHT, 15)
+
+        ctrl_sizer.Add(wx.StaticText(panel, label="Margin:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        self.budget_margin = wx.SpinCtrl(panel, min=0, max=50, initial=10, size=(60, -1))
+        ctrl_sizer.Add(self.budget_margin, 0, wx.RIGHT, 5)
+        ctrl_sizer.Add(wx.StaticText(panel, label="%"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 15)
+
+        self.btn_budget = wx.Button(panel, label="Allocate Budget")
+        self.btn_budget.Bind(wx.EVT_BUTTON, self._on_run_budget)
+        ctrl_sizer.Add(self.btn_budget, 0)
+        main.Add(ctrl_sizer, 0, wx.EXPAND | wx.ALL, 12)
+
+        # Results list
+        self.budget_list = wx.ListCtrl(panel, style=wx.LC_REPORT | wx.BORDER_SIMPLE)
+        self.budget_list.SetBackgroundColour(Colors.BG_WHITE)
+        self.budget_list.InsertColumn(0, "Reference", width=90)
+        self.budget_list.InsertColumn(1, "Type", width=110)
+        self.budget_list.InsertColumn(2, "Actual FIT", width=85)
+        self.budget_list.InsertColumn(3, "Budget FIT", width=85)
+        self.budget_list.InsertColumn(4, "Margin FIT", width=85)
+        self.budget_list.InsertColumn(5, "Utilization", width=85)
+        self.budget_list.InsertColumn(6, "Status", width=80)
+        main.Add(self.budget_list, 1, wx.EXPAND | wx.ALL, 8)
+
+        self.budget_info = wx.StaticText(panel, label="Set a system reliability target and allocate budgets to components.")
+        self.budget_info.SetForegroundColour(Colors.TEXT_MEDIUM)
+        main.Add(self.budget_info, 0, wx.ALL, 12)
+
+        panel.SetSizer(main)
+        return panel
+
+    def _on_run_budget(self, event):
+        filtered = self._get_filtered_active_data()
+        if not filtered:
+            wx.MessageBox("No active data.", "No Data", wx.OK | wx.ICON_WARNING)
+            return
+        self.status.SetLabel("Running budget allocation...")
+        self.btn_budget.Disable()
+        wx.Yield()
+        try:
+            target_r = float(self.budget_target_r.GetValue())
+            strategy_map = {0: "proportional", 1: "equal", 2: "complexity", 3: "criticality"}
+            strategy = strategy_map.get(self.budget_strategy.GetSelection(), "proportional")
+            margin = self.budget_margin.GetValue()
+
+            self.budget_result = allocate_budget(
+                filtered, self.mission_hours, target_reliability=target_r,
+                strategy=strategy, active_sheets=list(filtered.keys()),
+                margin_percent=margin)
+
+            self.budget_list.DeleteAllItems()
+            for sb in self.budget_result.sheet_budgets:
+                for cb in sb.component_budgets:
+                    idx = self.budget_list.InsertItem(self.budget_list.GetItemCount(), cb.reference)
+                    self.budget_list.SetItem(idx, 1, cb.component_type[:18])
+                    self.budget_list.SetItem(idx, 2, f"{cb.actual_fit:.2f}")
+                    self.budget_list.SetItem(idx, 3, f"{cb.budget_fit:.2f}")
+                    self.budget_list.SetItem(idx, 4, f"{cb.margin_fit:+.2f}")
+                    self.budget_list.SetItem(idx, 5, f"{cb.utilization*100:.0f}%")
+                    status = "PASS" if cb.within_budget else "OVER"
+                    self.budget_list.SetItem(idx, 6, status)
+
+            br = self.budget_result
+            status_icon = "PASS" if br.system_within_budget else "FAIL"
+            info = (f"Budget [{status_icon}]: Target {target_r:.4f} = {br.target_fit:.1f} FIT, "
+                    f"Actual {br.actual_fit:.1f} FIT, "
+                    f"Margin {br.system_margin_fit:+.1f} FIT ({br.system_margin_percent:+.1f}%). "
+                    f"{br.components_over_budget}/{br.total_components} components over budget.")
+            self.budget_info.SetLabel(info)
+            self.budget_info.SetForegroundColour(Colors.SUCCESS if br.system_within_budget else Colors.DANGER)
+            self.status.SetLabel(f"Budget allocation complete: {br.total_components} components")
+            self._update_report()
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            wx.MessageBox(str(e), "Error", wx.OK | wx.ICON_ERROR)
+        finally:
+            self.btn_budget.Enable()
+
+    # =========================================================================
+    # Derating Guidance Tab (Phase 4)
+    # =========================================================================
+    def _create_derating_tab(self):
+        panel = wx.Panel(self.notebook)
+        panel.SetBackgroundColour(Colors.BG_LIGHT)
+        main = wx.BoxSizer(wx.VERTICAL)
+
+        ctrl_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        ctrl_sizer.Add(wx.StaticText(panel, label="Target FIT:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        self.derate_target = wx.TextCtrl(panel, value="", size=(80, -1))
+        self.derate_target.SetHint("auto")
+        ctrl_sizer.Add(self.derate_target, 0, wx.RIGHT, 15)
+
+        ctrl_sizer.Add(wx.StaticText(panel, label="Top N:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        self.derate_top_n = wx.SpinCtrl(panel, min=3, max=30, initial=10, size=(60, -1))
+        ctrl_sizer.Add(self.derate_top_n, 0, wx.RIGHT, 15)
+
+        self.btn_derate = wx.Button(panel, label="Generate Recommendations")
+        self.btn_derate.Bind(wx.EVT_BUTTON, self._on_run_derating)
+        ctrl_sizer.Add(self.btn_derate, 0)
+        main.Add(ctrl_sizer, 0, wx.EXPAND | wx.ALL, 12)
+
+        self.derate_list = wx.ListCtrl(panel, style=wx.LC_REPORT | wx.BORDER_SIMPLE)
+        self.derate_list.SetBackgroundColour(Colors.BG_WHITE)
+        self.derate_list.InsertColumn(0, "#", width=35)
+        self.derate_list.InsertColumn(1, "Reference", width=80)
+        self.derate_list.InsertColumn(2, "Parameter", width=110)
+        self.derate_list.InsertColumn(3, "Current", width=80)
+        self.derate_list.InsertColumn(4, "Required", width=80)
+        self.derate_list.InsertColumn(5, "Change", width=80)
+        self.derate_list.InsertColumn(6, "Sys FIT Saved", width=90)
+        self.derate_list.InsertColumn(7, "Feasibility", width=80)
+        main.Add(self.derate_list, 1, wx.EXPAND | wx.ALL, 8)
+
+        self.derate_info = wx.StaticText(panel, label="Compute required parameter values to meet reliability targets.")
+        self.derate_info.SetForegroundColour(Colors.TEXT_MEDIUM)
+        main.Add(self.derate_info, 0, wx.ALL, 12)
+
+        panel.SetSizer(main)
+        return panel
+
+    def _on_run_derating(self, event):
+        filtered = self._get_filtered_active_data()
+        if not filtered:
+            wx.MessageBox("No active data.", "No Data", wx.OK | wx.ICON_WARNING)
+            return
+        self.status.SetLabel("Computing derating guidance...")
+        self.btn_derate.Disable()
+        wx.Yield()
+        try:
+            target_text = self.derate_target.GetValue().strip()
+            if target_text:
+                target_fit = float(target_text)
+            else:
+                from .reliability_math import lambda_from_reliability
+                target_fit = lambda_from_reliability(0.999, self.mission_hours) * 1e9
+
+            top_n = self.derate_top_n.GetValue()
+            self.derating_result = compute_derating_guidance(
+                filtered, self.mission_hours, target_fit,
+                active_sheets=list(filtered.keys()), top_n=top_n)
+
+            self.derate_list.DeleteAllItems()
+            for rec in self.derating_result.recommendations[:30]:
+                idx = self.derate_list.InsertItem(self.derate_list.GetItemCount(), str(rec.priority))
+                self.derate_list.SetItem(idx, 1, rec.reference)
+                self.derate_list.SetItem(idx, 2, rec.parameter)
+                self.derate_list.SetItem(idx, 3, f"{rec.current_value:.2f}")
+                self.derate_list.SetItem(idx, 4, f"{rec.required_value:.2f}")
+                self.derate_list.SetItem(idx, 5, f"{rec.change_percent:+.1f}%")
+                self.derate_list.SetItem(idx, 6, f"{rec.system_fit_reduction:.2f}")
+                self.derate_list.SetItem(idx, 7, rec.feasibility)
+
+            self.derate_info.SetLabel(self.derating_result.summary[:200])
+            self.status.SetLabel(f"Derating: {len(self.derating_result.recommendations)} recommendations")
+            self._update_report()
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            wx.MessageBox(str(e), "Error", wx.OK | wx.ICON_ERROR)
+        finally:
+            self.btn_derate.Enable()
+
+    # =========================================================================
+    # Component Swap Tab (Phase 5)
+    # =========================================================================
+    def _create_swap_tab(self):
+        panel = wx.Panel(self.notebook)
+        panel.SetBackgroundColour(Colors.BG_LIGHT)
+        main = wx.BoxSizer(wx.VERTICAL)
+
+        ctrl_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        ctrl_sizer.Add(wx.StaticText(panel, label="Max per component:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        self.swap_max = wx.SpinCtrl(panel, min=1, max=20, initial=5, size=(60, -1))
+        ctrl_sizer.Add(self.swap_max, 0, wx.RIGHT, 15)
+
+        self.btn_swap = wx.Button(panel, label="Rank All Swaps")
+        self.btn_swap.Bind(wx.EVT_BUTTON, self._on_run_swap)
+        ctrl_sizer.Add(self.btn_swap, 0)
+        main.Add(ctrl_sizer, 0, wx.EXPAND | wx.ALL, 12)
+
+        self.swap_list = wx.ListCtrl(panel, style=wx.LC_REPORT | wx.BORDER_SIMPLE)
+        self.swap_list.SetBackgroundColour(Colors.BG_WHITE)
+        self.swap_list.InsertColumn(0, "Reference", width=80)
+        self.swap_list.InsertColumn(1, "Type", width=100)
+        self.swap_list.InsertColumn(2, "Swap", width=90)
+        self.swap_list.InsertColumn(3, "Description", width=230)
+        self.swap_list.InsertColumn(4, "Delta FIT", width=85)
+        self.swap_list.InsertColumn(5, "Change %", width=80)
+        self.swap_list.InsertColumn(6, "New Sys FIT", width=90)
+        main.Add(self.swap_list, 1, wx.EXPAND | wx.ALL, 8)
+
+        self.swap_info = wx.StaticText(panel, label="Find the single component change that most improves system reliability.")
+        self.swap_info.SetForegroundColour(Colors.TEXT_MEDIUM)
+        main.Add(self.swap_info, 0, wx.ALL, 12)
+
+        panel.SetSizer(main)
+        return panel
+
+    def _on_run_swap(self, event):
+        filtered = self._get_filtered_active_data()
+        if not filtered:
+            wx.MessageBox("No active data.", "No Data", wx.OK | wx.ICON_WARNING)
+            return
+        self.status.SetLabel("Ranking all component swaps...")
+        self.btn_swap.Disable()
+        wx.Yield()
+        try:
+            all_comps = []
+            for data in filtered.values():
+                all_comps.extend(data.get("components", []))
+
+            system_fit = sum(float(d.get("lambda", 0)) for d in filtered.values()) * 1e9
+            max_per = self.swap_max.GetValue()
+
+            self.swap_results = rank_all_swaps(all_comps, system_fit, max_per)
+
+            self.swap_list.DeleteAllItems()
+            for r in self.swap_results[:50]:
+                idx = self.swap_list.InsertItem(self.swap_list.GetItemCount(), r["reference"])
+                self.swap_list.SetItem(idx, 1, r["component_type"][:18])
+                self.swap_list.SetItem(idx, 2, r["swap_type"])
+                self.swap_list.SetItem(idx, 3, r["description"][:35])
+                self.swap_list.SetItem(idx, 4, f"{r['delta_fit']:.2f}")
+                self.swap_list.SetItem(idx, 5, f"{r['delta_percent']:.1f}%")
+                self.swap_list.SetItem(idx, 6, f"{r['new_system_fit']:.1f}")
+
+            n = len(self.swap_results)
+            if n > 0:
+                best = self.swap_results[0]
+                self.swap_info.SetLabel(
+                    f"Found {n} improvement opportunities. Best: {best['reference']} "
+                    f"({best['description'][:40]}) saves {abs(best['delta_fit']):.2f} FIT.")
+                self.swap_info.SetForegroundColour(Colors.SUCCESS)
+            else:
+                self.swap_info.SetLabel("No improvements found from single-parameter swaps.")
+            self.status.SetLabel(f"Swap analysis: {n} improvements found")
+            self._update_report()
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            wx.MessageBox(str(e), "Error", wx.OK | wx.ICON_ERROR)
+        finally:
+            self.btn_swap.Enable()
+
+    # =========================================================================
+    # Correlated Monte Carlo Tab (Phase 7)
+    # =========================================================================
+    def _create_correlated_mc_tab(self):
+        panel = wx.Panel(self.notebook)
+        panel.SetBackgroundColour(Colors.BG_LIGHT)
+        main = wx.BoxSizer(wx.VERTICAL)
+
+        ctrl_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        ctrl_sizer.Add(wx.StaticText(panel, label="Grouping:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        self.corr_group_choice = wx.Choice(panel,
+            choices=["By Sheet (rho=0.80)", "By Type (rho=0.60)", "All on Board (rho=0.50)"],
+            size=(180, -1))
+        self.corr_group_choice.SetSelection(0)
+        ctrl_sizer.Add(self.corr_group_choice, 0, wx.RIGHT, 15)
+
+        ctrl_sizer.Add(wx.StaticText(panel, label="Simulations:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        self.corr_sims = wx.SpinCtrl(panel, min=500, max=50000, initial=5000, size=(80, -1))
+        ctrl_sizer.Add(self.corr_sims, 0, wx.RIGHT, 15)
+
+        ctrl_sizer.Add(wx.StaticText(panel, label="Uncertainty %:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        self.corr_unc = wx.SpinCtrlDouble(panel, min=5, max=50, initial=20.0, inc=5.0, size=(60, -1))
+        self.corr_unc.SetDigits(0)
+        ctrl_sizer.Add(self.corr_unc, 0, wx.RIGHT, 15)
+
+        self.btn_corr_mc = wx.Button(panel, label="Run Correlated MC")
+        self.btn_corr_mc.Bind(wx.EVT_BUTTON, self._on_run_correlated_mc)
+        ctrl_sizer.Add(self.btn_corr_mc, 0)
+        main.Add(ctrl_sizer, 0, wx.EXPAND | wx.ALL, 12)
+
+        # Results display
+        self.corr_mc_list = wx.ListCtrl(panel, style=wx.LC_REPORT | wx.BORDER_SIMPLE)
+        self.corr_mc_list.SetBackgroundColour(Colors.BG_WHITE)
+        self.corr_mc_list.InsertColumn(0, "Metric", width=180)
+        self.corr_mc_list.InsertColumn(1, "Independent", width=130)
+        self.corr_mc_list.InsertColumn(2, "Correlated", width=130)
+        self.corr_mc_list.InsertColumn(3, "Ratio/Delta", width=130)
+        main.Add(self.corr_mc_list, 1, wx.EXPAND | wx.ALL, 8)
+
+        self.corr_mc_info = wx.StaticText(panel,
+            label="Compares independent vs. correlated uncertainty to assess if ignoring correlations underestimates risk.")
+        self.corr_mc_info.SetForegroundColour(Colors.TEXT_MEDIUM)
+        main.Add(self.corr_mc_info, 0, wx.ALL, 12)
+
+        panel.SetSizer(main)
+        return panel
+
+    def _on_run_correlated_mc(self, event):
+        import numpy as np
+        filtered = self._get_filtered_active_data()
+        if not filtered:
+            wx.MessageBox("No active data.", "No Data", wx.OK | wx.ICON_WARNING)
+            return
+        self.status.SetLabel("Running correlated Monte Carlo...")
+        self.btn_corr_mc.Disable()
+        wx.Yield()
+        try:
+            all_comps = []
+            for data in filtered.values():
+                all_comps.extend(data.get("components", []))
+            if not all_comps:
+                wx.MessageBox("No components found.", "No Data", wx.OK | wx.ICON_WARNING)
+                return
+
+            lambdas = np.array([c.get("lambda", 0) for c in all_comps])
+            refs = [c.get("ref", "?") for c in all_comps]
+
+            # Select grouping strategy
+            sel = self.corr_group_choice.GetSelection()
+            if sel == 0:
+                groups = auto_group_by_sheet(filtered, 0.80)
+            elif sel == 1:
+                groups = auto_group_by_type(filtered, 0.60)
+            else:
+                groups = [CorrelationGroup(
+                    name="All on Board", component_refs=refs,
+                    rho=0.50, description="All components share board-level environment")]
+
+            n_sims = self.corr_sims.GetValue()
+            unc = self.corr_unc.GetValue()
+
+            self.correlated_mc_result = correlated_monte_carlo(
+                lambdas, refs, groups, self.mission_hours,
+                n_simulations=n_sims, uncertainty_percent=unc, seed=42)
+
+            # Display results
+            r = self.correlated_mc_result
+            self.corr_mc_list.DeleteAllItems()
+            rows = [
+                ("Mean Reliability", f"{r.independent_mean:.6f}", f"{r.correlated_mean:.6f}", f"{r.correlated_mean - r.independent_mean:+.6f}"),
+                ("Std Deviation", f"{r.independent_std:.6f}", f"{r.correlated_std:.6f}", f"{r.std_ratio:.3f}x"),
+                ("5th Percentile", f"{r.independent_ci[0]:.6f}", f"{r.correlated_ci[0]:.6f}", f"{r.correlated_ci[0] - r.independent_ci[0]:+.6f}"),
+                ("95th Percentile", f"{r.independent_ci[1]:.6f}", f"{r.correlated_ci[1]:.6f}", f"{r.correlated_ci[1] - r.independent_ci[1]:+.6f}"),
+                ("Correlation Groups", "-", f"{r.n_groups}", "-"),
+                ("Simulations", f"{n_sims:,}", f"{n_sims:,}", "-"),
+                ("Variance Impact", "-", f"{r.variance_impact.title()}", f"{r.std_ratio:.3f}x ratio"),
+            ]
+            for label, indep, corr, delta in rows:
+                idx = self.corr_mc_list.InsertItem(self.corr_mc_list.GetItemCount(), label)
+                self.corr_mc_list.SetItem(idx, 1, indep)
+                self.corr_mc_list.SetItem(idx, 2, corr)
+                self.corr_mc_list.SetItem(idx, 3, delta)
+
+            if r.std_ratio > 1.05:
+                self.corr_mc_info.SetLabel(
+                    f"Correlation INCREASES uncertainty by {r.std_ratio:.2f}x. "
+                    f"Independent MC underestimates tail risk.")
+                self.corr_mc_info.SetForegroundColour(Colors.WARNING)
+            elif r.std_ratio < 0.95:
+                self.corr_mc_info.SetLabel(
+                    f"Correlation REDUCES uncertainty ({r.std_ratio:.2f}x). "
+                    f"Independent MC overestimates variability.")
+                self.corr_mc_info.SetForegroundColour(Colors.SUCCESS)
+            else:
+                self.corr_mc_info.SetLabel("Correlation has minimal impact on uncertainty bounds.")
+                self.corr_mc_info.SetForegroundColour(Colors.TEXT_MEDIUM)
+
+            self.status.SetLabel(f"Correlated MC: {r.n_groups} groups, std ratio = {r.std_ratio:.3f}x ({r.variance_impact})")
+            self._update_report()
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            wx.MessageBox(str(e), "Error", wx.OK | wx.ICON_ERROR)
+        finally:
+            self.btn_corr_mc.Enable()
+
+    # =========================================================================
+    # Growth Tracking Tab (Phase 6)
+    # =========================================================================
+    def _create_growth_tab(self):
+        panel = wx.Panel(self.notebook)
+        panel.SetBackgroundColour(Colors.BG_LIGHT)
+        main = wx.BoxSizer(wx.VERTICAL)
+
+        ctrl_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        ctrl_sizer.Add(wx.StaticText(panel, label="Version label:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        self.growth_version = wx.TextCtrl(panel, value="v1.0", size=(80, -1))
+        ctrl_sizer.Add(self.growth_version, 0, wx.RIGHT, 10)
+
+        ctrl_sizer.Add(wx.StaticText(panel, label="Notes:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        self.growth_notes = wx.TextCtrl(panel, value="", size=(200, -1))
+        ctrl_sizer.Add(self.growth_notes, 1, wx.RIGHT, 10)
+
+        self.btn_snapshot = wx.Button(panel, label="Take Snapshot")
+        self.btn_snapshot.Bind(wx.EVT_BUTTON, self._on_take_snapshot)
+        ctrl_sizer.Add(self.btn_snapshot, 0, wx.RIGHT, 8)
+
+        self.btn_compare = wx.Button(panel, label="Compare Latest")
+        self.btn_compare.Bind(wx.EVT_BUTTON, self._on_compare_snapshots)
+        ctrl_sizer.Add(self.btn_compare, 0)
+        main.Add(ctrl_sizer, 0, wx.EXPAND | wx.ALL, 12)
+
+        # Snapshots list
+        self.growth_list = wx.ListCtrl(panel, style=wx.LC_REPORT | wx.BORDER_SIMPLE)
+        self.growth_list.SetBackgroundColour(Colors.BG_WHITE)
+        self.growth_list.InsertColumn(0, "Version", width=80)
+        self.growth_list.InsertColumn(1, "Timestamp", width=140)
+        self.growth_list.InsertColumn(2, "Components", width=80)
+        self.growth_list.InsertColumn(3, "System FIT", width=90)
+        self.growth_list.InsertColumn(4, "R(t)", width=120)
+        self.growth_list.InsertColumn(5, "Notes", width=200)
+        main.Add(self.growth_list, 1, wx.EXPAND | wx.ALL, 8)
+
+        self.growth_info = wx.StaticText(panel,
+            label="Track reliability across design revisions. Take snapshots at each milestone.")
+        self.growth_info.SetForegroundColour(Colors.TEXT_MEDIUM)
+        main.Add(self.growth_info, 0, wx.ALL, 12)
+
+        panel.SetSizer(main)
+        return panel
+
+    def _on_take_snapshot(self, event):
+        filtered = self._get_filtered_active_data()
+        if not filtered:
+            wx.MessageBox("No active data.", "No Data", wx.OK | wx.ICON_WARNING)
+            return
+        try:
+            version = self.growth_version.GetValue().strip() or f"v{len(self.growth_snapshots)+1}"
+            notes = self.growth_notes.GetValue().strip()
+
+            snap = create_snapshot(
+                filtered, self.system_lambda, self.mission_hours,
+                version_label=version, notes=notes)
+
+            snap_dict = snap.to_dict()
+            self.growth_snapshots.append(snap_dict)
+
+            # Update list
+            idx = self.growth_list.InsertItem(self.growth_list.GetItemCount(), version)
+            self.growth_list.SetItem(idx, 1, snap_dict.get("timestamp", "")[:19])
+            self.growth_list.SetItem(idx, 2, str(snap_dict.get("n_components", 0)))
+            self.growth_list.SetItem(idx, 3, f"{snap_dict.get('system_fit', 0):.2f}")
+            self.growth_list.SetItem(idx, 4, f"{snap_dict.get('system_reliability', 0):.6f}")
+            self.growth_list.SetItem(idx, 5, notes)
+
+            # Auto-increment version
+            try:
+                parts = version.replace("v", "").split(".")
+                parts[-1] = str(int(parts[-1]) + 1)
+                self.growth_version.SetValue("v" + ".".join(parts))
+            except (ValueError, IndexError):
+                pass
+
+            self.growth_info.SetLabel(
+                f"Snapshot '{version}' captured: {snap.n_components} components, "
+                f"{snap.system_fit:.2f} FIT, R = {snap.system_reliability:.6f}")
+            self.growth_info.SetForegroundColour(Colors.SUCCESS)
+            self.status.SetLabel(f"Growth: {len(self.growth_snapshots)} snapshots captured")
+            self._update_report()
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            wx.MessageBox(str(e), "Error", wx.OK | wx.ICON_ERROR)
+
+    def _on_compare_snapshots(self, event):
+        if len(self.growth_snapshots) < 2:
+            wx.MessageBox("Need at least 2 snapshots to compare.", "Insufficient Data", wx.OK | wx.ICON_WARNING)
+            return
+        try:
+            from .growth_tracking import ReliabilitySnapshot
+            snap_a = ReliabilitySnapshot.from_dict(self.growth_snapshots[-2])
+            snap_b = ReliabilitySnapshot.from_dict(self.growth_snapshots[-1])
+            comp = compare_revisions(snap_a, snap_b)
+
+            comp_dict = {
+                "from_version": snap_a.version_label,
+                "to_version": snap_b.version_label,
+                "system_delta_fit": comp.system_delta_fit,
+                "components_added": comp.components_added,
+                "components_removed": comp.components_removed,
+                "components_improved": comp.components_improved,
+                "components_degraded": comp.components_degraded,
+                "top_changes": [
+                    {"ref": c.reference, "change_type": c.change_type,
+                     "delta_fit": c.delta_fit}
+                    for c in (comp.top_improvements + comp.top_degradations)[:10]
+                ]
+            }
+            self.growth_comparisons.append(comp_dict)
+
+            direction = "improved" if comp.system_delta_fit < 0 else "degraded" if comp.system_delta_fit > 0 else "unchanged"
+            self.growth_info.SetLabel(
+                f"Comparison {snap_a.version_label} -> {snap_b.version_label}: "
+                f"{comp.system_delta_fit:+.3f} FIT ({direction}), "
+                f"+{comp.components_added} added, -{comp.components_removed} removed, "
+                f"{comp.components_improved} improved, {comp.components_degraded} degraded")
+            color = Colors.SUCCESS if comp.system_delta_fit <= 0 else Colors.WARNING
+            self.growth_info.SetForegroundColour(color)
+            self._update_report()
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            wx.MessageBox(str(e), "Error", wx.OK | wx.ICON_ERROR)
 
     # =========================================================================
     # Report Tab
@@ -1190,8 +1727,34 @@ class AnalysisDialog(wx.Dialog):
                     top = max(fields, key=lambda f: abs(f.get("impact_pct", 0)))
                     lines.append(f"  {ref:<10} top: {top['name']} (impact={top['impact_pct']:.1f}%)")
 
+        if self.budget_result:
+            br = self.budget_result
+            lines.append(f"\nBUDGET ALLOCATION ({br.strategy.title()})")
+            lines.append("-" * 50)
+            lines.append(f"  Target: {br.target_fit:.1f} FIT | Actual: {br.actual_fit:.2f} FIT | Over: {br.components_over_budget}")
+
+        if self.derating_result:
+            dr = self.derating_result
+            lines.append(f"\nDERATING GUIDANCE ({len(dr.recommendations)} recommendations)")
+            lines.append("-" * 50)
+            lines.append(f"  Gap: {dr.system_gap_fit:+.2f} FIT | Feasible: {dr.n_feasible}")
+
+        if self.correlated_mc_result:
+            cm = self.correlated_mc_result
+            lines.append(f"\nCORRELATED MONTE CARLO ({cm.n_groups} groups)")
+            lines.append("-" * 50)
+            lines.append(f"  Std ratio: {cm.std_ratio:.3f}x ({cm.variance_impact})")
+            lines.append(f"  Independent: mean={cm.independent_mean:.6f}, std={cm.independent_std:.6f}")
+            lines.append(f"  Correlated:  mean={cm.correlated_mean:.6f}, std={cm.correlated_std:.6f}")
+
+        if self.growth_snapshots:
+            lines.append(f"\nGROWTH TRACKING ({len(self.growth_snapshots)} snapshots)")
+            lines.append("-" * 50)
+            for s in self.growth_snapshots:
+                lines.append(f"  {s.get('version_label','?'):<10} {s.get('system_fit',0):.2f} FIT  R={s.get('system_reliability',0):.6f}")
+
         lines.append("\n" + "=" * 70)
-        lines.append("  Eliot Abramo | KiCad Reliability Plugin v3.0.0 | IEC TR 62380")
+        lines.append("  Eliot Abramo | KiCad Reliability Plugin v3.1.0 | IEC TR 62380")
         lines.append("=" * 70)
         self.report_text.SetValue("\n".join(lines))
 
@@ -1227,6 +1790,156 @@ class AnalysisDialog(wx.Dialog):
                     f.write(html)
                 self.status.SetLabel(f"HTML fallback exported: {fallback}")
         dlg.Destroy()
+
+    def _build_mission_profile_dict(self) -> Optional[Dict]:
+        """Build mission profile dict for report from parent dialog's settings."""
+        try:
+            parent = self.GetParent()
+            if hasattr(parent, 'settings_panel') and hasattr(parent.settings_panel, 'get_mission_profile'):
+                mp = parent.settings_panel.get_mission_profile()
+                if mp and not mp.is_single_phase:
+                    d = mp.to_dict()
+                    # Try to add phasing impact
+                    try:
+                        from .mission_profile import estimate_phasing_impact
+                        filtered = self._get_filtered_active_data()
+                        for data in filtered.values():
+                            for comp in data.get("components", [])[:1]:
+                                impact = estimate_phasing_impact(
+                                    comp.get("class", "Resistor"),
+                                    comp.get("params", {}), mp.phases)
+                                d["phased_lambda_fit"] = impact.get("phased_lambda", 0) * 1e9
+                                d["single_phase_lambda_fit"] = impact.get("single_lambda", 0) * 1e9
+                                d["delta_percent"] = impact.get("delta_percent", 0)
+                                break
+                            break
+                    except Exception:
+                        pass
+                    return d
+        except Exception:
+            pass
+        return None
+
+    def _build_budget_dict(self) -> Optional[Dict]:
+        """Build budget allocation dict for report."""
+        if not self.budget_result:
+            return None
+        br = self.budget_result
+        return {
+            "strategy": br.strategy,
+            "target_fit": br.target_fit,
+            "actual_fit": br.actual_fit,
+            "margin_fit": br.system_margin_fit,
+            "target_reliability": br.target_reliability,
+            "design_margin_pct": br.system_margin_percent,
+            "components_over_budget": br.components_over_budget,
+            "total_components": br.total_components,
+            "sheet_budgets": [
+                {
+                    "sheet_path": sb.sheet_path,
+                    "component_budgets": [
+                        {
+                            "ref": cb.reference,
+                            "component_type": cb.component_type,
+                            "actual_fit": cb.actual_fit,
+                            "budget_fit": cb.budget_fit,
+                            "margin_fit": cb.margin_fit,
+                            "utilization_pct": cb.utilization * 100.0,
+                            "passed": cb.within_budget,
+                        } for cb in sb.component_budgets
+                    ]
+                } for sb in br.sheet_budgets
+            ],
+            "recommendations": br.recommendations,
+        }
+
+    def _build_derating_dict(self) -> Optional[Dict]:
+        """Build derating guidance dict for report."""
+        if not self.derating_result:
+            return None
+        dr = self.derating_result
+        n_feasible = sum(1 for r in dr.recommendations if r.feasibility in ("easy", "moderate"))
+        return {
+            "system_actual_fit": dr.system_actual_fit,
+            "system_target_fit": dr.system_target_fit,
+            "system_gap_fit": dr.system_gap_fit,
+            "n_feasible": n_feasible,
+            "recommendations": [
+                {
+                    "reference": r.reference,
+                    "parameter": r.parameter,
+                    "current_value": str(r.current_value),
+                    "required_value": str(r.required_value),
+                    "change_pct": r.change_percent,
+                    "fit_saved": r.system_fit_reduction,
+                    "feasibility": r.feasibility,
+                    "actions": r.actions,
+                } for r in dr.recommendations
+            ]
+        }
+
+    def _build_swap_dict(self) -> Optional[Dict]:
+        """Build swap analysis dict for report."""
+        if not self.swap_results:
+            return None
+        improvements = []
+        for r in self.swap_results:
+            improvements.append({
+                "ref": r.get("reference", "?"),
+                "component_type": r.get("component_type", ""),
+                "param_name": r.get("swap_type", ""),
+                "new_value": r.get("description", ""),
+                "fit_before": r.get("fit_before", 0),
+                "fit_after": r.get("fit_after", 0),
+                "delta_percent": r.get("delta_percent", 0),
+                "delta_system_fit": r.get("delta_fit", 0),
+            })
+        best = improvements[0] if improvements else None
+        return {
+            "improvements": improvements,
+            "total_analyzed": len(self.swap_results),
+            "best_single_improvement": {
+                "ref": best["ref"],
+                "delta_system_fit": best["delta_system_fit"],
+                "swap_desc": best["new_value"][:30],
+            } if best else None,
+        }
+
+    def _build_growth_dict(self) -> Optional[Dict]:
+        """Build growth timeline dict for report."""
+        if not self.growth_snapshots:
+            return None
+        target_fit = self.budget_result.target_fit if self.budget_result else None
+        return {
+            "snapshots": self.growth_snapshots,
+            "target_fit": target_fit,
+            "comparisons": self.growth_comparisons,
+        }
+
+    def _build_correlated_mc_dict(self) -> Optional[Dict]:
+        """Build correlated MC dict for report."""
+        if not self.correlated_mc_result:
+            return None
+        r = self.correlated_mc_result
+        return {
+            "n_groups": r.n_groups,
+            "n_simulations": r.n_simulations,
+            "independent_mean": r.independent_mean,
+            "independent_std": r.independent_std,
+            "correlated_mean": r.correlated_mean,
+            "correlated_std": r.correlated_std,
+            "std_ratio": r.std_ratio,
+            "variance_impact": r.variance_impact,
+            "independent_ci_lower": r.independent_ci[0],
+            "independent_ci_upper": r.independent_ci[1],
+            "correlated_ci_lower": r.correlated_ci[0],
+            "correlated_ci_upper": r.correlated_ci[1],
+            "groups": [
+                {"name": g.name, "component_refs": g.component_refs,
+                 "rho": g.correlation, "description": g.description}
+                for g in (r.groups if hasattr(r, 'groups') else [])
+            ]
+        }
 
     def _generate_html(self) -> str:
         r = reliability_from_lambda(self.system_lambda, self.mission_hours)
@@ -1275,6 +1988,13 @@ class AnalysisDialog(wx.Dialog):
             criticality=self.criticality_results if self.criticality_results else None,
             tornado=tornado_dict,
             design_margin=dm_dict,
+            # v3.1.0 co-design data
+            mission_profile=self._build_mission_profile_dict(),
+            budget=self._build_budget_dict(),
+            derating=self._build_derating_dict(),
+            swap_analysis=self._build_swap_dict(),
+            growth_timeline=self._build_growth_dict(),
+            correlated_mc=self._build_correlated_mc_dict(),
         )
 
         generator = ReportGenerator(logo_path=self.logo_path, logo_mime=self.logo_mime)

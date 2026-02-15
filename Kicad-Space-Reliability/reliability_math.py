@@ -30,7 +30,7 @@ Author:  Eliot Abramo
 import math
 from typing import Dict, List, Any, Optional, Tuple
 
-__version__ = "3.0.0"
+__version__ = "3.1.0"
 __author__ = "Eliot Abramo"
 
 

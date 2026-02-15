@@ -51,7 +51,7 @@ class ReliabilityPlugin(pcbnew.ActionPlugin):
         parent = None
         try:
             tops = [w for w in wx.GetTopLevelWindows() if w and w.IsShown()]
-            parent = tops[1] if tops else None
+            parent = tops[2] if tops else None
         except Exception:
             pass
         
