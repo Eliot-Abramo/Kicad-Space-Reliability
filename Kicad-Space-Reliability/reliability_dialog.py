@@ -274,22 +274,27 @@ class ReliabilityMainDialog(wx.Dialog):
 
     def _apply_loaded_data(self, data: dict):
         """Apply loaded reliability_data.json."""
-        self.component_edits = data.get("components", {})
-        self.editor.load_structure(data.get("structure", {}))
-        settings = data.get("settings", {})
-        self.settings_panel.years.SetValue(settings.get("years", 5))
-        self.settings_panel.cycles.SetValue(settings.get("cycles", 5256))
-        self.settings_panel.dt.SetValue(settings.get("dt", 3.0))
-        self.settings_panel.tau_on.SetValue(settings.get("tau_on", 1.0))
+        self.component_edits = data.get("components") or {}
+        self.editor.load_structure(data.get("structure") or {})
+        settings = data.get("settings") or {}
+        # Coerce to valid numbers (JSON null becomes None; default only applies when key missing)
+        def _num(v, default):
+            if v is None: return default
+            try: return type(default)(v)
+            except (TypeError, ValueError): return default
+        self.settings_panel.years.SetValue(_num(settings.get("years"), 5))
+        self.settings_panel.cycles.SetValue(_num(settings.get("cycles"), 5256))
+        self.settings_panel.dt.SetValue(_num(settings.get("dt"), 3.0))
+        self.settings_panel.tau_on.SetValue(_num(settings.get("tau_on"), 1.0))
         mp = data.get("mission_profile")
         if mp:
             self.settings_panel.set_mission_profile(MissionProfile.from_dict(mp))
         else:
             self.settings_panel.set_mission_profile(MissionProfile.single_phase(
-                years=settings.get("years", 5),
-                n_cycles=settings.get("cycles", 5256),
-                delta_t=settings.get("dt", 3.0),
-                tau_on=settings.get("tau_on", 1.0),
+                years=_num(settings.get("years"), 5),
+                n_cycles=_num(settings.get("cycles"), 5256),
+                delta_t=_num(settings.get("dt"), 3.0),
+                tau_on=_num(settings.get("tau_on"), 1.0),
             ))
 
     def _ensure_default_components(self):
@@ -310,16 +315,22 @@ class ReliabilityMainDialog(wx.Dialog):
         """Save all data to Reliability/reliability_data.json."""
         if not self.project_manager:
             return
+        def _val(ctrl, default):
+            v = ctrl.GetValue()
+            if v is None: return default
+            try: return type(default)(v)
+            except (TypeError, ValueError): return default
+        sp = self.settings_panel
         data = {
             "components": self.component_edits,
             "structure": self.editor.get_structure(),
             "settings": {
-                "years": self.settings_panel.years.GetValue(),
-                "cycles": self.settings_panel.cycles.GetValue(),
-                "dt": self.settings_panel.dt.GetValue(),
-                "tau_on": self.settings_panel.tau_on.GetValue(),
+                "years": _val(sp.years, 5),
+                "cycles": _val(sp.cycles, 5256),
+                "dt": _val(sp.dt, 3.0),
+                "tau_on": _val(sp.tau_on, 1.0),
             },
-            "mission_profile": self.settings_panel.get_mission_profile().to_dict(),
+            "mission_profile": sp.get_mission_profile().to_dict(),
         }
         if self.project_manager.save_data(data):
             self.status.SetLabel("Saved")
@@ -474,21 +485,43 @@ class ReliabilityMainDialog(wx.Dialog):
                 )
 
     def _on_block_activate(self, block_id: str, sheet_path: str):
+        sheet_path = sheet_path or ""
         components = self.parser.get_sheet_components(sheet_path) if self.parser else []
-        if not components:
+        # Fallback: use sheet_data components if parser has none (e.g. path mismatch after load)
+        if not components and sheet_path:
+            sheet_entry = self.sheet_data.get(sheet_path, {})
+            comps = sheet_entry.get("components", [])
+            if comps:
+                components = None  # signal to use comps from sheet_data
+        if not components and (not sheet_path or not self.sheet_data.get(sheet_path, {}).get("components")):
             wx.MessageBox(
-                f"No components in {sheet_path}", "Info", wx.OK | wx.ICON_INFORMATION
+                f"No components found for sheet '{sheet_path or '(empty)'}'.\n\n"
+                "Ensure the schematic has components and the block's sheet path matches.",
+                "No Components",
+                wx.OK | wx.ICON_INFORMATION,
             )
             return
-        comp_list = [
-            ComponentData(
-                c.reference,
-                c.value,
-                classify_component(c.reference, c.value, c.fields),
-                dict(c.fields),
-            )
-            for c in components
-        ]
+        if components is not None:
+            comp_list = [
+                ComponentData(
+                    c.reference,
+                    c.value,
+                    classify_component(c.reference, c.value, c.fields),
+                    dict(c.fields),
+                )
+                for c in components
+            ]
+        else:
+            comps = self.sheet_data[sheet_path]["components"]
+            comp_list = [
+                ComponentData(
+                    c.get("ref", "?"),
+                    c.get("value", ""),
+                    c.get("class", "Miscellaneous"),
+                    c.get("params", {}),
+                )
+                for c in comps
+            ]
         dlg = BatchComponentEditorDialog(
             self, comp_list, self.settings_panel.get_hours()
         )
@@ -614,26 +647,65 @@ class ReliabilityMainDialog(wx.Dialog):
         dlg.Destroy()
 
     def _on_open(self, event):
-        dlg = wx.DirDialog(
+        """Open reliability_data.json file (or KiCad project folder)."""
+        default_dir = ""
+        if self.project_manager:
+            default_dir = str(self.project_manager.get_reliability_folder())
+        dlg = wx.FileDialog(
             self,
-            "Select KiCad Project Directory",
-            style=wx.DD_DEFAULT_STYLE | wx.DD_DIR_MUST_EXIST,
+            "Open Reliability Data (JSON)",
+            defaultDir=default_dir,
+            defaultFile="reliability_data.json",
+            wildcard="JSON (*.json)|*.json|All files (*.*)|*.*",
+            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST,
         )
         if dlg.ShowModal() == wx.ID_OK:
-            self.editor.clear()
-            self.sheet_data.clear()
-            self.component_edits.clear()
-            self._load_project(dlg.GetPath())
+            path = dlg.GetPath()
+            dlg.Destroy()
+            self._load_json_file(path)
+            return
         dlg.Destroy()
+
+    def _load_json_file(self, json_path: str):
+        """Load reliability data from a JSON file."""
+        import json
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError) as e:
+            wx.MessageBox(f"Could not load file:\n{e}", "Open Error", wx.OK | wx.ICON_ERROR)
+            return
+
+        self.editor.clear()
+        self.sheet_data.clear()
+        self.component_edits.clear()
+
+        # Derive project path: if file is in .../Reliability/reliability_data.json, use parent
+        path_obj = Path(json_path)
+        if path_obj.name.lower() == "reliability_data.json" and path_obj.parent.name == "Reliability":
+            self.project_path = str(path_obj.parent.parent)
+        else:
+            self.project_path = str(path_obj.parent)
+        self.project_manager = ProjectManager(self.project_path) if self.project_path else None
+
+        self.txt_project.SetValue(path_obj.parent.name)
+        self.project_badge.SetLabel(path_obj.name)
+
+        self._apply_loaded_data(data)
+        self._build_sheet_data_from_edits()
+        self._recalculate_all()
+        self.sheet_panel.set_sheets(list(self.component_edits.keys()) or ["/"])
+        self._save_reliability_data()
+        self.status.SetLabel(f"Loaded: {path_obj.name}")
 
     def _on_save(self, event):
         self._save_reliability_data()
         self.status.SetLabel("Saved to Reliability/reliability_data.json")
 
     def _on_monte_carlo(self, event):
-        """Open comprehensive analysis dialog with Monte Carlo and Sobol sensitivity."""
+        """Open unified sensitivity & uncertainty analysis dialog."""
         try:
-            from .analysis_dialog import AnalysisDialog
+            from .analysis.unified_dialog import UnifiedAnalysisDialog
 
             sys_r, sys_lam = self._calculate_system()
 
@@ -645,22 +717,14 @@ class ReliabilityMainDialog(wx.Dialog):
                 )
                 return
 
-            dlg = AnalysisDialog(
+            dlg = UnifiedAnalysisDialog(
                 self,
-                system_lambda=sys_lam,
-                mission_hours=self.settings_panel.get_hours(),
                 sheet_data=self.sheet_data,
                 blocks=self.editor.blocks,
+                root_id=self.editor.root_id,
+                mission_hours=self.settings_panel.get_hours(),
                 project_path=self.project_path,
-                logo_path=(
-                    str(self.project_manager.get_available_logo_path())
-                    if self.project_manager and self.project_manager.logo_exists()
-                    else None
-                ),
-                logo_mime=self.project_manager.get_logo_mime_type(),
-                n_cycles=int(self.settings_panel.cycles.GetValue()),
-                delta_t=float(self.settings_panel.dt.GetValue()),
-                title="System Reliability Analysis",
+                title="Sensitivity & Uncertainty Analysis",
             )
             dlg.ShowModal()
             dlg.Destroy()

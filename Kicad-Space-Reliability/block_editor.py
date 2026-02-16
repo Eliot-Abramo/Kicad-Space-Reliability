@@ -276,8 +276,10 @@ class BlockEditor(wx.Panel):
         gc.DrawText(label, b.x + (b.width - tw)/2, b.y + 10)
         font = wx.Font(9, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
         gc.SetFont(font, wx.Colour(60, 60, 60))
-        gc.DrawText(f"R = {b.reliability:.4f}", b.x + 10, b.y + 32)
-        gc.DrawText(f"L = {b.lambda_val*1e9:.1f} FIT", b.x + 10, b.y + 48)
+        r_val = float(b.reliability if b.reliability is not None else 1.0)
+        lam_val = float(b.lambda_val if b.lambda_val is not None else 0)
+        gc.DrawText(f"R = {r_val:.4f}", b.x + 10, b.y + 32)
+        gc.DrawText(f"L = {lam_val*1e9:.1f} FIT", b.x + 10, b.y + 48)
 
     def _draw_group(self, gc, g: Block):
         color = {"series": self.SERIES_COLOR, "parallel": self.PARALLEL_COLOR, "k_of_n": self.KN_COLOR}.get(g.connection_type, self.SERIES_COLOR)
@@ -287,7 +289,8 @@ class BlockEditor(wx.Panel):
         font = wx.Font(9, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
         gc.SetFont(font, wx.Colour(80, 80, 80))
         gc.DrawText(g.label, g.x + 6, g.y + 3)
-        gc.DrawText(f"R={g.reliability:.4f}", g.x + g.width - 80, g.y + 3)
+        r_val = float(g.reliability if g.reliability is not None else 1.0)
+        gc.DrawText(f"R={r_val:.4f}", g.x + g.width - 80, g.y + 3)
 
     def _on_left_down(self, event):
         sx, sy = event.GetPosition()
@@ -499,12 +502,28 @@ class BlockEditor(wx.Panel):
 
     def load_structure(self, data: Dict):
         self.blocks.clear()
-        for bid, bd in data.get("blocks", {}).items():
-            self.blocks[bid] = Block(id=bid, name=bd["name"], label=bd["label"], x=bd["x"], y=bd["y"],
-                                     is_group=bd["is_group"], children=bd.get("children", []),
-                                     connection_type=bd.get("connection_type", "series"), k_value=bd.get("k_value", 2))
+        blocks_data = data.get("blocks") or {}
+        for bid, bd in blocks_data.items():
+            if not isinstance(bd, dict):
+                continue
+            name = bd.get("name") or ""
+            label = bd.get("label") or name or bid
+            children = bd.get("children")
+            if children is None:
+                children = []
+            self.blocks[bid] = Block(
+                id=bid,
+                name=name,
+                label=label,
+                x=int(bd.get("x", 0)),
+                y=int(bd.get("y", 0)),
+                is_group=bool(bd.get("is_group", False)),
+                children=children,
+                connection_type=bd.get("connection_type") or "series",
+                k_value=int(bd.get("k_value", 2)),
+            )
         self.root_id = data.get("root")
-        self.mission_hours = data.get("mission_hours", 43800)
+        self.mission_hours = data.get("mission_hours") or 43800
         self.Refresh()
 
     def update_block(self, block_id: str, r: float, lam: float):

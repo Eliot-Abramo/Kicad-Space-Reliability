@@ -494,7 +494,7 @@ def run_uncertainty_analysis(
         for ci in uncertain_comp_indices:
             comp = components[ci]
             if comp.override_lambda is not None:
-                sys_lam += comp.override_lambda
+                sys_lam += comp.override_lambda * 1e-9  # override is in FIT, convert to /h
                 continue
 
             # Build perturbed params
@@ -668,7 +668,7 @@ def build_component_inputs(
             override = comp.get("override_lambda")
 
             if override is not None:
-                nom_lam = override
+                nom_lam = override * 1e-9  # override is in FIT, convert to /h
             else:
                 nom_lam = float(comp.get("lambda", 0) or 0)
 

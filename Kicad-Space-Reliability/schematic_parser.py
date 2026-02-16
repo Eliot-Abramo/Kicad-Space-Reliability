@@ -97,22 +97,25 @@ class SchematicParser:
     
     def _parse_components(self, content: str, sheet_path: str) -> List[Component]:
         components = []
-        symbol_pattern = r'\(symbol\s+\(lib_id\s+"([^"]+)"\)'
+        # KiCad 6+: (symbol "Lib:Name" ...)  |  KiCad 5: (symbol (lib_id "Lib:Name") ...)
+        symbol_pattern = r'\(symbol\s+(?:"([^"]+)"|\(lib_id\s+"([^"]+)"\))'
         pos = 0
         while True:
             match = re.search(symbol_pattern, content[pos:])
             if not match: break
             start = pos + match.start()
-            lib_id = match.group(1)
+            lib_id = match.group(1) or match.group(2) or ""
             symbol_content = self._extract_sexp(content, start)
             if not symbol_content:
                 pos = start + 1
                 continue
             props = self._extract_properties(symbol_content)
-            reference = props.get("Reference", "?")
+            # KiCad 6+ may put Reference in (instances (path ... (reference "R1")))
+            reference = props.get("Reference") or self._extract_reference_from_instances(symbol_content)
+            reference = reference or "?"
             value = props.get("Value", "")
             footprint = props.get("Footprint", "")
-            if reference.startswith("#") or lib_id.startswith("power:"):
+            if reference.startswith("#") or lib_id.lower().startswith("power:"):
                 pos = start + len(symbol_content)
                 continue
             comp = Component(
@@ -122,6 +125,11 @@ class SchematicParser:
             components.append(comp)
             pos = start + len(symbol_content)
         return components
+
+    def _extract_reference_from_instances(self, symbol_sexp: str) -> Optional[str]:
+        """Extract reference designator from (instances ... (reference "R1"))."""
+        match = re.search(r'\(reference\s+"([^"]*)"\)', symbol_sexp)
+        return match.group(1) if match else None
     
     def _parse_child_sheets(self, content: str) -> List[Tuple[str, str]]:
         children = []
@@ -136,8 +144,8 @@ class SchematicParser:
                 pos = start + 1
                 continue
             props = self._extract_properties(sheet_content)
-            sheet_name = props.get("Sheetname", props.get("Sheet name", ""))
-            sheet_file = props.get("Sheetfile", props.get("Sheet file", ""))
+            sheet_name = props.get("Sheetname") or props.get("Sheet name") or props.get("Name") or ""
+            sheet_file = props.get("Sheetfile") or props.get("Sheet file") or props.get("File") or ""
             if sheet_name and sheet_file:
                 children.append((sheet_name, sheet_file))
             pos = start + len(sheet_content)

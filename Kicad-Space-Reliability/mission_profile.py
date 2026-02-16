@@ -65,14 +65,22 @@ class MissionPhase:
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "MissionPhase":
+        def _f(v, default):
+            if v is None: return default
+            try: return float(v)
+            except (TypeError, ValueError): return default
+        def _i(v, default):
+            if v is None: return default
+            try: return int(v)
+            except (TypeError, ValueError): return default
         return cls(
-            name=d.get("name", "Nominal"),
-            duration_frac=float(d.get("duration_frac", 1.0)),
-            t_ambient=float(d.get("t_ambient", 25.0)),
+            name=d.get("name") or "Nominal",
+            duration_frac=_f(d.get("duration_frac"), 1.0),
+            t_ambient=_f(d.get("t_ambient"), 25.0),
             t_junction=d.get("t_junction"),
-            n_cycles=int(d.get("n_cycles", 5256)),
-            delta_t=float(d.get("delta_t", 3.0)),
-            tau_on=float(d.get("tau_on", 1.0)),
+            n_cycles=_i(d.get("n_cycles"), 5256),
+            delta_t=_f(d.get("delta_t"), 3.0),
+            tau_on=_f(d.get("tau_on"), 1.0),
         )
 
 
@@ -136,12 +144,21 @@ class MissionProfile:
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "MissionProfile":
-        phases_data = d.get("phases", [])
-        phases = [MissionPhase.from_dict(pd) for pd in phases_data] if phases_data else [MissionPhase()]
-        return cls(
-            phases=phases,
-            mission_years=float(d.get("mission_years", 5.0)),
-        )
+        phases_data = d.get("phases")
+        if phases_data is None or not isinstance(phases_data, list):
+            phases = [MissionPhase()]
+        else:
+            phases = [MissionPhase.from_dict(pd) for pd in phases_data if isinstance(pd, dict)]
+            if not phases:
+                phases = [MissionPhase()]
+        mission_years = d.get("mission_years")
+        if mission_years is None:
+            mission_years = 5.0
+        try:
+            mission_years = float(mission_years)
+        except (TypeError, ValueError):
+            mission_years = 5.0
+        return cls(phases=phases, mission_years=mission_years)
 
     @classmethod
     def single_phase(cls, years: float = 5.0, n_cycles: int = 5256,

@@ -277,11 +277,12 @@ class SettingsPanel(wx.Panel):
     def set_mission_profile(self, profile: MissionProfile):
         self._mission_profile = profile
         if profile and not profile.is_single_phase:
-            self.years.SetValue(int(profile.mission_years))
+            self.years.SetValue(int(profile.mission_years or 5))
             self._show_multi_phase()
             self._refresh_phase_list()
+            prof_name = getattr(profile, "name", None)
             for i, name in enumerate(["(Single-Phase)"] + sorted(MISSION_TEMPLATES.keys())):
-                if name == profile.name:
+                if name == prof_name:
                     self.template_combo.SetSelection(i)
                     break
         else:
@@ -324,13 +325,14 @@ class SettingsPanel(wx.Panel):
         if not self._mission_profile:
             return
         for i, p in enumerate(self._mission_profile.phases):
-            idx = self.phase_list.InsertItem(i, p.name[:15])
-            self.phase_list.SetItem(idx, 1, f"{p.duration_frac*100:.0f}")
-            self.phase_list.SetItem(idx, 2, f"{p.t_ambient:.0f}")
-            self.phase_list.SetItem(idx, 3, f"{p.t_junction:.0f}")
-            self.phase_list.SetItem(idx, 4, f"{p.n_cycles}")
-            self.phase_list.SetItem(idx, 5, f"{p.delta_t:.1f}")
-            self.phase_list.SetItem(idx, 6, f"{p.tau_on:.2f}")
+            idx = self.phase_list.InsertItem(i, (p.name or "Phase")[:15])
+            self.phase_list.SetItem(idx, 1, f"{(p.duration_frac or 0)*100:.0f}")
+            self.phase_list.SetItem(idx, 2, f"{p.t_ambient or 0:.0f}")
+            tj = p.t_junction if p.t_junction is not None else p.t_ambient
+            self.phase_list.SetItem(idx, 3, f"{tj:.0f}")
+            self.phase_list.SetItem(idx, 4, f"{p.n_cycles or 0}")
+            self.phase_list.SetItem(idx, 5, f"{p.delta_t or 0:.1f}")
+            self.phase_list.SetItem(idx, 6, f"{p.tau_on or 0:.2f}")
 
     def _on_add_phase(self, event):
         dlg = MissionPhaseDialog(self, title="Add Mission Phase")
