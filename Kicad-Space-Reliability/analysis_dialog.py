@@ -22,7 +22,7 @@ from .monte_carlo import (
     monte_carlo_blocks, SheetMCResult, ComponentMCInput,
 )
 from .sensitivity_analysis import (
-    SobolResult, SobolAnalyzer, TornadoResult, DesignMarginResult,
+    TornadoResult, DesignMarginResult,
     tornado_sheet_sensitivity, tornado_parameter_sensitivity,
     design_margin_analysis, analyze_board_criticality, get_active_sheet_paths,
 )
@@ -396,7 +396,6 @@ class AnalysisDialog(wx.Dialog):
             self._active_data = self.sheet_data
 
         self.mc_result: Optional[MonteCarloResult] = None
-        self.sobol_result: Optional[SobolResult] = None
         self.tornado_result: Optional[TornadoResult] = None
         self.param_tornado_result: Optional[TornadoResult] = None
         self.design_margin_result: Optional[DesignMarginResult] = None
@@ -1951,7 +1950,7 @@ class AnalysisDialog(wx.Dialog):
             mc_dict = self.mc_result.to_dict()
             mc_dict["samples"] = self.mc_result.samples.tolist() if hasattr(self.mc_result.samples, "tolist") else list(self.mc_result.samples)
 
-        sens_dict = self.sobol_result.to_dict() if self.sobol_result else None
+        sens_dict = None  # Sobol removed: not meaningful for additive reliability models
 
         # Tornado
         tornado_dict = None

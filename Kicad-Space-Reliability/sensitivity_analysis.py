@@ -1,54 +1,42 @@
 """
 Sensitivity Analysis Module
 ============================
-Multi-mode sensitivity: Tornado charts, Design-margin analysis,
-parameter-level sensitivity, and component criticality.
+Deterministic sensitivity analysis for reliability co-design.
 
-Replaces Sobol-only approach with tools that provide actionable
-co-design insights for reliability engineering.
+Provides three complementary views, each answering a distinct
+engineering question:
+
+  1. Tornado (OAT) Sensitivity -- IEC 60300-3-1 compliant
+     "Which design parameter has the greatest leverage on system FIT?"
+     Perturbs each parameter +/- X% across all components and
+     measures the resulting change in system failure rate.
+
+  2. Design-Margin / What-If Analysis
+     "What happens to my FIT budget if ambient temperature rises 10 C?"
+     Predefined scenarios that map directly to design-review actions.
+
+  3. Component-Level Criticality
+     "For my top-N worst components, which parameter drives their lambda?"
+     Per-component field-level elasticity ranking.
+
+Sobol variance-based sensitivity was deliberately excluded because it
+provides no additional insight for additive reliability models
+(lambda_total = SUM lambda_i).  By construction, inter-component
+interactions are zero in a series reliability model, so Sobol first-order
+and total-order indices are identical and proportional to the contribution
+percentages already available on the Contributions tab.
 
 Author:  Eliot Abramo
 """
 
 import numpy as np
 from dataclasses import dataclass, field
-from typing import Dict, List, Tuple, Callable, Optional
+from typing import Dict, List, Tuple, Optional
 
 
 # =============================================================================
 # Data structures
 # =============================================================================
-
-@dataclass
-class SobolResult:
-    """Results from Sobol sensitivity analysis."""
-    parameter_names: List[str]
-    S_first: np.ndarray
-    S_total: np.ndarray
-    S_first_conf: np.ndarray
-    S_total_conf: np.ndarray
-    interaction_scores: np.ndarray
-    significant_interactions: List[int]
-    n_samples: int
-
-    def to_dict(self) -> Dict:
-        return {
-            "parameters": self.parameter_names,
-            "S_first": self.S_first.tolist(),
-            "S_total": self.S_total.tolist(),
-            "S_first_conf": self.S_first_conf.tolist(),
-            "S_total_conf": self.S_total_conf.tolist(),
-            "interaction_scores": self.interaction_scores.tolist(),
-            "significant_interactions": [
-                self.parameter_names[i] for i in self.significant_interactions
-            ],
-            "n_samples": self.n_samples,
-        }
-
-    def get_ranking(self, use_total: bool = True) -> List[Tuple[str, float]]:
-        indices = self.S_total if use_total else self.S_first
-        return sorted(zip(self.parameter_names, indices), key=lambda x: -x[1])
-
 
 @dataclass
 class TornadoEntry:
@@ -127,88 +115,7 @@ class DesignMarginResult:
 
 
 # =============================================================================
-# Sobol  (kept for backward compat)
-# =============================================================================
-
-def generate_sobol_samples(d, n, bounds, seed=None):
-    rng = np.random.default_rng(seed)
-    try:
-        from scipy.stats import qmc
-        sampler = qmc.Sobol(d, scramble=True, seed=seed)
-        X1_unit = sampler.random(n)
-        X2_unit = sampler.random(n)
-    except ImportError:
-        X1_unit = rng.random((n, d))
-        X2_unit = rng.random((n, d))
-    bounds = np.array(bounds)
-    X1 = bounds[:, 0] + X1_unit * (bounds[:, 1] - bounds[:, 0])
-    X2 = bounds[:, 0] + X2_unit * (bounds[:, 1] - bounds[:, 0])
-    return X1, X2
-
-
-def sobol_indices(model_func, X1, X2, compute_total=True, confidence_level=0.95):
-    N, d = X1.shape
-    Y1 = model_func(X1)
-    Y2 = model_func(X2)
-    var_Y = 0.5 * (np.var(Y1) + np.var(Y2))
-    if var_Y < 1e-15:
-        z = np.zeros(d)
-        return z, z, z, z
-    S_first, S_total = np.zeros(d), np.zeros(d)
-    S_first_conf, S_total_conf = np.zeros(d), np.zeros(d)
-    for i in range(d):
-        X1_i = X1.copy(); X1_i[:, i] = X2[:, i]
-        Y1_i = model_func(X1_i)
-        t1 = np.mean(Y1 * Y1_i)
-        t2 = 0.25 * (np.mean(Y1 + Y1_i)) ** 2
-        den = 0.5 * (np.mean(Y1**2) + np.mean(Y1_i**2)) - t2
-        if abs(den) > 1e-15:
-            S_first[i] = (t1 - t2) / den
-        S_first_conf[i] = 1.96 * np.sqrt(np.var(Y1 * Y1_i - t1) / N) / max(den, 1e-15)
-        if compute_total:
-            X2_i = X2.copy(); X2_i[:, i] = X1[:, i]
-            Y2_i = model_func(X2_i)
-            S_total[i] = np.mean((Y1 - Y2_i) ** 2) / (2 * var_Y)
-            T_i = (Y1 - Y2_i) ** 2 / 2 - S_total[i] * var_Y
-            S_total_conf[i] = 1.96 * np.std(T_i) / (var_Y * np.sqrt(N))
-    return np.clip(S_first, 0, 1), np.clip(S_total, 0, 1), S_first_conf, S_total_conf
-
-
-class SobolAnalyzer:
-    def __init__(self, seed=None):
-        self.seed = seed
-        self.default_n_samples = 2048
-        self.interaction_threshold = 0.1
-
-    def analyze(self, model_func, parameter_bounds, n_samples=None):
-        n = n_samples or self.default_n_samples
-        param_names = list(parameter_bounds.keys())
-        d = len(param_names)
-        bounds = [parameter_bounds[name] for name in param_names]
-        X1, X2 = generate_sobol_samples(d, n, bounds, self.seed)
-
-        def array_model(X):
-            results = np.empty(X.shape[0])
-            for start in range(0, X.shape[0], 512):
-                end = min(start + 512, X.shape[0])
-                for j in range(end - start):
-                    params = {name: X[start + j, i] for i, name in enumerate(param_names)}
-                    results[start + j] = model_func(params)
-            return results
-
-        S_first, S_total, S_first_conf, S_total_conf = sobol_indices(array_model, X1, X2)
-        interaction_scores = S_total - S_first
-        significant = [i for i in range(d)
-                       if S_total[i] > 1e-6 and interaction_scores[i] > self.interaction_threshold * S_total[i]]
-        return SobolResult(
-            parameter_names=param_names, S_first=S_first, S_total=S_total,
-            S_first_conf=S_first_conf, S_total_conf=S_total_conf,
-            interaction_scores=interaction_scores,
-            significant_interactions=significant, n_samples=n)
-
-
-# =============================================================================
-# Tornado Sensitivity Analysis  (primary tool)
+# Tornado Sensitivity (sheet-level)
 # =============================================================================
 
 def tornado_sheet_sensitivity(
@@ -250,6 +157,10 @@ def tornado_sheet_sensitivity(
                          mission_hours=mission_hours)
 
 
+# =============================================================================
+# Tornado Sensitivity (parameter-level)
+# =============================================================================
+
 def tornado_parameter_sensitivity(
     sheet_data: Dict[str, Dict],
     mission_hours: float,
@@ -258,7 +169,19 @@ def tornado_parameter_sensitivity(
     target_fields: Dict[str, List[str]] = None,
 ) -> TornadoResult:
     """Tornado at PARAMETER level: perturb a design parameter across ALL components.
-    Answers: 'If T_ambient +20%, how does system FIT change?'"""
+
+    For each unique parameter name found across all components (e.g. t_junction,
+    delta_t, n_cycles), applies +/- perturbation to EVERY component that uses it,
+    recalculates each component's lambda, and measures the resulting system FIT change.
+
+    This answers: "If T_junction is 20% higher everywhere, how does system FIT change?"
+
+    Parameters
+    ----------
+    target_fields : dict, optional
+        {component_type: [field_names]} restricts which fields to analyze.
+        If None, all numeric fields are analyzed.
+    """
     try:
         from .reliability_math import calculate_component_lambda, reliability_from_lambda
     except ImportError:
@@ -275,6 +198,7 @@ def tornado_parameter_sensitivity(
     base_fit = base_lambda * 1e9
     base_r = reliability_from_lambda(base_lambda, mission_hours)
 
+    # Collect all (parameter_name -> [(comp_index, nominal_value)]) mappings
     param_usage = {}
     for i, comp in enumerate(all_comps):
         comp_type = comp.get("class", "")
@@ -342,7 +266,12 @@ def design_margin_analysis(
     mission_hours: float,
     active_sheets: List[str] = None,
 ) -> DesignMarginResult:
-    """Run predefined what-if scenarios for design-margin evaluation."""
+    """Run predefined what-if scenarios for design-margin evaluation.
+
+    Each scenario modifies one or more design parameters across all
+    components and recalculates total system FIT and reliability.
+    Scenarios are chosen to match common design-review questions.
+    """
     try:
         from .reliability_math import calculate_component_lambda, reliability_from_lambda
     except ImportError:
@@ -375,19 +304,19 @@ def design_margin_analysis(
         return total
 
     scenarios = [
-        ("Temp +10 C", "All temperatures +10 C",
+        ("Temp +10 C", "All junction/ambient temperatures +10 C",
          {"t_ambient": lambda v: v+10, "t_junction": lambda v: v+10, "temperature_c": lambda v: v+10}),
-        ("Temp +20 C", "All temperatures +20 C",
+        ("Temp +20 C", "All junction/ambient temperatures +20 C",
          {"t_ambient": lambda v: v+20, "t_junction": lambda v: v+20, "temperature_c": lambda v: v+20}),
-        ("Power derate 70%", "Operating power at 70%",
-         {"operating_power": lambda v: v*0.7, "applied_power_w": lambda v: v*0.7}),
-        ("Power derate 50%", "Operating power at 50%",
-         {"operating_power": lambda v: v*0.5, "applied_power_w": lambda v: v*0.5}),
-        ("Thermal cycles x2", "Double annual cycling",
+        ("Temp -10 C", "All temperatures -10 C (improved cooling)",
+         {"t_ambient": lambda v: v-10, "t_junction": lambda v: v-10, "temperature_c": lambda v: v-10}),
+        ("Thermal cycles x2", "Double annual thermal cycling count",
          {"n_cycles": lambda v: v*2}),
-        ("Delta-T x2", "Double thermal excursion",
+        ("Thermal cycles /2", "Halve annual thermal cycling (improved thermal design)",
+         {"n_cycles": lambda v: v*0.5}),
+        ("Delta-T x2", "Double thermal cycling amplitude",
          {"delta_t": lambda v: v*2}),
-        ("50% duty cycle", "tau_on = 0.5",
+        ("50% duty cycle", "All components at tau_on = 0.5",
          {"tau_on": lambda _: 0.5}),
     ]
 
@@ -417,7 +346,16 @@ def analyze_board_criticality(
     target_fields: Dict[str, List[str]] = None,
 ) -> List[Dict]:
     """Run parameter criticality on highest-FIT components.
-    target_fields: {category: [field_names]} restricts which fields to analyze."""
+
+    For each of the top-N components by failure rate, perturbs each
+    numeric parameter by +/- perturbation and computes the elasticity
+    (normalised sensitivity) of lambda with respect to that parameter.
+
+    Parameters
+    ----------
+    target_fields : dict, optional
+        {category: [field_names]} restricts which fields to analyze.
+    """
     try:
         from .reliability_math import analyze_component_criticality
     except ImportError:
@@ -471,28 +409,3 @@ def get_active_sheet_paths(blocks) -> Optional[List[str]]:
             if name:
                 active.append(name)
     return active if active else None
-
-
-def quick_sensitivity(lambda_components, mission_hours, uncertainty_range=0.3, n_samples=1024):
-    try:
-        from .reliability_math import reliability_from_lambda
-    except ImportError:
-        from reliability_math import reliability_from_lambda
-    bounds = {n: (l*(1-uncertainty_range), l*(1+uncertainty_range)) for n, l in lambda_components.items()}
-    def model(s):
-        return reliability_from_lambda(sum(s.values()), mission_hours)
-    return SobolAnalyzer().analyze(model, bounds, n_samples)
-
-
-def print_sobol_results(result, max_rows=15):
-    print("\n" + "=" * 70)
-    print("SOBOL SENSITIVITY ANALYSIS RESULTS")
-    print("=" * 70)
-    print(f"Samples: {result.n_samples}")
-    print(f"\n{'Parameter':<25} {'S_first':>12} {'S_total':>12} {'Interaction':>12}")
-    print("-" * 70)
-    for idx, _ in sorted(enumerate(result.S_total), key=lambda x: -x[1])[:max_rows]:
-        name = result.parameter_names[idx]
-        flag = " ***" if idx in result.significant_interactions else ""
-        print(f"{name:<25} {result.S_first[idx]:>12.4f} {result.S_total[idx]:>12.4f} {result.interaction_scores[idx]:>12.4f}{flag}")
-    print("=" * 70)

@@ -12,7 +12,7 @@ and converted to per-hour (lambda) at the output boundary.
 
 Component models implemented (with IEC TR 62380 section references):
     - Integrated Circuits         Section 8
-    - Diodes                      Section 9
+    - Diodes                      Section 8 (8.2, 8.3)
     - Transistors                 Section 10
     - Optocouplers                Section 10.3
     - Thyristors / Triacs         Section 10.2
@@ -30,7 +30,7 @@ Author:  Eliot Abramo
 import math
 from typing import Dict, List, Any, Optional, Tuple
 
-__version__ = "3.1.0"
+__version__ = "3.2.0"
 __author__ = "Eliot Abramo"
 
 
@@ -628,54 +628,141 @@ IC_PACKAGE_TABLE = {
 # =============================================================================
 
 DISCRETE_PACKAGE_TABLE = {
-    "TO-92": {"lb": 1.0},
-    "TO-126": {"lb": 3.2},
-    "TO-220": {"lb": 5.7},
-    "TO-247": {"lb": 8.0},
-    "TO-3": {"lb": 12.0},
-    "DO-41": {"lb": 2.5},
-    "DO-35": {"lb": 1.5},
-    "DO-201": {"lb": 4.0},
-    "SOT-23": {"lb": 1.0},
-    "SOT-89": {"lb": 2.0},
-    "SOT-223": {"lb": 3.4},
-    "SOD-123": {"lb": 1.0},
-    "SOD-323": {"lb": 0.8},
-    "SOD-523": {"lb": 0.6},
-    "SMA": {"lb": 1.8},
-    "SMB": {"lb": 2.2},
-    "SMC": {"lb": 3.0},
-    "D-PAK": {"lb": 5.0},
-    "D2-PAK": {"lb": 6.5},
-    "PowerPAK": {"lb": 4.0},
-    "01005": {"lb": 0.3},
-    "0201": {"lb": 0.4},
-    "0402": {"lb": 0.5},
-    "0603": {"lb": 0.6},
-    "0805": {"lb": 0.8},
-    "1206": {"lb": 1.0},
-    "1210": {"lb": 1.2},
-    "1812": {"lb": 1.5},
-    "2010": {"lb": 1.6},
-    "2512": {"lb": 2.0},
+    # =========================================================================
+    # IEC TR 62380, Table 18 -- Values of lambda_B and junction resistances
+    # for active discrete components
+    #
+    # lambda_B (FIT) is the base failure rate of the package.
+    # Rjc = junction-case thermal resistance (C/W)
+    # Rja = junction-ambient thermal resistance (C/W)
+    # Rja_mounted = junction-ambient for surface-mounted (C/W)
+    #
+    # Only lambda_B is used in the reliability model. Thermal resistances
+    # are provided for junction temperature estimation (Section 8.1).
+    # =========================================================================
+    #
+    # --- Through-hole power packages ---
+    "TO-18": {"lb": 1.0, "rjc": 130, "rja": 450},
+    "TO-39": {"lb": 2.0, "rjc": 35, "rja": 200},
+    "TO-92": {"lb": 1.0, "rjc": 100, "rja": 300},
+    "SOT-32 (TO-126)": {"lb": 5.3, "rjc": 10, "rja": 100},
+    "SOT-82": {"lb": 5.3, "rjc": 10, "rja": 100},
+    "TO-220": {"lb": 5.7, "rjc": 3},
+    "TO-218 (SOT-93)": {"lb": 6.9, "rjc": 1.5},
+    "TO-247": {"lb": 6.9, "rjc": 1},
+    "ISOTOP": {"lb": 20.0, "rjc": 0.25},
+    "DO-220": {"lb": 5.7, "rjc": 3},
+    #
+    # --- SMD transistor / small signal packages ---
+    "SOT-23": {"lb": 1.0, "rja_mounted": 400},
+    "SOT-143": {"lb": 1.0, "rja_mounted": 400},
+    "SOT-223": {"lb": 3.4, "rja_mounted": 85},
+    "SOT-323": {"lb": 0.8, "rja_mounted": 600},
+    "SOT-343": {"lb": 0.8, "rja_mounted": 600},
+    "SOT-346": {"lb": 1.0, "rja_mounted": 500},
+    "SOT-363": {"lb": 0.8, "rja_mounted": 600},
+    "SOT-457": {"lb": 1.1, "rja_mounted": 350},
+    "SOT-89": {"lb": 2.0, "rja_mounted": 125},
+    #
+    # --- SMD power packages ---
+    "DPACK (SOT-428)": {"lb": 5.1, "rja_mounted": 30},
+    "D2PACK": {"lb": 5.7, "rja_mounted": 15},
+    #
+    # --- Optocoupler packages ---
+    "SOT-90B (optocoupler)": {"lb": 4.1, "rja": 250},
+    "SO-8 (optocoupler)": {"lb": 4.5, "rja_mounted": 300},
+    #
+    # --- Diode through-hole packages ---
+    "DO-34 (DO-204AG)": {"lb": 2.5, "rja": 500},
+    "DO-35 (DO-204AH)": {"lb": 2.5, "rja": 400},
+    "DO-41 (DO-204AL) (glass)": {"lb": 2.5, "rja": 150},
+    "DO-41 (DO-204AL) (plastic)": {"lb": 1.0, "rja": 100},
+    "F 126": {"lb": 1.0, "rja": 70},
+    #
+    # --- Diode SMD packages (cylindrical) ---
+    "micromelf": {"lb": 2.5, "rja_mounted": 600},
+    "SOD-80 (minimelf)": {"lb": 2.5, "rja_mounted": 600},
+    "melf": {"lb": 5.0, "rja_mounted": 450},
+    #
+    # --- Diode SMD packages (flat) ---
+    "SOD-110": {"lb": 0.8, "rja_mounted": 350},
+    "SOD-123": {"lb": 1.0, "rja_mounted": 600},
+    "SOD-323": {"lb": 0.7, "rja_mounted": 600},
+    "SOD-523": {"lb": 0.5, "rja_mounted": 100},
+    "SMA": {"lb": 1.8, "rja_mounted": 600},
+    "SMB (DO-214)": {"lb": 2.4, "rja_mounted": 75},
+    "SMC (DO-215)": {"lb": 5.1, "rja_mounted": 25},
+    "SOD-15": {"lb": 5.1, "rja_mounted": 20},
 }
 
 
 # =============================================================================
-# Diode base failure rates (FIT) -- IEC TR 62380, Section 9
+# Diode base failure rates (FIT) -- IEC TR 62380, Sections 8.2 and 8.3
+# =============================================================================
+#
+# Section 8.2: Low-power diodes
+#   Silicon signal, PIN, fast/slow recovery, Schottky up to 3A;
+#   Zener up to 1.5W; TVS up to 5kW peak; GaAs up to 0.1W.
+#
+# Section 8.3: Power diodes
+#   Silicon rectifier, fast recovery, Schottky above 3A (excepted modules);
+#   Zener above 1.5W; TVS 5kW; GaAs above 0.1W.
+#
+# All diode types use:
+#   Activation energy Ea = 0.4 eV  ->  Ea/kB = 4640 K
+#   Reference temperature T_ref = 313 K (40 C)
+#   pi_t = exp(4640 * (1/313 - 1/(t_j + 273)))
+#
+# lambda_0 values are failure rates at t_j = 40 C expressed in FIT.
 # =============================================================================
 
 DIODE_BASE_RATES = {
-    "Signal (<1A)": {"l0": 0.07, "ea": ActivationEnergy.BIPOLAR},
-    "Rectifier (1-3A)": {"l0": 0.10, "ea": ActivationEnergy.BIPOLAR},
-    "Power Rectifier (>3A)": {"l0": 0.25, "ea": ActivationEnergy.BIPOLAR},
-    "Zener": {"l0": 0.40, "ea": ActivationEnergy.BIPOLAR},
-    "TVS": {"l0": 2.30, "ea": ActivationEnergy.BIPOLAR},
-    "Schottky (<3A)": {"l0": 0.15, "ea": ActivationEnergy.MOS},
-    "Schottky (>=3A)": {"l0": 0.30, "ea": ActivationEnergy.MOS},
-    "LED": {"l0": 0.50, "ea": ActivationEnergy.MOS},
-    "LED (High Power)": {"l0": 1.20, "ea": ActivationEnergy.MOS},
-    "Varicap": {"l0": 0.20, "ea": ActivationEnergy.BIPOLAR},
+    # --- Section 8.2: Low-power diodes ---
+    "Signal (<1A)": {
+        "l0": 0.07, "ea": 4640, "t_ref": 313,
+        "section": "8.2", "desc": "Silicon signal diodes, up to 1A",
+    },
+    "Recovery/Rectifier (1A-3A)": {
+        "l0": 0.10, "ea": 4640, "t_ref": 313,
+        "section": "8.2", "desc": "Silicon fast/slow recovery, rectifier, Schottky, 1A to 3A",
+    },
+    "Zener (<=1.5W)": {
+        "l0": 0.40, "ea": 4640, "t_ref": 313,
+        "section": "8.2", "desc": "Zener regulator diodes, up to 1.5W",
+    },
+    "TVS (low power)": {
+        "l0": 2.30, "ea": 4640, "t_ref": 313,
+        "section": "8.2", "desc": "Transient voltage suppressor, up to 5kW peak (10us/1000us)",
+    },
+    "Trigger TVS (low power)": {
+        "l0": 2.00, "ea": 4640, "t_ref": 313,
+        "section": "8.2", "desc": "Trigger transient voltage suppressor (low power)",
+    },
+    "GaAs (<= 0.1W)": {
+        "l0": 0.30, "ea": 4640, "t_ref": 313,
+        "section": "8.2", "desc": "Gallium arsenide diodes, up to 0.1W",
+    },
+    # --- Section 8.3: Power diodes ---
+    "Recovery/Rectifier (>3A)": {
+        "l0": 0.70, "ea": 4640, "t_ref": 313,
+        "section": "8.3", "desc": "Silicon rectifier, fast recovery, Schottky, above 3A",
+    },
+    "Zener (>1.5W)": {
+        "l0": 0.70, "ea": 4640, "t_ref": 313,
+        "section": "8.3", "desc": "Zener regulator diodes, above 1.5W",
+    },
+    "TVS (power)": {
+        "l0": 0.70, "ea": 4640, "t_ref": 313,
+        "section": "8.3", "desc": "Transient voltage suppressor (power)",
+    },
+    "Trigger TVS (power)": {
+        "l0": 3.00, "ea": 4640, "t_ref": 313,
+        "section": "8.3", "desc": "Trigger transient voltage suppressor (power)",
+    },
+    "GaAs (>0.1W)": {
+        "l0": 1.00, "ea": 4640, "t_ref": 313,
+        "section": "8.3", "desc": "Gallium arsenide diodes, above 0.1W",
+    },
 }
 
 TRANSISTOR_BASE_RATES = {
@@ -1015,29 +1102,54 @@ def lambda_diode(
     n_cycles=5256,
     delta_t=3.0,
     tau_on=1.0,
-    v_applied=0.0,
-    v_rated=0.0,
     **kw,
 ):
-    """Diode failure rate per IEC TR 62380, Section 9."""
+    """Diode failure rate per IEC TR 62380, Sections 8.2 (low power) and 8.3 (power).
+
+    Mathematical model (identical for both sections):
+
+        lambda = lambda_die + lambda_package + lambda_overstress
+
+    where:
+        lambda_die = pi_U * lambda_0 * SUM_i(pi_t_i * tau_i) / (tau_on + tau_off)
+        lambda_package = 2.75e-3 * SUM_i(pi_n_i * (delta_T_i)^0.68) * lambda_B
+        lambda_overstress = pi_I * lambda_EOS
+
+    Simplified for single-phase mission profile:
+        lambda_die = pi_U * lambda_0 * pi_t * tau_on
+                     (since tau_on + tau_off = 1 for normalised ratios)
+        lambda_package = 2.75e-3 * pi_n * delta_T^0.68 * lambda_B
+
+    pi_t = exp(4640 * (1/313 - 1/(t_j + 273)))    [Ea = 0.4 eV for ALL diodes]
+    pi_U = 1 for all diodes (pi_U = 1 or 10 applies to thyristors/triacs only)
+
+    NOTE: The IEC TR 62380 diode model has NO voltage stress factor (pi_v).
+          Voltage stress (pi_s) applies to transistors (Section 8.4/8.5), not diodes.
+    """
     tau_on = validate_ratio(tau_on, "tau_on")
     t_junction = validate_temperature(t_junction, "t_junction")
     n_cycles = max(0, _safe_int(n_cycles, 5256))
     delta_t = max(0.0, _safe_float(delta_t, 3.0))
 
     dr = DIODE_BASE_RATES.get(diode_type, DIODE_BASE_RATES["Signal (<1A)"])
-    l0, ea = dr["l0"], dr.get("ea", ActivationEnergy.BIPOLAR)
-    pi_t = pi_temperature(t_junction, ea, 313)
+    l0 = dr["l0"]
+    ea = dr.get("ea", 4640)            # Always 4640 K (0.4 eV) per standard
+    t_ref = dr.get("t_ref", 313)       # Always 313 K (40 C) per standard
 
-    pi_v = 1.0
-    if _safe_float(v_rated) > 0 and _safe_float(v_applied) > 0:
-        pi_v = pi_voltage_stress(v_applied, v_rated, 2.0)
+    # -- Die contribution --
+    # pi_U = 1 for all diodes (Sections 8.2/8.3, "Type of use" table: "Other diodes -> 1")
+    pi_u = 1.0
+    pi_t = pi_temperature(t_junction, ea, t_ref)
+    lambda_die = pi_u * l0 * pi_t * tau_on
 
-    lambda_die = l0 * pi_t * pi_v * tau_on
+    # -- Package contribution --
     lb = DISCRETE_PACKAGE_TABLE.get(package, {"lb": 1.0}).get("lb", 1.0)
     pi_n = pi_thermal_cycles(n_cycles)
-    lambda_pkg = 2.75e-3 * pi_n * (delta_t**0.68) * lb
+    lambda_pkg = 2.75e-3 * pi_n * (delta_t ** 0.68) * lb
+
+    # -- Overstress contribution --
     lambda_e = lambda_eos(is_interface, interface_type)
+
     total_fit = lambda_die + lambda_pkg + lambda_e
     return {
         "lambda_die": lambda_die * 1e-9,
@@ -1045,8 +1157,15 @@ def lambda_diode(
         "lambda_eos": lambda_e * 1e-9,
         "lambda_total": total_fit * 1e-9,
         "fit_total": total_fit,
+        "fit_die": lambda_die,
+        "fit_package": lambda_pkg,
+        "fit_eos": lambda_e,
         "pi_t": pi_t,
-        "pi_v": pi_v,
+        "pi_u": pi_u,
+        "pi_n": pi_n,
+        "lambda_0": l0,
+        "lambda_b": lb,
+        "section": dr.get("section", "8.2"),
     }
 
 
@@ -1629,27 +1748,20 @@ def get_field_definitions(ct):
                 "choices": list(DIODE_BASE_RATES.keys()),
                 "default": "Signal (<1A)",
                 "required": True,
+                "help": "Diode type per IEC TR 62380, Sections 8.2/8.3",
             },
             "t_junction": {
                 "type": "float",
                 "default": 85.0,
                 "required": True,
-                "help": "Junction temperature (C)",
+                "help": "Junction temperature (C). For protection diodes: t_j = t_ambient; "
+                        "For others: t_j = t_ambient + R_th * P",
             },
             "package": {
                 "type": "choice",
                 "choices": list(DISCRETE_PACKAGE_TABLE.keys()),
                 "default": "SOD-123",
-            },
-            "v_applied": {
-                "type": "float",
-                "default": 0.0,
-                "help": "Applied reverse voltage (V)",
-            },
-            "v_rated": {
-                "type": "float",
-                "default": 0.0,
-                "help": "Rated reverse voltage (V)",
+                "help": "Package type (Table 18, determines lambda_B)",
             },
             **iface,
             **common,

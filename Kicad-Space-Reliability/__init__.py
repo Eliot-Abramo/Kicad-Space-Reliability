@@ -3,37 +3,24 @@ KiCad Reliability Calculator Plugin
 ====================================
 IEC TR 62380 Reliability Analysis for KiCad
 
-Version: 3.1.0
+Version: 3.2.0
 
 Features:
 - 12 component classes with full IEC TR 62380 stress models
 - Visual block diagram editor for system topology
 - Series/Parallel/K-of-N redundancy modeling
 - Monte Carlo uncertainty analysis with convergence detection
-- Correlated Monte Carlo with Cholesky decomposition
-- Sobol sensitivity analysis with interaction detection
+- OAT tornado sensitivity analysis (IEC 60300-3-1)
+- Design-margin what-if scenarios
 - Component-level parameter criticality analysis
 - Multi-phase mission profile support (IEC TR 62380 phasing)
-- Reliability budget allocation (equal, proportional, criticality)
-- Derating guidance engine with inverse calculations
-- Component swap analysis (package, type, technology)
-- Reliability growth tracking across design revisions
 - Professional HTML/PDF reports with SVG charts
-
-New in v3.1.0 (Co-Design Overhaul):
-- Mission profile phasing: multi-phase environmental conditions per standard
-- Reliability budget allocation: system target decomposed to component level
-- Derating guidance: prescriptive recommendations with required parameter values
-- Component swap analysis: one-click what-if for package/type changes
-- Reliability growth tracking: snapshot versioning with before/after attribution
-- Correlated Monte Carlo: Cholesky-based correlated sampling with auto-grouping
-- Predefined mission profile templates (LEO, GEO, Automotive, Avionics, etc.)
 
 Designed and developed by Eliot Abramo
 License: MIT
 """
 
-__version__ = "3.1.0"
+__version__ = "3.2.0"
 __author__ = "Eliot Abramo"
 
 try:
@@ -72,9 +59,11 @@ from .reliability_math import (
 )
 
 from .sensitivity_analysis import (
-    SobolAnalyzer,
-    SobolResult,
-    quick_sensitivity,
+    TornadoResult,
+    DesignMarginResult,
+    tornado_sheet_sensitivity,
+    tornado_parameter_sensitivity,
+    design_margin_analysis,
     analyze_board_criticality,
 )
 
