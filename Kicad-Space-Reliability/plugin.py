@@ -9,12 +9,6 @@ import pcbnew
 import wx
 from pathlib import Path
 
-try:
-    from .project_manager import initialize_project_folder
-except ImportError:
-    from project_manager import initialize_project_folder
-
-
 def get_kicad_project_path():
     """Get current project path from KiCad."""
     try:
@@ -56,7 +50,7 @@ class ReliabilityPlugin(pcbnew.ActionPlugin):
             pass
         
         project_path = get_kicad_project_path()
-        
+
         if not project_path:
             wx.MessageBox(
                 "Could not determine KiCad project path.",
@@ -64,18 +58,7 @@ class ReliabilityPlugin(pcbnew.ActionPlugin):
                 wx.OK | wx.ICON_ERROR
             )
             return
-        
-        # Initialize Reliability folder
-        try:
-            initialize_project_folder(project_path)
-        except Exception as e:
-            wx.MessageBox(
-                f"Failed to initialize Reliability folder:\n\n{str(e)}",
-                "Initialization Error",
-                wx.OK | wx.ICON_ERROR
-            )
-            return
-        
+
         try:
             from .reliability_dialog import ReliabilityMainDialog
             dlg = ReliabilityMainDialog(parent, project_path)

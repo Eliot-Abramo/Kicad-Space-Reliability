@@ -66,10 +66,12 @@ class BlockEditor(wx.Panel):
         self.pan_start = (0, 0)
         self.mission_hours = 5 * 365 * 24
 
-        # Rubber-band selection
+        # Rubber-band selection (Ctrl+left-drag on empty)
         self.rubber_band = False
         self.rubber_start = (0, 0)
         self.rubber_end = (0, 0)
+        # Left-drag pan on empty space (no Ctrl)
+        self.left_drag_pan = False
 
         self.on_selection_change = None
         self.on_structure_change = None
@@ -309,13 +311,17 @@ class BlockEditor(wx.Panel):
                 self.drag_offset = (cx - b.x, cy - b.y)
             if self.on_selection_change: self.on_selection_change(self.selected)
         else:
-            # Start rubber-band selection on empty space
-            self.rubber_band = True
-            self.rubber_start = (cx, cy)
-            self.rubber_end = (cx, cy)
+            # Empty space: Ctrl+left = rubber-band, plain left = pan
             if not event.ShiftDown():
                 self.selected = None
                 self.multi_selected = []
+            if event.ControlDown():
+                self.rubber_band = True
+                self.rubber_start = (cx, cy)
+                self.rubber_end = (cx, cy)
+            else:
+                self.left_drag_pan = True
+                self.pan_start = (sx, sy)
         self.Refresh()
 
     def _on_left_up(self, event):
@@ -326,11 +332,9 @@ class BlockEditor(wx.Panel):
             y1 = min(self.rubber_start[1], self.rubber_end[1])
             x2 = max(self.rubber_start[0], self.rubber_end[0])
             y2 = max(self.rubber_start[1], self.rubber_end[1])
-            # Only select if drag area is meaningful (> 5px canvas)
             if abs(x2 - x1) > 5 and abs(y2 - y1) > 5:
                 for bid, b in self.blocks.items():
                     if not b.is_group:
-                        # Block center must be inside the rectangle
                         bcx, bcy = b.center()
                         if x1 <= bcx <= x2 and y1 <= bcy <= y2:
                             if bid not in self.multi_selected:
@@ -339,6 +343,10 @@ class BlockEditor(wx.Panel):
                     self.selected = self.multi_selected[-1]
                     if self.on_selection_change:
                         self.on_selection_change(self.selected)
+            self.Refresh()
+            return
+        if self.left_drag_pan:
+            self.left_drag_pan = False
             self.Refresh()
             return
         if self.dragging:
@@ -364,9 +372,8 @@ class BlockEditor(wx.Panel):
         
         menu = wx.Menu()
         
-        # If we have a multi-selection (2+ blocks), offer grouping
-        groupable = [b for b in self.multi_selected
-                     if b in self.blocks and not self.blocks[b].is_group]
+        # Multi-selection: allow grouping blocks and/or groups (nested: K-of-N in parallel, etc.)
+        groupable = [b for b in self.multi_selected if b in self.blocks]
         if len(groupable) >= 2:
             item_s = menu.Append(wx.ID_ANY, f"Group {len(groupable)} blocks  Series")
             self.Bind(wx.EVT_MENU, lambda e, ids=groupable: self._group_selected(ids, "series"), item_s)
@@ -415,7 +422,7 @@ class BlockEditor(wx.Panel):
             self.rubber_end = (cx, cy)
             self.Refresh()
             return
-        if self.panning:
+        if self.panning or self.left_drag_pan:
             self.pan_offset[0] += sx - self.pan_start[0]
             self.pan_offset[1] += sy - self.pan_start[1]
             self.pan_start = (sx, sy)
@@ -458,9 +465,7 @@ class BlockEditor(wx.Panel):
             self.multi_selected = []
             self.Refresh()
         elif key == ord('G') or key == ord('g'):
-            # Ctrl+G or just G to group selected blocks
-            groupable = [b for b in self.multi_selected
-                         if b in self.blocks and not self.blocks[b].is_group]
+            groupable = [b for b in self.multi_selected if b in self.blocks]
             if len(groupable) >= 2:
                 self._group_selected(groupable, "series")
         else: event.Skip()
