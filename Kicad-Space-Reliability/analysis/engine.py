@@ -117,15 +117,23 @@ def _system_R_from_sheet_lambdas(
     mission_hours: float,
 ) -> float:
     """Compute system reliability from sheet lambdas using block structure."""
-    if not root_id or root_id not in blocks:
+    if not root_id or not isinstance(blocks, dict) or root_id not in blocks:
         return 1.0
+    try:
+        mh = float(mission_hours)
+        if mh <= 0 or mh != mh:
+            mh = 43800
+    except (TypeError, ValueError):
+        mh = 43800
 
     def calc(bid: str) -> float:
         b = blocks.get(bid)
         if not b:
             return 1.0
-        if getattr(b, "is_group", False):
-            child_rs = [calc(cid) for cid in getattr(b, "children", [])]
+        is_grp = getattr(b, "is_group", False) if hasattr(b, "is_group") else False
+        if is_grp:
+            children = getattr(b, "children", None) or []
+            child_rs = [calc(cid) for cid in children]
             conn = getattr(b, "connection_type", "series")
             k = getattr(b, "k_value", 2)
             if conn == "series":
@@ -134,8 +142,9 @@ def _system_R_from_sheet_lambdas(
                 return r_parallel(child_rs)
             else:
                 return r_k_of_n(child_rs, k)
-        lam = sheet_lambdas.get(getattr(b, "name", ""), 0.0)
-        return reliability_from_lambda(lam, mission_hours)
+        name = getattr(b, "name", "") if hasattr(b, "name") else ""
+        lam = sheet_lambdas.get(name, 0.0) if isinstance(sheet_lambdas, dict) else 0.0
+        return reliability_from_lambda(lam, mh)
 
     return calc(root_id)
 
@@ -146,15 +155,29 @@ def _sheet_lambdas_from_components(
 ) -> Dict[str, float]:
     """Aggregate component lambdas into sheet lambdas."""
     result = {}
+    if not isinstance(sheet_data, dict):
+        return result
     for path, data in sheet_data.items():
+        if not isinstance(data, dict):
+            result[path] = 0.0
+            continue
+        comps = data.get("components")
+        if comps is None or not isinstance(comps, list):
+            result[path] = 0.0
+            continue
         total = 0.0
-        for comp in data.get("components", []):
+        for comp in comps:
+            if not isinstance(comp, dict):
+                continue
             ref = comp.get("ref", "?")
             lam = component_lambdas.get((path, ref))
             if lam is not None:
                 total += lam
             else:
-                total += float(comp.get("lambda", 0) or 0)
+                try:
+                    total += float(comp.get("lambda", 0) or 0)
+                except (TypeError, ValueError):
+                    pass
         result[path] = total
     return result
 
@@ -209,14 +232,25 @@ def run_monte_carlo(
 
     # Nominal lambdas (no perturbation)
     nominal_comp_lambdas = {}
-    for path, data in sheet_data.items():
-        for comp in data.get("components", []):
-            ref = comp.get("ref", "?")
-            ovr = comp.get("override_lambda")
-            if ovr is not None:
-                nominal_comp_lambdas[(path, ref)] = ovr * 1e-9
-            else:
-                nominal_comp_lambdas[(path, ref)] = float(comp.get("lambda", 0) or 0)
+    if isinstance(sheet_data, dict):
+        for path, data in sheet_data.items():
+            if not isinstance(data, dict):
+                continue
+            comps = data.get("components")
+            if comps is None or not isinstance(comps, list):
+                continue
+            for comp in comps:
+                if not isinstance(comp, dict):
+                    continue
+                ref = comp.get("ref", "?")
+                ovr = comp.get("override_lambda")
+                if ovr is not None:
+                    nominal_comp_lambdas[(path, ref)] = ovr * 1e-9
+                else:
+                    try:
+                        nominal_comp_lambdas[(path, ref)] = float(comp.get("lambda", 0) or 0)
+                    except (TypeError, ValueError):
+                        nominal_comp_lambdas[(path, ref)] = 0.0
 
     nominal_sheet_lam = _sheet_lambdas_from_sheet_data(sheet_data)
     nominal_R = _system_R_from_sheet_lambdas(blocks, root_id, nominal_sheet_lam, mission_hours)
@@ -229,29 +263,40 @@ def run_monte_carlo(
 
     for sim in range(n_simulations):
         comp_lambdas = {}
-        for path, data in sheet_data.items():
-            for comp in data.get("components", []):
-                ref = comp.get("ref", "?")
-                ovr = comp.get("override_lambda")
-                if ovr is not None:
-                    comp_lambdas[(path, ref)] = ovr * 1e-9
+        if isinstance(sheet_data, dict):
+            for path, data in sheet_data.items():
+                if not isinstance(data, dict):
                     continue
+                comps = data.get("components")
+                if comps is None or not isinstance(comps, list):
+                    continue
+                for comp in comps:
+                    if not isinstance(comp, dict):
+                        continue
+                    ref = comp.get("ref", "?")
+                    ovr = comp.get("override_lambda")
+                    if ovr is not None:
+                        comp_lambdas[(path, ref)] = ovr * 1e-9
+                        continue
 
-                params = dict(comp.get("params", {}))
-                ct = comp.get("class", "Resistor")
-                for (sp, r, fn), p in param_index.items():
-                    if sp == path and r == ref and fn in params:
+                    params = dict(comp.get("params") or {})
+                    ct = comp.get("class", "Resistor")
+                    for (sp, r, fn), p in param_index.items():
+                        if sp == path and r == ref and fn in params:
+                            try:
+                                params[fn] = float(param_samples[(sp, r, fn)][sim])
+                            except (TypeError, ValueError):
+                                pass
+
+                    try:
+                        res = calculate_component_lambda(ct, params)
+                        lam = float(res.get("lambda_total", 0) or 0)
+                    except Exception:
                         try:
-                            params[fn] = float(param_samples[(sp, r, fn)][sim])
+                            lam = float(comp.get("lambda", 0) or 0)
                         except (TypeError, ValueError):
-                            pass
-
-                try:
-                    res = calculate_component_lambda(ct, params)
-                    lam = float(res.get("lambda_total", 0) or 0)
-                except Exception:
-                    lam = float(comp.get("lambda", 0) or 0)
-                comp_lambdas[(path, ref)] = max(0.0, lam)
+                            lam = 0.0
+                    comp_lambdas[(path, ref)] = max(0.0, lam)
 
         sheet_lam = _sheet_lambdas_from_components(sheet_data, comp_lambdas)
         R = _system_R_from_sheet_lambdas(blocks, root_id, sheet_lam, mission_hours)
@@ -297,8 +342,16 @@ def run_monte_carlo(
 
 def _sheet_lambdas_from_sheet_data(sheet_data: Dict) -> Dict[str, float]:
     result = {}
+    if not isinstance(sheet_data, dict):
+        return result
     for path, data in sheet_data.items():
-        result[path] = float(data.get("lambda", 0) or 0)
+        if not isinstance(data, dict):
+            result[path] = 0.0
+            continue
+        try:
+            result[path] = float(data.get("lambda", 0) or 0)
+        except (TypeError, ValueError):
+            result[path] = 0.0
     return result
 
 
@@ -396,8 +449,17 @@ def run_sobol(
 
     # Component-level Sobol: sample component lambdas via 2 MC runs, Pick-Freeze on R
     comp_entries = []
-    comp_list = [(path, comp.get("ref", "?")) for path, data in sheet_data.items()
-                 for comp in data.get("components", []) if comp.get("override_lambda") is None]
+    comp_list = []
+    if isinstance(sheet_data, dict):
+        for path, data in sheet_data.items():
+            if not isinstance(data, dict):
+                continue
+            comps = data.get("components")
+            if comps is None or not isinstance(comps, list):
+                continue
+            for comp in comps:
+                if isinstance(comp, dict) and comp.get("override_lambda") is None:
+                    comp_list.append((path, comp.get("ref", "?")))
     n_comp = len(comp_list)
 
     if n_comp > 0 and len(uncertain_params) > 0:
@@ -414,13 +476,21 @@ def run_sobol(
             out = np.zeros((samples, n_comp))
             for sim in range(samples):
                 comp_lam = {}
-                for path, data in sheet_data.items():
-                    for comp in data.get("components", []):
-                        ref = comp.get("ref", "?")
-                        if comp.get("override_lambda") is not None:
-                            comp_lam[(path, ref)] = comp["override_lambda"] * 1e-9
+                if isinstance(sheet_data, dict):
+                    for path, data in sheet_data.items():
+                        if not isinstance(data, dict):
                             continue
-                        params = dict(comp.get("params", {}))
+                        comps = data.get("components")
+                        if comps is None or not isinstance(comps, list):
+                            continue
+                        for comp in comps:
+                            if not isinstance(comp, dict):
+                                continue
+                            ref = comp.get("ref", "?")
+                            if comp.get("override_lambda") is not None:
+                                comp_lam[(path, ref)] = comp["override_lambda"] * 1e-9
+                                continue
+                            params = dict(comp.get("params") or {})
                         for p in uncertain_params:
                             if p.sheet_path == path and p.reference == ref and p.field_name in params:
                                 params[p.field_name] = param_samples[(p.sheet_path, p.reference, p.field_name)][sim]
@@ -473,14 +543,23 @@ def _perturbed_comp_lambdas(
 ) -> Dict[Tuple[str, str], float]:
     comp_lambdas = {}
     param_by_idx = {(p.sheet_path, p.reference, p.field_name): (i, p) for i, p in enumerate(uncertain_params)}
+    if not isinstance(sheet_data, dict):
+        return comp_lambdas
     for path, data in sheet_data.items():
-        for comp in data.get("components", []):
+        if not isinstance(data, dict):
+            continue
+        comps = data.get("components")
+        if comps is None or not isinstance(comps, list):
+            continue
+        for comp in comps:
+            if not isinstance(comp, dict):
+                continue
             ref = comp.get("ref", "?")
             ovr = comp.get("override_lambda")
             if ovr is not None:
                 comp_lambdas[(path, ref)] = ovr * 1e-9
                 continue
-            params = dict(comp.get("params", {}))
+            params = dict(comp.get("params") or {})
             for (sp, r, fn), (idx, p) in param_by_idx.items():
                 if sp == path and r == ref and fn in params:
                     params[fn] = float(x[idx])
@@ -506,6 +585,7 @@ def run_whatif(
     scenario_name: str = "Custom",
 ) -> WhatIfResult:
     """Apply user-defined parameter shifts and compute resulting R."""
+    sheet_data = sheet_data if isinstance(sheet_data, dict) else {}
     baseline_sheet_lam = _sheet_lambdas_from_sheet_data(sheet_data)
     baseline_R = _system_R_from_sheet_lambdas(blocks, root_id, baseline_sheet_lam, mission_hours)
     baseline_lam = sum(baseline_sheet_lam.values())
@@ -514,23 +594,34 @@ def run_whatif(
     shift_map = {(s.sheet_path, s.reference, s.field_name): s.new_value for s in shifts}
 
     comp_lambdas = {}
-    for path, data in sheet_data.items():
-        for comp in data.get("components", []):
-            ref = comp.get("ref", "?")
-            ovr = comp.get("override_lambda")
-            if ovr is not None:
-                comp_lambdas[(path, ref)] = ovr * 1e-9
+    if isinstance(sheet_data, dict):
+        for path, data in sheet_data.items():
+            if not isinstance(data, dict):
                 continue
-            params = dict(comp.get("params", {}))
-            for (sp, r, fn), val in shift_map.items():
-                if sp == path and r == ref and fn in params:
-                    params[fn] = val
-            try:
-                res = calculate_component_lambda(comp.get("class", "Resistor"), params)
-                lam = float(res.get("lambda_total", 0) or 0)
-            except Exception:
-                lam = float(comp.get("lambda", 0) or 0)
-            comp_lambdas[(path, ref)] = max(0.0, lam)
+            comps = data.get("components")
+            if comps is None or not isinstance(comps, list):
+                continue
+            for comp in comps:
+                if not isinstance(comp, dict):
+                    continue
+                ref = comp.get("ref", "?")
+                ovr = comp.get("override_lambda")
+                if ovr is not None:
+                    comp_lambdas[(path, ref)] = ovr * 1e-9
+                    continue
+                params = dict(comp.get("params") or {})
+                for (sp, r, fn), val in shift_map.items():
+                    if sp == path and r == ref and fn in params:
+                        params[fn] = val
+                try:
+                    res = calculate_component_lambda(comp.get("class", "Resistor"), params)
+                    lam = float(res.get("lambda_total", 0) or 0)
+                except Exception:
+                    try:
+                        lam = float(comp.get("lambda", 0) or 0)
+                    except (TypeError, ValueError):
+                        lam = 0.0
+                comp_lambdas[(path, ref)] = max(0.0, lam)
 
     sheet_lam = _sheet_lambdas_from_components(sheet_data, comp_lambdas)
     shifted_R = _system_R_from_sheet_lambdas(blocks, root_id, sheet_lam, mission_hours)

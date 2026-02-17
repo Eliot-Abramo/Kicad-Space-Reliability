@@ -5,7 +5,6 @@ Single coherent UI: parameter selection, Monte Carlo, Sobol, what-if, report.
 """
 
 import wx
-import wx.lib.scrolledpanel as scrolled
 from typing import Dict, List, Optional, Tuple, Any
 from pathlib import Path
 
@@ -47,30 +46,42 @@ class C:
 def _collect_numeric_fields(sheet_data: Dict) -> List[Tuple[str, str, str, float]]:
     """(sheet_path, ref, field_name, nominal_value) for numeric fields."""
     out = []
+    if not isinstance(sheet_data, dict):
+        return out
     for path, data in sheet_data.items():
-        for comp in data.get("components", []):
+        if not isinstance(data, dict):
+            continue
+        comps = data.get("components")
+        if comps is None or not isinstance(comps, list):
+            continue
+        for comp in comps:
+            if not isinstance(comp, dict):
+                continue
             if comp.get("override_lambda") is not None:
                 continue
-            ref = comp.get("ref", "?")
-            params = comp.get("params", {})
+            ref = comp.get("ref") or "?"
+            params = comp.get("params")
+            if params is None or not isinstance(params, dict):
+                continue
             for fn, val in params.items():
-                if fn.startswith("_"):
+                if not fn or str(fn).startswith("_"):
                     continue
                 try:
                     v = float(val)
-                    out.append((path, ref, fn, v))
+                    if not (v != v or abs(v) == float("inf")):  # skip nan, inf
+                        out.append((str(path), str(ref), str(fn), v))
                 except (TypeError, ValueError):
                     pass
     return out
 
 
-class ParameterSelector(scrolled.ScrolledPanel):
+class ParameterSelector(wx.Panel):
     """User selects uncertain parameters (component/field specific)."""
 
     def __init__(self, parent, sheet_data: Dict):
         super().__init__(parent)
         self.SetBackgroundColour(C.WHITE)
-        self.sheet_data = sheet_data
+        self.sheet_data = sheet_data or {}
         self.checks = {}  # (path, ref, fn) -> (wx.CheckBox, low_ctrl, high_ctrl, dist_choice)
         self._build()
 
@@ -94,27 +105,34 @@ class ParameterSelector(scrolled.ScrolledPanel):
             grid.Add(wx.StaticText(self, label="Dist"), 0)
 
             for path, ref, fn, nom in fields:
+                try:
+                    nom_f = float(nom)
+                except (TypeError, ValueError):
+                    continue
+                if nom_f != nom_f or abs(nom_f) == float("inf"):
+                    continue
                 key = (path, ref, fn)
                 cb = wx.CheckBox(self, label="")
                 cb.SetValue(False)
-                rng = abs(nom) * 0.2 if nom != 0 else 1.0
+                rng = abs(nom_f) * 0.2 if nom_f != 0 else 1.0
                 rng = max(rng, 0.1)  # avoid zero range
-                lo = wx.TextCtrl(self, value=f"{nom - rng:.3g}", size=(80, -1))
-                hi = wx.TextCtrl(self, value=f"{nom + rng:.3g}", size=(80, -1))
+                lo_val = nom_f - rng
+                hi_val = nom_f + rng
+                lo = wx.TextCtrl(self, value=f"{lo_val:.3g}", size=(80, -1))
+                hi = wx.TextCtrl(self, value=f"{hi_val:.3g}", size=(80, -1))
                 dist = wx.Choice(self, choices=["uniform", "pert"], size=(60, -1))
                 dist.SetSelection(0)
-                self.checks[key] = (cb, lo, hi, dist, nom)
+                self.checks[key] = (cb, lo, hi, dist, nom_f)
                 grid.Add(cb, 0)
-                grid.Add(wx.StaticText(self, label=ref), 0)
-                grid.Add(wx.StaticText(self, label=fn), 0)
-                grid.Add(wx.StaticText(self, label=f"{nom:.3g}"), 0)
+                grid.Add(wx.StaticText(self, label=str(ref)[:20]), 0)
+                grid.Add(wx.StaticText(self, label=str(fn)[:20]), 0)
+                grid.Add(wx.StaticText(self, label=f"{nom_f:.3g}"), 0)
                 grid.Add(lo, 0)
                 grid.Add(hi, 0)
                 grid.Add(dist, 0)
 
             sizer.Add(grid, 0, wx.ALL, 5)
         self.SetSizer(sizer)
-        self.SetupScrolling(scroll_x=True)
 
     def get_selected(self) -> List[UncertainParam]:
         out = []
@@ -140,7 +158,7 @@ class WhatIfPanel(wx.Panel):
     def __init__(self, parent, sheet_data: Dict):
         super().__init__(parent)
         self.SetBackgroundColour(C.WHITE)
-        self.sheet_data = sheet_data
+        self.sheet_data = sheet_data or {}
         self.scenarios: List[Tuple[str, List[WhatIfShift]]] = []
         self._build()
 
@@ -183,6 +201,9 @@ class WhatIfPanel(wx.Panel):
             dlg.Destroy()
             return
         idx = dlg.GetSelection()
+        if idx < 0 or idx >= len(fields):
+            dlg.Destroy()
+            return
         path, ref, fn, nom = fields[idx]
         val_dlg = wx.TextEntryDialog(self, "New value:", "Value", str(nom))
         if val_dlg.ShowModal() != wx.ID_OK:
@@ -234,10 +255,11 @@ class UnifiedAnalysisDialog(wx.Dialog):
         super().__init__(parent, title=title, size=(900, 750),
                          style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         self.SetBackgroundColour(C.BG)
-        self.sheet_data = sheet_data
-        self.blocks = blocks
-        self.root_id = root_id
-        self.mission_hours = mission_hours
+        # Defensive copies and validation
+        self.sheet_data = dict(sheet_data) if isinstance(sheet_data, dict) else {}
+        self.blocks = dict(blocks) if isinstance(blocks, dict) else {}
+        self.root_id = str(root_id) if root_id else None
+        self.mission_hours = float(mission_hours) if mission_hours is not None and mission_hours > 0 else 43800
         self.project_path = project_path
         self.mc_result: Optional[UncertaintyResult] = None
         self.sobol_result: Optional[SobolResult] = None
@@ -253,7 +275,8 @@ class UnifiedAnalysisDialog(wx.Dialog):
         main.Add(btn, 0, wx.ALL, 10)
         self.SetSizer(main)
         self.Centre()
-        self._update_report()  # initial report (empty until analyses run)
+        # Defer report update to avoid wx.Notebook tab realization issues
+        wx.CallAfter(self._safe_update_report)
 
     def _build_analysis_page(self, parent):
         panel = wx.Panel(parent)
@@ -311,18 +334,27 @@ class UnifiedAnalysisDialog(wx.Dialog):
         panel.SetSizer(sizer)
         return panel
 
+    def _safe_update_report(self):
+        """Update report text (guarded for dialog lifecycle)."""
+        try:
+            if hasattr(self, "report_text") and self.report_text is not None:
+                lines = self._generate_report_lines()
+                self.report_text.SetValue("\n".join(lines))
+        except Exception:
+            pass
+
     def _update_report(self):
-        lines = self._generate_report_lines()
-        self.report_text.SetValue("\n".join(lines))
+        self._safe_update_report()
 
     def _generate_report_lines(self) -> List[str]:
         """Full report: summary first, then all results in clear form."""
+        hours = self.mission_hours if self.mission_hours is not None else 43800
         lines = [
             "=" * 70,
             "   SENSITIVITY & UNCERTAINTY ANALYSIS REPORT",
             "=" * 70,
             "",
-            "Mission hours: {:.0f}".format(self.mission_hours),
+            "Mission hours: {:.0f}".format(hours),
             "",
         ]
 
@@ -517,7 +549,7 @@ class UnifiedAnalysisDialog(wx.Dialog):
                 from ..project_manager import ProjectManager
                 pm = ProjectManager(self.project_path)
                 default_dir = str(pm.get_reports_folder())
-            except ImportError:
+            except (ImportError, AttributeError, TypeError, OSError):
                 pass
         dlg = wx.FileDialog(
             self, "Export report", defaultDir=default_dir,

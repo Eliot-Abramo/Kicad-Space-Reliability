@@ -351,6 +351,54 @@ class ReliabilityMainDialog(wx.Dialog):
         self._calculate_sheets()
         self.status.SetLabel("Loaded test data")
 
+    def _build_sheet_data_from_edits(self):
+        """Build sheet_data from component_edits when no parser (e.g. loaded from JSON file)."""
+        if not self.component_edits:
+            return
+        hours = self.settings_panel.get_hours()
+        cycles = self.settings_panel.get_cycles()
+        dt = self.settings_panel.get_dt()
+        tau_on = self.settings_panel.get_tau_on()
+
+        for path, edits in self.component_edits.items():
+            if not isinstance(edits, dict):
+                continue
+            comp_data = []
+            total_lam = 0.0
+            for ref, edited in edits.items():
+                if not isinstance(edited, dict):
+                    continue
+                ct = edited.get("_component_type", "Resistor")
+                ovr = edited.get("override_lambda")
+                if ovr is not None:
+                    lam = float(ovr) * 1e-9
+                    params = edited.copy()
+                else:
+                    params = edited.copy()
+                    params.setdefault("n_cycles", cycles)
+                    params.setdefault("delta_t", dt)
+                    params.setdefault("tau_on", tau_on)
+                    try:
+                        res = calculate_component_lambda(ct, params)
+                        lam = float(res.get("lambda_total", 0) or 0)
+                    except Exception:
+                        lam = 0.0
+                r = reliability_from_lambda(lam, hours)
+                total_lam += lam
+                comp_entry = {
+                    "ref": ref,
+                    "value": edited.get("value", ""),
+                    "class": ct,
+                    "lambda": lam,
+                    "r": r,
+                    "params": params,
+                }
+                if ovr is not None:
+                    comp_entry["override_lambda"] = ovr
+                comp_data.append(comp_entry)
+            sheet_r = reliability_from_lambda(total_lam, hours)
+            self.sheet_data[path] = {"components": comp_data, "lambda": total_lam, "r": sheet_r}
+
     def _calculate_sheets(self):
         if not self.parser:
             return
@@ -679,6 +727,7 @@ class ReliabilityMainDialog(wx.Dialog):
         self.editor.clear()
         self.sheet_data.clear()
         self.component_edits.clear()
+        self.parser = None
 
         # Derive project path: if file is in .../Reliability/reliability_data.json, use parent
         path_obj = Path(json_path)
@@ -703,9 +752,9 @@ class ReliabilityMainDialog(wx.Dialog):
         self.status.SetLabel("Saved to Reliability/reliability_data.json")
 
     def _on_monte_carlo(self, event):
-        """Open unified sensitivity & uncertainty analysis dialog."""
+        """Open comprehensive analysis dialog with Monte Carlo and Sobol sensitivity."""
         try:
-            from .analysis.unified_dialog import UnifiedAnalysisDialog
+            from .analysis_dialog import AnalysisDialog
 
             sys_r, sys_lam = self._calculate_system()
 
@@ -717,14 +766,23 @@ class ReliabilityMainDialog(wx.Dialog):
                 )
                 return
 
-            dlg = UnifiedAnalysisDialog(
+            dlg = AnalysisDialog(
                 self,
+                system_lambda=sys_lam,
+                mission_hours=self.settings_panel.get_hours(),
                 sheet_data=self.sheet_data,
                 blocks=self.editor.blocks,
-                root_id=self.editor.root_id,
-                mission_hours=self.settings_panel.get_hours(),
+                root_id=getattr(self.editor, "root_id", None),
                 project_path=self.project_path,
-                title="Sensitivity & Uncertainty Analysis",
+                logo_path=(
+                    str(self.project_manager.get_available_logo_path())
+                    if self.project_manager and self.project_manager.logo_exists()
+                    else None
+                ),
+                logo_mime=self.project_manager.get_logo_mime_type() if self.project_manager else "image/png",
+                n_cycles=int(self.settings_panel.cycles.GetValue()),
+                delta_t=float(self.settings_panel.dt.GetValue()),
+                title="System Reliability Analysis",
             )
             dlg.ShowModal()
             dlg.Destroy()

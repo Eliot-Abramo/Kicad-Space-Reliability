@@ -56,6 +56,14 @@ from .growth_tracking import (
     compare_revisions, build_growth_timeline,
     ReliabilitySnapshot,
 )
+try:
+    from .analysis.engine import (
+        UncertainParam, WhatIfShift,
+        run_sobol, run_whatif,
+    )
+    _NEW_ENGINE_AVAILABLE = True
+except ImportError:
+    _NEW_ENGINE_AVAILABLE = False
 
 
 # =====================================================================
@@ -459,7 +467,7 @@ class AnalysisDialog(wx.Dialog):
     """Unified 6-tab reliability analysis dialog."""
 
     def __init__(self, parent, system_lambda, mission_hours, sheet_data=None,
-                 block_structure=None, blocks=None, project_path=None,
+                 block_structure=None, blocks=None, root_id=None, project_path=None,
                  logo_path=None, logo_mime=None, n_cycles=5256, delta_t=3.0,
                  title="Reliability Analysis Suite"):
         display = wx.Display(0)
@@ -476,6 +484,7 @@ class AnalysisDialog(wx.Dialog):
         self.sheet_data = sheet_data or {}
         self.block_structure = block_structure or {}
         self.blocks = blocks
+        self.root_id = root_id
         self.project_path = project_path
         self.logo_path = logo_path
         self.logo_mime = logo_mime or "image/png"
@@ -1120,6 +1129,43 @@ class AnalysisDialog(wx.Dialog):
         self.crit_table.SetMinSize((-1, 220))
         main.Add(self.crit_table, 0, wx.EXPAND | wx.ALL, 6)
 
+        # --- Section 4: Sobol Sensitivity (new engine) ---
+        if _NEW_ENGINE_AVAILABLE and self.blocks and self.root_id:
+            sec4 = self._section_label(panel, "4. Sobol Sensitivity (Pick-Freeze)")
+            main.Add(sec4, 0, wx.EXPAND | wx.ALL, 6)
+            sp = wx.Panel(panel)
+            sp.SetBackgroundColour(C.WHITE)
+            ss = wx.BoxSizer(wx.HORIZONTAL)
+            ss.Add(wx.StaticText(sp, label="Run Monte Carlo first to select parameters, then:"), 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 8)
+            self.btn_sobol = wx.Button(sp, label="Run Sobol (1000)")
+            self.btn_sobol.Bind(wx.EVT_BUTTON, self._on_run_sobol)
+            ss.Add(self.btn_sobol, 0, wx.ALL, 5)
+            sp.SetSizer(ss)
+            main.Add(sp, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 6)
+            self.sobol_table = _make_list(panel, ["Level", "Name", "S_i", "\u00B1std"], [80, 200, 90, 80])
+            main.Add(self.sobol_table, 0, wx.EXPAND | wx.ALL, 6)
+
+        # --- Section 5: User-defined What-If (parameter shifts) ---
+        if _NEW_ENGINE_AVAILABLE and self.blocks and self.root_id:
+            sec5 = self._section_label(panel, "5. User-defined What-If (Parameter Shifts)")
+            main.Add(sec5, 0, wx.EXPAND | wx.ALL, 6)
+            wp2 = wx.Panel(panel)
+            wp2.SetBackgroundColour(C.WHITE)
+            ws2 = wx.BoxSizer(wx.HORIZONTAL)
+            self.btn_user_whatif = wx.Button(wp2, label="Add shift...")
+            self.btn_user_whatif.Bind(wx.EVT_BUTTON, self._on_add_user_shift)
+            ws2.Add(self.btn_user_whatif, 0, wx.ALL, 5)
+            self.btn_run_user_whatif = wx.Button(wp2, label="Run User What-If")
+            self.btn_run_user_whatif.Bind(wx.EVT_BUTTON, self._on_run_user_whatif)
+            ws2.Add(self.btn_run_user_whatif, 0, wx.ALL, 5)
+            wp2.SetSizer(ws2)
+            main.Add(wp2, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 6)
+            self.user_whatif_shifts = []
+            self.user_whatif_list = _make_list(panel, ["Ref", "Field", "New value"], [80, 120, 100])
+            main.Add(self.user_whatif_list, 0, wx.EXPAND | wx.ALL, 6)
+            self.user_whatif_result = wx.StaticText(panel, label="")
+            main.Add(self.user_whatif_result, 0, wx.LEFT | wx.BOTTOM, 6)
+
         panel.SetSizer(main)
         return panel
 
@@ -1213,6 +1259,129 @@ class AnalysisDialog(wx.Dialog):
         except Exception as ex:
             import traceback; traceback.print_exc()
             wx.MessageBox(str(ex), "Scenario Error", wx.OK | wx.ICON_ERROR)
+
+    def _param_specs_to_uncertain_params(self):
+        """Convert param_specs + sheet_data to list of UncertainParam for new engine."""
+        out = []
+        if not _NEW_ENGINE_AVAILABLE:
+            return out
+        filtered = self._filtered()
+        ref_to_path = {}
+        for path, data in filtered.items():
+            for comp in data.get("components", []):
+                ref = comp.get("ref")
+                if ref:
+                    ref_to_path[ref] = path
+        for spec in self.param_specs:
+            if not spec.is_uncertain:
+                continue
+            for ref, nominal in spec.nominal_by_ref.items():
+                path = ref_to_path.get(ref)
+                if path is None:
+                    continue
+                if spec.shared:
+                    low = nominal + spec.delta_low
+                    high = nominal + spec.delta_high
+                else:
+                    low = nominal * (1 - spec.rel_low / 100)
+                    high = nominal * (1 + spec.rel_high / 100)
+                out.append(UncertainParam(
+                    sheet_path=path, reference=ref, field_name=spec.name,
+                    nominal=nominal, low=low, high=high, distribution=spec.distribution,
+                ))
+        return out
+
+    def _on_run_sobol(self, event):
+        if not _NEW_ENGINE_AVAILABLE or not self.blocks or not self.root_id:
+            return
+        params = self._param_specs_to_uncertain_params()
+        if not params:
+            wx.MessageBox("Run Monte Carlo first and ensure parameters have uncertainty bounds.", "No params", wx.OK)
+            return
+        self.status.SetLabel("Running Sobol...")
+        wx.Yield()
+        try:
+            result = run_sobol(
+                self.sheet_data, self.blocks, self.root_id, self.mission_hours,
+                params, n_samples=1000,
+            )
+            self.sobol_table.DeleteAllItems()
+            for e in result.parameter_level[:15]:
+                _add_row(self.sobol_table, ["Param", e.name, f"{e.sobol_index:.4f}", f"{e.sobol_std:.4f}"])
+            for e in result.component_level[:15]:
+                _add_row(self.sobol_table, ["Comp", e.name, f"{e.sobol_index:.4f}", f"{e.sobol_std:.4f}"])
+            self.status.SetLabel(f"Sobol: {len(result.parameter_level)} params, {len(result.component_level)} comps")
+        except Exception as ex:
+            import traceback; traceback.print_exc()
+            wx.MessageBox(str(ex), "Sobol Error", wx.OK | wx.ICON_ERROR)
+
+    def _collect_numeric_fields_for_whatif(self):
+        out = []
+        for path, data in self._filtered().items():
+            for comp in data.get("components", []):
+                if comp.get("override_lambda") is not None:
+                    continue
+                params = comp.get("params") or {}
+                for fn, val in params.items():
+                    if fn.startswith("_"):
+                        continue
+                    try:
+                        v = float(val)
+                        out.append((path, comp.get("ref", "?"), fn, v))
+                    except (TypeError, ValueError):
+                        pass
+        return out
+
+    def _on_add_user_shift(self, event):
+        fields = self._collect_numeric_fields_for_whatif()
+        if not fields:
+            wx.MessageBox("No numeric parameters found.", "Info", wx.OK)
+            return
+        choices = [f"{ref} / {fn} = {nom:.3g}" for _, ref, fn, nom in fields]
+        dlg = wx.SingleChoiceDialog(self, "Select parameter:", "Add shift", choices)
+        if dlg.ShowModal() != wx.ID_OK:
+            dlg.Destroy()
+            return
+        idx = dlg.GetSelection()
+        if idx < 0 or idx >= len(fields):
+            dlg.Destroy()
+            return
+        path, ref, fn, nom = fields[idx]
+        val_dlg = wx.TextEntryDialog(self, "New value:", "Value", str(nom))
+        if val_dlg.ShowModal() != wx.ID_OK:
+            val_dlg.Destroy()
+            dlg.Destroy()
+            return
+        try:
+            new_val = float(val_dlg.GetValue())
+        except ValueError:
+            wx.MessageBox("Invalid number.", "Error", wx.OK | wx.ICON_ERROR)
+            val_dlg.Destroy()
+            dlg.Destroy()
+            return
+        val_dlg.Destroy()
+        dlg.Destroy()
+        self.user_whatif_shifts.append(WhatIfShift(sheet_path=path, reference=ref, field_name=fn, new_value=new_val))
+        i = self.user_whatif_list.GetItemCount()
+        self.user_whatif_list.InsertItem(i, ref)
+        self.user_whatif_list.SetItem(i, 1, fn)
+        self.user_whatif_list.SetItem(i, 2, str(new_val))
+
+    def _on_run_user_whatif(self, event):
+        if not self.user_whatif_shifts:
+            wx.MessageBox("Add at least one parameter shift.", "No shifts", wx.OK)
+            return
+        try:
+            result = run_whatif(
+                self.sheet_data, self.blocks, self.root_id, self.mission_hours,
+                self.user_whatif_shifts, scenario_name="User-defined",
+            )
+            self.user_whatif_result.SetLabel(
+                f"R {result.baseline_R:.6f} -> {result.shifted_R:.6f}, "
+                f"\u0394R = {result.delta_R:+.6f}, \u0394FIT = {result.delta_lambda_pct:+.1f}%"
+            )
+        except Exception as ex:
+            wx.MessageBox(str(ex), "What-If Error", wx.OK | wx.ICON_ERROR)
 
     def _on_run_criticality(self, event):
         filtered = self._filtered()
