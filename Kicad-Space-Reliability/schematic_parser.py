@@ -97,22 +97,31 @@ class SchematicParser:
     
     def _parse_components(self, content: str, sheet_path: str) -> List[Component]:
         components = []
-        # KiCad 6+: (symbol "Lib:Name" ...)  |  KiCad 5: (symbol (lib_id "Lib:Name") ...)
-        symbol_pattern = r'\(symbol\s+(?:"([^"]+)"|\(lib_id\s+"([^"]+)"\))'
+
+        # CRITICAL: Strip the (lib_symbols ...) block BEFORE parsing.
+        # In KiCad 6+/9, `lib_symbols` contains library template definitions
+        # like (symbol "Device:R" (property "Reference" "R" ...)) -- these
+        # are NOT placed components. If we don't strip them, the regex below
+        # matches them and produces bare references like "R", "U", "C".
+        body = self._strip_lib_symbols(content)
+
+        # Match only placed symbol instances: (symbol (lib_id "Device:R") ...)
+        # This is the format KiCad 6+/9 uses for placed components.
+        # Library definitions use (symbol "Name" ...) which we've now stripped.
+        symbol_pattern = r'\(symbol\s+\(lib_id\s+"([^"]+)"\)'
         pos = 0
         while True:
-            match = re.search(symbol_pattern, content[pos:])
+            match = re.search(symbol_pattern, body[pos:])
             if not match: break
             start = pos + match.start()
-            lib_id = match.group(1) or match.group(2) or ""
-            symbol_content = self._extract_sexp(content, start)
+            lib_id = match.group(1) or ""
+            symbol_content = self._extract_sexp(body, start)
             if not symbol_content:
                 pos = start + 1
                 continue
             props = self._extract_properties(symbol_content)
-            # KiCad 6+/9: (property "Reference" "U?") is the unannotated template.
-            # The actual annotated designator lives in (instances (project ...) (path ... (reference "U1"))).
-            # We must prefer the instances value when the property is unannotated.
+
+            # Reference: prefer instances block, then property
             prop_ref = props.get("Reference") or ""
             inst_ref = self._extract_reference_from_instances(symbol_content)
             if inst_ref and not inst_ref.endswith("?"):
@@ -121,18 +130,43 @@ class SchematicParser:
                 reference = prop_ref
             else:
                 reference = inst_ref or prop_ref or "?"
+
             value = props.get("Value", "")
             footprint = props.get("Footprint", "")
+
+            # Skip power symbols and un-annotated
             if reference.startswith("#") or lib_id.lower().startswith("power:"):
                 pos = start + len(symbol_content)
                 continue
+            # Skip references that are just a bare prefix (from lib defs that slipped through)
+            if re.fullmatch(r'[A-Z]+', reference):
+                pos = start + len(symbol_content)
+                continue
+
             comp = Component(
-                reference=reference, value=value, lib_id=lib_id, sheet_path=sheet_path, footprint=footprint,
-                fields={k: v for k, v in props.items() if k not in ("Reference", "Value", "Footprint", "Datasheet")}
+                reference=reference, value=value, lib_id=lib_id,
+                sheet_path=sheet_path, footprint=footprint,
+                fields={k: v for k, v in props.items()
+                        if k not in ("Reference", "Value", "Footprint", "Datasheet")}
             )
             components.append(comp)
             pos = start + len(symbol_content)
         return components
+
+    def _strip_lib_symbols(self, content: str) -> str:
+        """Remove the (lib_symbols ...) block from schematic content.
+
+        This block contains library template definitions, not placed components.
+        Stripping it prevents the component parser from picking up template
+        references like 'U', 'R', 'C' (without numbers).
+        """
+        idx = content.find("(lib_symbols")
+        if idx < 0:
+            return content
+        block = self._extract_sexp(content, idx)
+        if block:
+            return content[:idx] + content[idx + len(block):]
+        return content
 
     def _extract_reference_from_instances(self, symbol_sexp: str) -> Optional[str]:
         """Extract reference designator from (instances ... (reference "R1")).

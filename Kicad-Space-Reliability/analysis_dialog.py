@@ -30,10 +30,10 @@ from .monte_carlo import (
     build_default_param_specs,
 )
 from .sensitivity_analysis import (
-    TornadoResult, ScenarioResult, CriticalityEntry,
+    TornadoResult, ScenarioResult, CriticalityEntry, SmartAction,
     TornadoPerturbation, DEFAULT_PERTURBATIONS,
     tornado_analysis, scenario_analysis, component_criticality,
-    single_param_whatif, get_active_sheet_paths,
+    single_param_whatif, get_active_sheet_paths, identify_smart_actions,
 )
 from .reliability_math import (
     reliability_from_lambda, lambda_from_reliability,
@@ -147,10 +147,9 @@ class HistogramPanel(wx.Panel):
         if cw < 50 or ch < 30:
             return
 
-        n_bins = min(40, max(15, cw // 12))
+        n_bins = min(50, max(20, cw // 10))
         hist, edges = np.histogram(self.samples, bins=n_bins)
         max_count = max(hist) if max(hist) > 0 else 1
-        bar_w = max(1, cw // n_bins - 1)
         min_val, max_val = edges[0], edges[-1]
         val_range = max_val - min_val
         if val_range <= 0:
@@ -174,9 +173,11 @@ class HistogramPanel(wx.Panel):
         dc.SetPen(wx.Pen(C.PRI.ChangeLightness(80), 1))
         for i, count in enumerate(hist):
             if count > 0:
-                x = ml + i * cw // n_bins
+                x0 = int(v2x(edges[i]))
+                x1 = int(v2x(edges[i + 1]))
+                bar_w = max(1, x1 - x0 - 1)
                 bh = max(1, int((count / max_count) * ch))
-                dc.DrawRectangle(int(x), mt + ch - bh, int(bar_w), bh)
+                dc.DrawRectangle(x0, mt + ch - bh, bar_w, bh)
 
         line_specs = []
         if self.nominal is not None:
@@ -207,7 +208,14 @@ class HistogramPanel(wx.Panel):
         for i in range(n_labels):
             val = min_val + val_range * i / (n_labels - 1)
             x = int(v2x(val))
-            lbl = f"{val:.4f}" if val_range < 0.1 else f"{val:.3f}"
+            if val_range < 1e-4:
+                lbl = f"{val:.6f}"
+            elif val_range < 0.01:
+                lbl = f"{val:.5f}"
+            elif val_range < 0.1:
+                lbl = f"{val:.4f}"
+            else:
+                lbl = f"{val:.3f}"
             tw, _ = dc.GetTextExtent(lbl)
             dc.DrawText(lbl, x - tw // 2, mt + ch + 6)
 
@@ -831,7 +839,7 @@ class AnalysisDialog(wx.Dialog):
 
         qs.Add(wx.StaticText(qp, label="Simulations:"), 0,
                wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 8)
-        self.unc_n = wx.SpinCtrl(qp, min=500, max=50000, initial=3000, size=(85, -1))
+        self.unc_n = wx.SpinCtrl(qp, min=500, max=100000, initial=5000, size=(85, -1))
         qs.Add(self.unc_n, 0, wx.ALL, 6)
 
         qs.Add(wx.StaticText(qp, label="CI:"), 0,
@@ -1206,11 +1214,15 @@ class AnalysisDialog(wx.Dialog):
         self.mc_stats_text.SetLabel("\n".join(lines))
 
         if r.parameter_importance:
+            # Show top 12 parameters by SRRC^2 -- no minimum threshold
+            # so that the chart is never empty when there are uncertain params
+            sorted_imp = sorted(r.parameter_importance,
+                                key=lambda p: -p["srrc_sq"])
             chart_data = [
                 (f"{p['name']} ({'S' if p['shared'] else 'I'})",
                  p["srrc_sq"])
-                for p in r.parameter_importance[:12]
-                if p["srrc_sq"] > 0.001
+                for p in sorted_imp[:12]
+                if p["srrc_sq"] > 0
             ]
             if chart_data:
                 self.mc_importance.set_data(chart_data, x_label="SRRC\u00B2")
@@ -1309,24 +1321,85 @@ class AnalysisDialog(wx.Dialog):
         panel.SetupScrolling(scroll_x=False, scrollToTop=True)
         main = wx.BoxSizer(wx.VERTICAL)
 
+        # --- Section 0: Smart Design Actions (auto-identified) ---
+        main.Add(self._section_label(panel,
+            "Smart Design Actions (auto-identified from analyses)"), 0, wx.EXPAND | wx.ALL, 6)
+
+        sa_panel = wx.Panel(panel)
+        sa_panel.SetBackgroundColour(C.WHITE)
+        sa_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        self.btn_smart = wx.Button(sa_panel, label="\u25B6  Identify Best Actions")
+        self.btn_smart.SetBackgroundColour(wx.Colour(139, 92, 246))
+        self.btn_smart.SetForegroundColour(wx.WHITE)
+        self.btn_smart.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        self.btn_smart.Bind(wx.EVT_BUTTON, self._on_smart_actions)
+        sa_sizer.Add(self.btn_smart, 0, wx.ALL, 6)
+        sa_sizer.Add(wx.StaticText(sa_panel,
+            label="Combines Tornado + SRRC + Criticality to find the parameters "
+                  "with the highest design leverage. Run Step 2/3 first for best results."),
+            0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
+        sa_panel.SetSizer(sa_sizer)
+        main.Add(sa_panel, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 6)
+
+        self.smart_list = _make_list(panel,
+            ["#", "Parameter", "Score", "FIT Gain", "Suggestion",
+             "Components", "Source"],
+            [35, 120, 70, 80, 260, 100, 130])
+        self.smart_list.SetMinSize((-1, 220))
+        main.Add(self.smart_list, 0, wx.EXPAND | wx.ALL, 6)
+
+        self.smart_detail = wx.StaticText(panel, label="")
+        self.smart_detail.SetFont(wx.Font(9, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_ITALIC, wx.FONTWEIGHT_NORMAL))
+        self.smart_detail.SetForegroundColour(C.TXT_M)
+        main.Add(self.smart_detail, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+
         # --- Section 1: What-If Scenarios ---
         main.Add(self._section_label(panel, "1. What-If / Design Margin Scenarios"), 0, wx.EXPAND | wx.ALL, 6)
 
         wp = wx.Panel(panel)
         wp.SetBackgroundColour(C.WHITE)
-        ws = wx.BoxSizer(wx.HORIZONTAL)
+        ws = wx.BoxSizer(wx.VERTICAL)
+        row1 = wx.BoxSizer(wx.HORIZONTAL)
         self.btn_whatif = wx.Button(wp, label="\u25B6  Run Scenarios")
         self.btn_whatif.SetBackgroundColour(C.PRI)
         self.btn_whatif.SetForegroundColour(wx.WHITE)
         self.btn_whatif.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
         self.btn_whatif.Bind(wx.EVT_BUTTON, self._on_run_whatif)
-        ws.Add(self.btn_whatif, 0, wx.ALL, 6)
-        ws.Add(wx.StaticText(wp,
-            label="Evaluates environmental scenarios (Temp, Cycling, Duty). "
+        row1.Add(self.btn_whatif, 0, wx.ALL, 6)
+        row1.Add(wx.StaticText(wp,
+            label="Evaluates design-actionable and environmental scenarios. "
                   "Each recomputes every component through IEC TR 62380."),
             0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
+        ws.Add(row1, 0, wx.EXPAND)
+
+        # Custom scenario row
+        row2 = wx.BoxSizer(wx.HORIZONTAL)
+        row2.Add(wx.StaticText(wp, label="Custom:"), 0,
+                 wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 12)
+        self.custom_sc_name = wx.TextCtrl(wp, value="", size=(110, -1))
+        self.custom_sc_name.SetHint("Name")
+        row2.Add(self.custom_sc_name, 0, wx.ALL, 4)
+        self.custom_sc_param = wx.TextCtrl(wp, value="", size=(110, -1))
+        self.custom_sc_param.SetHint("Parameter")
+        row2.Add(self.custom_sc_param, 0, wx.ALL, 4)
+        self.custom_sc_op = wx.Choice(wp, choices=["multiply", "add", "set to"])
+        self.custom_sc_op.SetSelection(0)
+        row2.Add(self.custom_sc_op, 0, wx.ALL, 4)
+        self.custom_sc_val = wx.TextCtrl(wp, value="", size=(70, -1))
+        self.custom_sc_val.SetHint("Value")
+        row2.Add(self.custom_sc_val, 0, wx.ALL, 4)
+        btn_add_sc = wx.Button(wp, label="+ Add")
+        btn_add_sc.Bind(wx.EVT_BUTTON, self._on_add_custom_scenario)
+        row2.Add(btn_add_sc, 0, wx.ALL, 4)
+        self.custom_sc_label = wx.StaticText(wp, label="")
+        self.custom_sc_label.SetForegroundColour(C.TXT_M)
+        row2.Add(self.custom_sc_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 8)
+        ws.Add(row2, 0, wx.EXPAND)
+
         wp.SetSizer(ws)
         main.Add(wp, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 6)
+
+        self._custom_scenarios = []
 
         self.whatif_table = _make_list(panel,
             ["Scenario", "Description", "\u03BB (FIT)", "R(t)", "\u0394\u03BB %", "\u0394R"],
@@ -1460,6 +1533,95 @@ class AnalysisDialog(wx.Dialog):
         panel.SetSizer(main)
         return panel
 
+    # -- Smart Design Actions --
+
+    def _on_smart_actions(self, event):
+        filtered = self._filtered()
+        if not filtered:
+            wx.MessageBox("No active data.", "Error", wx.OK | wx.ICON_WARNING)
+            return
+
+        # If no analyses have been run yet, run Tornado + Criticality first
+        if not self.tornado_result and not self.criticality_results and not self.mc_result:
+            wx.MessageBox(
+                "Run at least one analysis first (Tornado, Criticality, or MC) "
+                "to provide data for the smart ranking.",
+                "No Analysis Data", wx.OK | wx.ICON_INFORMATION)
+            return
+
+        active = list(filtered.keys())
+        excluded = set(self.excluded_types)
+        mh = self.mission_hours
+
+        mc_imp = self.mc_result.parameter_importance if self.mc_result else None
+
+        def work(cancel_event):
+            return identify_smart_actions(
+                filtered, mh,
+                tornado_result=self.tornado_result,
+                criticality_results=self.criticality_results or None,
+                mc_importance=mc_imp,
+                active_sheets=active,
+                excluded_types=excluded,
+                top_n=15,
+            )
+
+        def on_done(actions):
+            self.smart_list.DeleteAllItems()
+            for i, a in enumerate(actions, 1):
+                refs = ", ".join(a.component_refs[:5])
+                if len(a.component_refs) > 5:
+                    refs += f" (+{len(a.component_refs)-5})"
+                _add_row(self.smart_list, [
+                    str(i), a.parameter, f"{a.score:.3f}",
+                    f"{a.fit_improvement:.1f}", _trunc(a.suggested_change, 50),
+                    refs, a.source,
+                ])
+            if actions:
+                top = actions[0]
+                self.smart_detail.SetLabel(
+                    f"Top action: {top.parameter} -- {top.reasoning}")
+                self.smart_detail.Wrap(self.GetSize().Width - 40)
+            self.status.SetLabel(
+                f"Smart actions: {len(actions)} design levers identified")
+
+        self._start_analysis(work, on_done,
+                             label="Identifying smart design actions...",
+                             buttons_to_disable=[self.btn_smart])
+
+    # -- Custom scenario management --
+
+    def _on_add_custom_scenario(self, event):
+        name = self.custom_sc_name.GetValue().strip()
+        param = self.custom_sc_param.GetValue().strip()
+        val_str = self.custom_sc_val.GetValue().strip()
+        if not name or not param or not val_str:
+            wx.MessageBox("Fill in name, parameter, and value.",
+                          "Missing Input", wx.OK | wx.ICON_WARNING)
+            return
+        try:
+            val = float(val_str)
+        except ValueError:
+            wx.MessageBox(f"'{val_str}' is not a valid number.",
+                          "Input Error", wx.OK | wx.ICON_ERROR)
+            return
+
+        op = self.custom_sc_op.GetSelection()
+        if op == 0:
+            fn = lambda v, m=val: v * m
+            desc = f"Multiply {param} by {val}"
+        elif op == 1:
+            fn = lambda v, a=val: v + a
+            desc = f"Add {val} to {param}"
+        else:
+            fn = lambda v, s=val: s
+            desc = f"Set {param} to {val}"
+
+        self._custom_scenarios.append((name, desc, {param: fn}))
+        self.custom_sc_label.SetLabel(f"{len(self._custom_scenarios)} custom scenario(s)")
+        self.custom_sc_name.SetValue("")
+        self.custom_sc_val.SetValue("")
+
     # -- What-If Scenarios (threaded) --
 
     def _on_run_whatif(self, event):
@@ -1470,12 +1632,14 @@ class AnalysisDialog(wx.Dialog):
         active = list(filtered.keys())
         excluded = set(self.excluded_types)
         mh = self.mission_hours
+        custom = list(self._custom_scenarios) if self._custom_scenarios else None
 
         def work(cancel_event):
             return scenario_analysis(
                 filtered, mh,
                 active_sheets=active,
                 excluded_types=excluded,
+                custom_scenarios=custom,
             )
 
         def on_done(result):
@@ -1722,6 +1886,9 @@ class AnalysisDialog(wx.Dialog):
         self.btn_pdf.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
         self.btn_pdf.Bind(wx.EVT_BUTTON, self._on_gen_pdf)
         rs.Add(self.btn_pdf, 0, wx.ALL, 10)
+        btn_preview = wx.Button(rp, label="Refresh Preview")
+        btn_preview.Bind(wx.EVT_BUTTON, self._on_refresh_preview)
+        rs.Add(btn_preview, 0, wx.ALL, 10)
         rs.Add(wx.StaticText(rp,
             label="Reports include all analyses run in this session. "
                   "Run analyses first, then generate."),
@@ -1732,10 +1899,97 @@ class AnalysisDialog(wx.Dialog):
         self.report_status = wx.StaticText(panel, label="")
         self.report_status.SetForegroundColour(C.TXT_M)
         self.report_status.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
-        main.Add(self.report_status, 0, wx.ALL, 14)
+        main.Add(self.report_status, 0, wx.ALL, 10)
+
+        # Report preview
+        preview_card = wx.Panel(panel)
+        preview_card.SetBackgroundColour(C.WHITE)
+        pcs = wx.BoxSizer(wx.VERTICAL)
+        pl = wx.StaticText(preview_card, label="Report Preview")
+        pl.SetFont(wx.Font(11, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        pcs.Add(pl, 0, wx.ALL, 10)
+        self.report_preview = wx.TextCtrl(
+            preview_card, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.BORDER_SIMPLE)
+        self.report_preview.SetFont(
+            wx.Font(9, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        self.report_preview.SetBackgroundColour(wx.Colour(250, 250, 250))
+        pcs.Add(self.report_preview, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+        preview_card.SetSizer(pcs)
+        main.Add(preview_card, 1, wx.EXPAND | wx.ALL, 6)
 
         panel.SetSizer(main)
+        self._refresh_report_preview()
         return panel
+
+    def _on_refresh_preview(self, event):
+        self._refresh_report_preview()
+
+    def _refresh_report_preview(self):
+        """Build a text summary of what will be in the report."""
+        r = self._sys_r()
+        fit = self._sys_fit()
+        mttf_yr = (1.0 / self.system_lambda / 8760) if self.system_lambda > 0 else float("inf")
+        yrs = self.mission_hours / 8760
+        comps = self._all_components()
+
+        lines = [
+            "=" * 50,
+            "  RELIABILITY ANALYSIS REPORT PREVIEW",
+            "=" * 50,
+            "",
+            f"  System R(t):     {r:.6f}",
+            f"  System FIT:      {fit:.2f}",
+            f"  MTTF:            {mttf_yr:.1f} years",
+            f"  Mission:         {yrs:.1f} years",
+            f"  Components:      {len(comps)}",
+            f"  Sheets:          {len(self._active_data)}",
+            "",
+            "  SECTIONS INCLUDED:",
+        ]
+
+        lines.append(f"    [x] System Summary")
+        lines.append(f"    [x] FIT Contributions ({len(comps)} components)")
+        lines.append(f"    [x] Sheet Breakdown ({len(self._active_data)} sheets)")
+
+        if self.mc_result:
+            lines.append(f"    [x] Monte Carlo ({self.mc_result.n_simulations:,} samples)")
+            if self.mc_result.parameter_importance:
+                lines.append(f"    [x] Parameter Importance (SRRC)")
+        else:
+            lines.append(f"    [ ] Monte Carlo (not run)")
+
+        if self.tornado_result:
+            lines.append(f"    [x] Tornado Sensitivity ({len(self.tornado_result.entries)} params)")
+        else:
+            lines.append(f"    [ ] Tornado (not run)")
+
+        if self.scenario_result:
+            lines.append(f"    [x] Design Scenarios ({len(self.scenario_result.scenarios)} scenarios)")
+        else:
+            lines.append(f"    [ ] Design Scenarios (not run)")
+
+        if self.criticality_results:
+            lines.append(f"    [x] Component Criticality ({len(self.criticality_results)} components)")
+        else:
+            lines.append(f"    [ ] Component Criticality (not run)")
+
+        if self.budget_result:
+            lines.append(f"    [x] Budget Allocation")
+        else:
+            lines.append(f"    [ ] Budget Allocation (not run)")
+
+        if self.derating_result:
+            lines.append(f"    [x] Derating Guidance")
+        else:
+            lines.append(f"    [ ] Derating (not run)")
+
+        if self.swap_results:
+            lines.append(f"    [x] Component Swap Analysis")
+        else:
+            lines.append(f"    [ ] Swap Analysis (not run)")
+
+        lines.extend(["", "  Run more analyses to enrich the report."])
+        self.report_preview.SetValue("\n".join(lines))
 
     def _build_report_data(self):
         filtered = self._filtered()
@@ -1762,6 +2016,10 @@ class AnalysisDialog(wx.Dialog):
         if self.derating_result:
             derating_dict = self.derating_result.to_dict()
 
+        swap_dict = None
+        if self.swap_results:
+            swap_dict = {"recommendations": self.swap_results}
+
         project_name = Path(self.project_path).name if self.project_path else "Reliability Report"
 
         return ReportData(
@@ -1781,6 +2039,9 @@ class AnalysisDialog(wx.Dialog):
             criticality=crit_list,
             tornado=tornado_dict,
             design_margin=scenario_dict,
+            budget=budget_dict,
+            derating=derating_dict,
+            swap_analysis=swap_dict,
         )
 
     def _on_gen_html(self, event):

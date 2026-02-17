@@ -524,6 +524,8 @@ class ReportGenerator:
 <p style="margin-top:16px"><span class="badge badge-{sc}">{st}</span>
 Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
 """
+        # Executive Summary
+        html += self._executive_summary(data, sc, fit, mttf_years)
 
         if data.monte_carlo:
             html += self._mc_section(data.monte_carlo)
@@ -557,9 +559,75 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
 
         html += """
 <div class="footer">
-<p>Designed and developed by Eliot Abramo | KiCad Reliability Plugin v3.1.0 | IEC TR 62380:2004</p>
+<p>Designed and developed by Eliot Abramo | KiCad Reliability Plugin v3.3.0 | IEC TR 62380:2004</p>
 <p>This report is for engineering reference. Verify critical calculations independently.</p>
 </div></div></body></html>"""
+        return html
+
+    def _executive_summary(self, data: ReportData, sc: str, fit: float,
+                              mttf_years: float) -> str:
+        """Generate an executive summary with key findings and recommendations."""
+        findings = []
+        recommendations = []
+
+        # Overall assessment
+        if sc == "ok":
+            findings.append("System reliability meets the 0.99 threshold -- design is robust.")
+        elif sc == "warn":
+            findings.append(f"System reliability ({data.system_reliability:.4f}) is between "
+                            "0.95 and 0.99 -- some improvement may be needed.")
+        else:
+            findings.append(f"System reliability ({data.system_reliability:.4f}) is below 0.95 "
+                            "-- design review is strongly recommended.")
+
+        # MC findings
+        if data.monte_carlo:
+            mc = data.monte_carlo
+            ci_lo = mc.get("ci_lower", 0)
+            ci_hi = mc.get("ci_upper", 1)
+            findings.append(f"Monte Carlo analysis ({mc.get('n_simulations', 0):,} samples) "
+                            f"gives {mc.get('confidence_level', 0.90)*100:.0f}% CI: "
+                            f"[{ci_lo:.6f}, {ci_hi:.6f}].")
+            jn = mc.get("jensen_note", "")
+            if "lower than" in jn:
+                findings.append("Jensen's inequality effect detected: mean R(t) is lower "
+                                "than nominal due to parameter uncertainty.")
+
+        # Tornado findings
+        if data.tornado:
+            entries = data.tornado.get("entries", [])
+            if entries:
+                top = entries[0]
+                findings.append(f"Highest-leverage parameter: {top['name']} "
+                                f"(FIT swing: {top['swing']:.1f}).")
+                if len(entries) >= 3:
+                    recommendations.append(
+                        f"Focus design effort on the top 3 parameters: "
+                        f"{entries[0]['name']}, {entries[1]['name']}, {entries[2]['name']}.")
+
+        # Budget findings
+        if data.budget:
+            over = data.budget.get("components_over_budget", 0)
+            if over > 0:
+                recommendations.append(
+                    f"{over} component(s) exceed their FIT budget -- "
+                    "consider derating or higher-reliability parts.")
+
+        if not recommendations and sc != "ok":
+            recommendations.append("Run tornado and criticality analyses to identify "
+                                   "improvement opportunities.")
+
+        html = '<div class="card"><h2>Executive Summary</h2>'
+        html += '<h3 style="margin-top:0">Key Findings</h3><ul>'
+        for f in findings:
+            html += f'<li>{f}</li>'
+        html += '</ul>'
+        if recommendations:
+            html += '<h3>Recommendations</h3><ol>'
+            for r in recommendations:
+                html += f'<li>{r}</li>'
+            html += '</ol>'
+        html += '</div>\n'
         return html
 
     def _mc_section(self, mc: Dict) -> str:
@@ -592,6 +660,37 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
                                    ci_lower=ci_lo, ci_upper=ci_hi, ci_label=ci_label)
             html += _svg_convergence(samples, title="Mean Convergence")
             html += '</div>'
+
+        # Parameter importance (SRRC)
+        importance = mc.get('parameter_importance', [])
+        if importance:
+            html += '<h3>Parameter Importance (SRRC)</h3>'
+            html += '<p style="color:var(--text2)">Standardised Rank Regression Coefficients '
+            html += 'measure which uncertain parameters most influence system reliability.</p>'
+            html += '<table><thead><tr><th>Rank</th><th>Parameter</th><th>Mode</th>'
+            html += '<th>SRRC</th><th>SRRC&sup2;</th><th>Variance %</th></tr></thead><tbody>\n'
+            for p in importance[:15]:
+                mode = "Shared" if p.get("shared") else "Indep."
+                vf = p.get("variance_fraction", 0) * 100
+                html += f'<tr><td>{p.get("rank", "-")}</td><td>{p["name"]}</td>'
+                html += f'<td>{mode}</td><td class="mono">{p["srrc"]:.4f}</td>'
+                html += f'<td class="mono">{p["srrc_sq"]:.4f}</td>'
+                html += f'<td class="mono">{vf:.1f}%</td></tr>\n'
+            html += '</tbody></table>\n'
+
+            # Bar chart for top parameters
+            top_data = [(p["name"], p["srrc_sq"]) for p in importance[:10] if p["srrc_sq"] > 0]
+            if top_data:
+                html += '<div class="chart-single">'
+                html += _svg_bar_chart(top_data, title="Parameter Importance (SRRC\u00B2)",
+                                       x_label="SRRC\u00B2")
+                html += '</div>'
+
+        # Jensen's inequality note
+        jn = mc.get('jensen_note', '')
+        if jn:
+            html += f'<p style="color:var(--text2);font-style:italic;margin-top:12px">{jn}</p>'
+
         html += '</div>\n'
         return html
 

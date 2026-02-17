@@ -581,6 +581,20 @@ class BatchComponentEditorDialog(wx.Dialog):
                     self.list.SetItem(i, 3, "?")
     
     def _on_ok(self, event):
+        # Auto-apply the currently visible quick-edit panel state for the
+        # selected component so the user doesn't need to click "Apply" first.
+        idx = self.list.GetFirstSelected()
+        if 0 <= idx < len(self.components):
+            comp = self.components[idx]
+            fields = self.field_panel.get_values()
+            fields["_component_type"] = self.type_combo.GetValue()
+            if self.quick_override_cb.GetValue():
+                fields["override_lambda"] = self.quick_override_val.GetValue()
+            else:
+                fields["override_lambda"] = None
+            self.results[comp.reference] = fields
+
+        # For components never explicitly edited, preserve their current fields
         for comp in self.components:
             if comp.reference not in self.results:
                 fields = comp.fields.copy()

@@ -499,52 +499,90 @@ def run_uncertainty_analysis(
                 ])
                 srrc_input[:, col_idx] = stacked.mean(axis=1)
 
-    # ---- Run MC loop ----
+    # ---- Run MC loop (optimised) ----
     sys_lambda_samples = np.empty(n_simulations)
     convergence_history = []
 
-    report_interval = max(1, n_simulations // 50)
+    # Increase report interval for large simulations to reduce overhead
+    report_interval = max(1, n_simulations // 40)
+
+    # Pre-build per-component lookup tables to avoid repeated dict/list scans
+    # For each uncertain component, store:
+    #   - its base_params as a pre-allocated dict to mutate in-place
+    #   - list of (param_name, nominal_value) for shared specs
+    #   - list of (param_name, sample_array) for independent specs
+    _comp_infos = []
+    for ci in uncertain_comp_indices:
+        comp = components[ci]
+        if comp.override_lambda is not None:
+            _comp_infos.append(("override", ci, comp.override_lambda * 1e-9,
+                                None, None, None, None))
+            continue
+        # Shared: list of (param_name, nominal_for_this_comp, shared_samples_array)
+        sh_list = []
+        for spec in shared_specs:
+            nom = spec.nominal_by_ref.get(comp.reference)
+            if nom is not None:
+                sh_list.append((spec.name, nom, shared_samples[spec.name]))
+        # Independent: list of (param_name, sample_array)
+        ind_list = []
+        for spec in indep_specs:
+            ref_samps = indep_samples.get(spec.name, {})
+            arr = ref_samps.get(comp.reference)
+            if arr is not None:
+                ind_list.append((spec.name, arr))
+        _comp_infos.append(("eval", ci, 0.0,
+                            comp.base_params, comp.component_type,
+                            sh_list, ind_list))
+
+    # Pre-allocate a reusable params dict per component (avoids dict() copy each iter)
+    _param_buffers = []
+    for info in _comp_infos:
+        if info[0] == "eval":
+            _param_buffers.append(dict(info[3]))
+        else:
+            _param_buffers.append(None)
 
     for sim in range(n_simulations):
-        # Start from fixed lambda sum
         sys_lam = fixed_lambda_sum
 
-        # Evaluate each uncertain component
-        for ci in uncertain_comp_indices:
-            comp = components[ci]
-            if comp.override_lambda is not None:
-                sys_lam += comp.override_lambda * 1e-9  # override is in FIT, convert to /h
+        for k, info in enumerate(_comp_infos):
+            if info[0] == "override":
+                sys_lam += info[2]
                 continue
 
-            # Build perturbed params
-            p = dict(comp.base_params)
-            for spec in shared_specs:
-                if comp.reference in spec.nominal_by_ref:
-                    p[spec.name] = spec.nominal_by_ref[comp.reference] + \
-                                   shared_samples[spec.name][sim]
-            for spec in indep_specs:
-                ref_samps = indep_samples.get(spec.name, {})
-                if comp.reference in ref_samps:
-                    p[spec.name] = ref_samps[comp.reference][sim]
+            _, ci, _, base_params, comp_type, sh_list, ind_list = info
+            p = _param_buffers[k]
+
+            # Reset to base params (fast dict update, no allocation)
+            p.update(base_params)
+
+            # Apply shared perturbations
+            for pname, nom, sarr in sh_list:
+                p[pname] = nom + sarr[sim]
+
+            # Apply independent perturbations
+            for pname, arr in ind_list:
+                p[pname] = arr[sim]
 
             # Evaluate IEC formula
             try:
-                result = calc_lambda(comp.component_type, p)
+                result = calc_lambda(comp_type, p)
                 lam_i = result.get("lambda_total", 0.0)
-                # Safety: negative lambda is physically impossible
-                lam_i = max(0.0, lam_i)
+                if lam_i < 0.0:
+                    lam_i = 0.0
             except Exception:
-                lam_i = comp.nominal_lambda
+                lam_i = components[ci].nominal_lambda
             sys_lam += lam_i
 
         sys_lambda_samples[sim] = sys_lam
 
-        # Convergence tracking
+        # Convergence tracking (reduced frequency)
         if (sim + 1) % report_interval == 0 or sim == n_simulations - 1:
-            running_mean = np.mean(
+            running_mean = float(np.mean(
                 np.exp(-sys_lambda_samples[:sim + 1] * mission_hours)
-            )
-            convergence_history.append((sim + 1, float(running_mean)))
+            ))
+            convergence_history.append((sim + 1, running_mean))
             if progress_callback:
                 progress_callback(sim + 1, n_simulations, "Sampling...")
 

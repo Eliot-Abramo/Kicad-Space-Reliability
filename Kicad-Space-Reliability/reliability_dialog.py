@@ -10,6 +10,12 @@ from typing import Dict, List, Optional, Tuple
 
 import wx
 
+try:
+    import pcbnew
+    _HAS_PCBNEW = True
+except ImportError:
+    _HAS_PCBNEW = False
+
 from .block_editor import BlockEditor, Block
 from .reliability_math import (
     calculate_component_lambda,
@@ -26,7 +32,7 @@ from .component_editor import (
     ComponentData,
     classify_component,
 )
-from .schematic_parser import SchematicParser, create_test_data
+from .schematic_parser import SchematicParser, Component, Sheet, create_test_data
 from .project_manager import ProjectManager
 from .report_generator import ReportGenerator, ReportData
 from .mission_profile import MissionProfile
@@ -242,20 +248,40 @@ class ReliabilityMainDialog(wx.Dialog):
             else:
                 self._init_default_data()
 
-        self.parser = SchematicParser(path)
-        if self.parser.parse():
-            sheets = self.parser.get_sheet_paths()
-            self.sheet_panel.set_sheets(sheets)
-            self._ensure_default_components()
-            self._save_reliability_data()
-            self._calculate_sheets()
-            self.status.SetLabel(f"Loaded {len(sheets)} sheet(s)")
-        else:
-            wx.MessageBox(
-                f"Could not parse schematics in:\n{path}",
-                "Parse Error",
-                wx.OK | wx.ICON_WARNING,
-            )
+        # PRIMARY: parse schematic (.kicad_sch) files for components.
+        # The schematic is the single source of truth for component references,
+        # hierarchy, values, and custom fields.
+        sch_loaded = False
+        try:
+            self.parser = SchematicParser(path)
+            if self.parser.parse() and self.parser.all_components:
+                sheets = self.parser.get_sheet_paths()
+                self.sheet_panel.set_sheets(sheets)
+                self._ensure_default_components()
+                self._save_reliability_data()
+                self._calculate_sheets()
+                n = len(self.parser.all_components)
+                self.status.SetLabel(
+                    f"Loaded {n} component(s) from {len(sheets)} sheet(s)"
+                )
+                sch_loaded = True
+        except Exception as e:
+            sch_loaded = False
+
+        if not sch_loaded:
+            # FALLBACK: try loading from PCB board via pcbnew (less reliable)
+            board_loaded = False
+            try:
+                board_loaded = self._load_from_board(path)
+            except Exception:
+                board_loaded = False
+            if not board_loaded:
+                wx.MessageBox(
+                    f"Could not load components from schematics or PCB in:\n{path}\n\n"
+                    "Ensure .kicad_sch files exist in the project directory.",
+                    "Parse Error",
+                    wx.OK | wx.ICON_WARNING,
+                )
 
     def _init_default_data(self):
         """Initialize with default data (blank canvas, default settings)."""
@@ -297,6 +323,149 @@ class ReliabilityMainDialog(wx.Dialog):
                 tau_on=_num(settings.get("tau_on"), 1.0),
             ))
 
+    def _load_from_board(self, project_path: str) -> bool:
+        """Load components directly from pcbnew board (native API).
+
+        Uses pcbnew.GetBoard().GetFootprints() to enumerate all footprints.
+        This is the most reliable way to get reference designators because
+        pcbnew always has the correctly annotated references from the netlist.
+
+        The ENTIRE method is wrapped in try/except so it can NEVER crash the
+        caller. If anything goes wrong, it returns False and the caller falls
+        back to schematic parsing.
+
+        Returns True if components were loaded successfully.
+        """
+        if not _HAS_PCBNEW:
+            return False
+
+        try:
+            board = pcbnew.GetBoard()
+            if not board:
+                return False
+
+            footprints = board.GetFootprints()
+            if not footprints:
+                return False
+
+            default_sheet = f"/{Path(project_path).name}/"
+
+            # Build a synthetic parser-like structure so the rest of the tool works
+            # Group components by sheet path (from footprint's sheet name)
+            sheet_comps: Dict[str, List[Component]] = {}
+            skipped = 0
+            for fp in footprints:
+                try:
+                    ref = fp.GetReference()
+                    if not ref or ref.startswith("#") or ref.endswith("?"):
+                        skipped += 1
+                        continue
+
+                    value = fp.GetValue()
+
+                    # Footprint string -- use safe accessors
+                    footprint_str = ""
+                    try:
+                        fpid = fp.GetFPID()
+                        # Try multiple API names across KiCad versions
+                        for method in ("GetUniStringLibItemName", "GetLibItemName",
+                                       "Format"):
+                            fn = getattr(fpid, method, None)
+                            if fn is not None:
+                                footprint_str = str(fn())
+                                break
+                    except Exception:
+                        footprint_str = ""
+
+                    lib_id = ""
+                    try:
+                        fpid = fp.GetFPID()
+                        for method in ("GetUniStringLibId", "GetLibNickname",
+                                       "GetFullLibId"):
+                            fn = getattr(fpid, method, None)
+                            if fn is not None:
+                                lib_id = str(fn())
+                                break
+                    except Exception:
+                        lib_id = ""
+
+                    # Get the sheet path -- group all under one sheet if unavailable
+                    sheet_name = ""
+                    for method in ("GetSheetname", "GetPath"):
+                        fn = getattr(fp, method, None)
+                        if fn is not None:
+                            try:
+                                val = fn()
+                                if val:
+                                    sheet_name = str(val).strip("/").split("/")[-1]
+                                    break
+                            except Exception:
+                                pass
+
+                    sheet_path = f"/{sheet_name}/" if sheet_name else default_sheet
+
+                    # Collect all custom fields (safe)
+                    fields = {}
+                    try:
+                        fp_fields = fp.GetFields()
+                        if fp_fields:
+                            for f in fp_fields:
+                                fname = f.GetName()
+                                fval = f.GetText()
+                                if fname and fname not in (
+                                    "Reference", "Value", "Footprint", "Datasheet"
+                                ):
+                                    fields[fname] = fval
+                    except Exception:
+                        fields = {}
+
+                    comp = Component(
+                        reference=ref,
+                        value=value,
+                        lib_id=lib_id,
+                        sheet_path=sheet_path,
+                        footprint=footprint_str,
+                        fields=fields,
+                    )
+                    sheet_comps.setdefault(sheet_path, []).append(comp)
+
+                except Exception:
+                    skipped += 1
+                    continue
+
+            if not sheet_comps:
+                return False
+
+            # Build a synthetic SchematicParser from board data
+            parser = SchematicParser(project_path)
+            for spath, comps in sheet_comps.items():
+                name = spath.strip("/").split("/")[-1] or "Root"
+                sheet = Sheet(
+                    name=name, path=spath,
+                    filename=str(Path(project_path) / f"{name}.kicad_sch"),
+                    components=comps,
+                )
+                parser.sheets[spath] = sheet
+                parser.all_components.extend(comps)
+
+            self.parser = parser
+            sheets = parser.get_sheet_paths()
+            self.sheet_panel.set_sheets(sheets)
+            self._ensure_default_components()
+            self._save_reliability_data()
+            self._calculate_sheets()
+
+            total_comps = sum(len(c) for c in sheet_comps.values())
+            msg = f"Loaded {total_comps} components from PCB ({len(sheets)} sheet(s))"
+            if skipped:
+                msg += f" [{skipped} skipped]"
+            self.status.SetLabel(msg)
+            return True
+
+        except Exception:
+            # NEVER crash the caller -- return False and let fallback handle it
+            return False
+
     def _ensure_default_components(self):
         """Ensure every parsed component has an entry (Miscellaneous, override 0)."""
         if not self.parser:
@@ -314,6 +483,7 @@ class ReliabilityMainDialog(wx.Dialog):
     def _save_reliability_data(self):
         """Save all data to Reliability/reliability_data.json."""
         if not self.project_manager:
+            self.status.SetLabel("Warning: no project manager -- data not saved")
             return
         def _val(ctrl, default):
             v = ctrl.GetValue()
@@ -334,6 +504,12 @@ class ReliabilityMainDialog(wx.Dialog):
         }
         if self.project_manager.save_data(data):
             self.status.SetLabel("Saved")
+        else:
+            self.status.SetLabel("Error: failed to save reliability data")
+            wx.MessageBox(
+                "Failed to save reliability data to disk.\n"
+                "Check that the Reliability/ folder exists and is writable.",
+                "Save Error", wx.OK | wx.ICON_ERROR)
 
     def _load_test_data(self):
         sheets = [
