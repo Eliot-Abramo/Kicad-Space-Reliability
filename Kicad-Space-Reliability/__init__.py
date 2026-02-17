@@ -20,7 +20,7 @@ Designed and developed by Eliot Abramo
 License: MIT
 """
 
-__version__ = "3.2.0"
+__version__ = "3.3.0"
 __author__ = "Eliot Abramo"
 
 try:

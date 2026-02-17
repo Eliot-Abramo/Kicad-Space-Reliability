@@ -386,7 +386,26 @@ def run_uncertainty_analysis(
     Returns
     -------
     UncertaintyResult with full statistics, samples, and SRRC rankings.
+
+    Raises
+    ------
+    ValueError
+        If mission_hours, n_simulations, or confidence_level is invalid.
     """
+    # ---- Input validation ----
+    try:
+        mission_hours = float(mission_hours)
+    except (TypeError, ValueError):
+        raise ValueError(f"mission_hours must be a number, got {type(mission_hours).__name__}")
+    if mission_hours <= 0 or mission_hours != mission_hours:
+        raise ValueError(f"mission_hours must be positive, got {mission_hours}")
+    if not isinstance(n_simulations, int) or n_simulations < 10:
+        raise ValueError(f"n_simulations must be an integer >= 10, got {n_simulations}")
+    if not (0 < confidence_level < 1):
+        raise ValueError(f"confidence_level must be in (0, 1), got {confidence_level}")
+    if not components:
+        raise ValueError("components list is empty -- nothing to analyse")
+
     calc_lambda, rel_from_lambda = _import_reliability_math()
     rng = np.random.default_rng(seed)
     t0 = time.time()

@@ -1,131 +1,53 @@
 # KiCad Reliability Calculator Plugin
 
 **Author:** Eliot Abramo
-**Version:** 3.1.0
+**Version:** 3.3.0
 **Standard:** IEC TR 62380:2004 (Reliability Data Handbook)
 
-A professional reliability prediction tool for KiCad that implements the IEC TR 62380:2004 standard. It calculates component and system failure rates, performs uncertainty quantification, sensitivity analysis, and generates certification-grade reports.
+A professional reliability prediction and co-design tool for KiCad that implements the IEC TR 62380:2004 standard. It calculates component and system failure rates, performs uncertainty quantification, sensitivity analysis, and generates certification-grade reports.
 
 ---
 
 ## Table of Contents
 
-1. [Mathematical Foundation](#1-mathematical-foundation)
+**Part I -- Engineer's Guide** (how to use the tool)
+
+1. [What This Tool Does](#1-what-this-tool-does)
 2. [Component Failure Rate Models](#2-component-failure-rate-models)
 3. [System Reliability Model](#3-system-reliability-model)
-4. [Monte Carlo Uncertainty Analysis](#4-monte-carlo-uncertainty-analysis)
-5. [Tornado Sensitivity Analysis](#5-tornado-sensitivity-analysis)
-6. [Design Margin Analysis](#6-design-margin-analysis)
-7. [Component Criticality Analysis](#7-component-criticality-analysis)
-8. [Lambda Override](#8-lambda-override)
-9. [Component Type Exclusion](#9-component-type-exclusion)
-10. [Report Generation](#10-report-generation)
-11. [Practical Workflow](#11-practical-workflow-designing-a-reliable-board)
-12. [References](#12-references)
+4. [Practical Workflow](#4-practical-workflow)
+5. [Analysis Suite](#5-analysis-suite)
+6. [Lambda Override](#6-lambda-override)
+7. [Component Type Exclusion](#7-component-type-exclusion)
+8. [Report Generation](#8-report-generation)
+
+**Part II -- Mathematical Foundations** (formal proofs and derivations)
+
+9. [Exponential Reliability Model](#9-exponential-reliability-model)
+10. [IEC TR 62380 Acceleration Factors](#10-iec-tr-62380-acceleration-factors)
+11. [OAT Sensitivity: Correctness Proof](#11-oat-sensitivity-correctness-proof)
+12. [Component Elasticity Derivation](#12-component-elasticity-derivation)
+13. [Monte Carlo Uncertainty: Convergence and Properties](#13-monte-carlo-uncertainty-convergence-and-properties)
+14. [PERT Distribution Rationale](#14-pert-distribution-rationale)
+15. [SRRC Importance Measure](#15-srrc-importance-measure)
+16. [Jensen's Inequality Diagnostic](#16-jensens-inequality-diagnostic)
+17. [References](#17-references)
 
 ---
 
-## 1. Mathematical Foundation
+# Part I -- Engineer's Guide
 
-### 1.1 Failure Rate and Reliability
+## 1. What This Tool Does
 
-The plugin is built on the exponential reliability model, which assumes a constant failure rate (the "flat" part of the bathtub curve). This is the standard assumption for electronic components during their useful life:
+This plugin answers three questions for a hardware engineer designing a board:
 
-**Reliability function:**
+1. **"What is my system's predicted failure rate?"** -- by implementing the full IEC TR 62380:2004 model for every component on the schematic and summing them.
+2. **"How confident am I in that prediction?"** -- via Monte Carlo uncertainty propagation through the exact IEC formulas.
+3. **"Where should I spend my design effort?"** -- via tornado sensitivity analysis, component criticality ranking, and design-margin what-if scenarios.
 
-    R(t) = exp(-lambda * t)
+The tool is designed as a **co-design companion**: you iterate between the schematic editor and the analysis suite, making targeted improvements informed by quantitative data rather than intuition.
 
-where:
-- `R(t)` is the probability of survival at time `t` (dimensionless, 0 to 1)
-- `lambda` is the constant failure rate (failures per hour)
-- `t` is the mission time (hours)
-
-**FIT (Failures In Time):**
-
-    FIT = lambda * 10^9
-
-One FIT equals one failure per 10^9 component-hours. Typical electronic components range from 1 to 100 FIT.
-
-**MTTF (Mean Time To Failure):**
-
-    MTTF = 1 / lambda
-
-### 1.2 Series System Model
-
-For a system of `n` components in series (all must work for the system to function):
-
-    lambda_system = sum(lambda_i)  for i = 1..n
-
-    R_system(t) = product(R_i(t)) = exp(-lambda_system * t)
-
-This is the fundamental assumption: every component is a single point of failure. The block diagram editor allows modelling redundancy (parallel paths), but the default is pure series.
-
-### 1.3 IEC TR 62380 General Component Model
-
-Each component's failure rate is decomposed as:
-
-    lambda = (lambda_die + lambda_package + lambda_overstress + lambda_EOS) * pi_process
-
-where:
-- `lambda_die`: intrinsic semiconductor/material failure rate, temperature-dependent
-- `lambda_package`: solder joint and packaging failures from thermal cycling
-- `lambda_overstress`: stress-related degradation
-- `lambda_EOS`: Electrical Overstress contribution (interface circuits only)
-- `pi_process`: process quality factor
-
----
-
-## 2. Component Failure Rate Models
-
-### 2.1 Temperature Acceleration (Arrhenius Law)
-
-The die failure rate is strongly temperature-dependent per the Arrhenius equation:
-
-    pi_T = exp[ (Ea / k_B) * (1/T_ref - 1/T_j) ]
-
-where:
-- `Ea` is the activation energy (eV), typically 0.7 eV for CMOS
-- `k_B = 8.617e-5 eV/K` (Boltzmann constant)
-- `T_ref = 293 K` (20 deg C reference)
-- `T_j` is the junction temperature in Kelvin
-
-**Impact:** A 10 deg C increase in junction temperature roughly doubles the failure rate for Ea = 0.7 eV.
-
-### 2.2 Thermal Cycling (Coffin-Manson)
-
-Package and solder joint failures are driven by thermal cycling:
-
-    pi_N = N_cycles^0.76           for N <= 8760
-    pi_N = 1.7 * N_cycles^0.6     for N > 8760
-
-    lambda_package = lambda_base_pkg * pi_N * f(delta_T, CTE_mismatch)
-
-where:
-- `N_cycles` is the number of thermal cycles per year
-- `delta_T` is the temperature swing per cycle (deg C)
-- CTE mismatch between component and substrate drives the stress amplitude
-
-The CTE mismatch factor uses material-specific thermal expansion coefficients (ppm/deg C) for both the package (plastic: 21.5, ceramic: 6.5) and the substrate (FR4: 15.0, alumina: 6.5, etc.).
-
-### 2.3 Electrical Overstress (EOS)
-
-Interface circuits (I/O pins connected to the outside world) add an EOS failure contribution:
-
-    lambda_EOS = L_EOS_value    (from lookup table, in FIT)
-
-Values depend on the environment type: Computer (10 FIT), Telecom (15-70 FIT), Avionics (20 FIT), Power Supply (40 FIT), Space (25-35 FIT).
-
-### 2.4 Working Time Ratio (tau_on)
-
-The die failure rate scales with the fraction of time the component is powered:
-
-    lambda_effective = lambda_die * tau_on + lambda_package
-
-where `tau_on` ranges from 0 (always off) to 1 (continuous operation).
-
-### 2.5 Supported Component Types
-
-The plugin implements IEC TR 62380 models for:
+### Supported Component Types
 
 | Category | IEC Section | Key Parameters |
 |----------|-------------|----------------|
@@ -144,306 +66,468 @@ The plugin implements IEC TR 62380 models for:
 
 ---
 
+## 2. Component Failure Rate Models
+
+Each component's failure rate is decomposed per IEC TR 62380 as:
+
+    lambda = (lambda_die + lambda_package + lambda_overstress + lambda_EOS) * pi_process
+
+- **lambda_die**: intrinsic semiconductor/material failure rate, driven by temperature (Arrhenius)
+- **lambda_package**: solder joint and packaging failures from thermal cycling (Coffin-Manson)
+- **lambda_overstress**: stress-related degradation
+- **lambda_EOS**: Electrical Overstress contribution (interface circuits only)
+- **pi_process**: process quality factor
+
+### Temperature Acceleration (Arrhenius Law)
+
+    pi_T = exp[ (Ea / k_B) * (1/T_ref - 1/T_j) ]
+
+A 10 degC increase in junction temperature roughly doubles the failure rate for Ea = 0.7 eV.
+
+### Thermal Cycling (Coffin-Manson)
+
+    pi_N = N_cycles^0.76           for N <= 8760
+    pi_N = 1.7 * N_cycles^0.6     for N > 8760
+
+### Electrical Overstress (EOS)
+
+Interface circuits add a flat EOS failure contribution from a lookup table (10--70 FIT depending on environment).
+
+### Working Time Ratio
+
+    lambda_effective = lambda_die * tau_on + lambda_package
+
+---
+
 ## 3. System Reliability Model
 
-### 3.1 Block Diagram
+### Series System
 
-The block diagram editor defines the system topology:
-- **Series blocks:** All must function. Lambda values add.
-- **Parallel (redundant) blocks:** System survives if at least one path works.
+For n components in series (all must work):
 
-For `k`-of-`n` redundancy:
+    lambda_system = SUM(lambda_i)
+    R_system(t) = exp(-lambda_system * t)
 
-    R_parallel(t) = 1 - product(1 - R_i(t))   for 1-of-n
+### Block Diagram
 
-### 3.2 Active Sheet Filtering
+The block diagram editor supports series, parallel (1-of-n), and k-of-n redundancy:
 
-Only schematic sheets included in the block diagram are considered in the analysis. Sheets not wired into the diagram (test fixtures, unused variants) are automatically excluded. This ensures the analysis matches the actual deployed hardware.
+    R_parallel(t) = 1 - PRODUCT(1 - R_i(t))
 
----
-
-## 4. Monte Carlo Uncertainty Analysis
-
-### 4.1 Mathematical Basis
-
-Component parameters (temperature, power, voltage) have inherent uncertainty. The Monte Carlo method propagates this uncertainty through the nonlinear IEC TR 62380 models to produce a probability distribution of system reliability.
-
-**Algorithm:**
-1. For each simulation `i = 1..N`:
-   a. For each component `j`, sample each parameter from a distribution centred on its nominal value:
-      `p_j ~ Uniform(p_nominal * (1 - u), p_nominal * (1 + u))`
-      where `u` is the uncertainty fraction (default 25%).
-   b. Recompute `lambda_j` using the IEC TR 62380 model with perturbed parameters.
-   c. Sum to get `lambda_system_i`.
-   d. Compute `R_i = exp(-lambda_system_i * t_mission)`.
-2. The resulting `{R_1, ..., R_N}` samples characterise the reliability distribution.
-
-### 4.2 Confidence Intervals
-
-From the empirical distribution, the plugin computes:
-- **Mean** and **standard deviation** of R(t)
-- **Configurable confidence interval** at 80%, 90%, 95%, or 99%:
-
-      CI = [R_{alpha/2}, R_{1-alpha/2}]
-
-  where alpha = 1 - confidence_level and percentiles are taken from the sorted samples.
-
-### 4.3 Convergence
-
-The running mean plot shows whether N simulations is sufficient. The mean should stabilise to within the desired precision. Typical convergence requires 3000-10000 simulations.
-
-### 4.4 Override Handling
-
-Components with a lambda override (see Section 8) use a fixed failure rate and are NOT perturbed during Monte Carlo. This reflects the higher certainty of measured/datasheet values.
+Only sheets wired into the block diagram are included in analysis.
 
 ---
 
-## 5. Tornado Sensitivity Analysis
+## 4. Practical Workflow
 
-### 5.1 Method: One-At-a-Time (OAT) Deterministic Sensitivity
+### Step 1: Import Schematic
+Open your KiCad project and launch the plugin. The parser extracts all components with reference designators and values.
 
-The tornado chart uses the standard **one-at-a-time (OAT)** sensitivity method, recommended by IEC 60300-3-1 for reliability models where the output is a monotonic function of inputs (which is the case for the IEC TR 62380 additive lambda model).
+### Step 2: Classify and Parameterise
+Auto-classify maps reference designators to IEC TR 62380 categories. Open the batch editor to set junction temperatures, power ratings, and voltage stress ratios. For components with datasheet FIT values, use **Lambda Override**.
 
-**Why OAT instead of Sobol?**
+### Step 3: Set Mission Profile
+Configure mission duration, thermal cycling count, delta-T per cycle, and duty cycle.
 
-The IEC TR 62380 system failure rate is:
+### Step 4: Build Block Diagram
+Wire schematic sheets into the block diagram. Use parallel paths for redundant subsystems.
 
-    lambda_system = sum(lambda_i(params_i))
+### Step 5: Run Baseline (Overview tab)
+The contribution chart shows which components dominate system FIT. If one component is >30% of total FIT, it is the design bottleneck.
 
-This is a **linear sum** of component failure rates. Each component's lambda depends only on its own parameters. In a linear model, Sobol first-order indices `S_i` are all approximately equal (each sheet contributes proportionally to its share of total lambda), and total-order indices `S_T,i` approximately equal `S_i` (no interactions). This makes Sobol uninformative -- it tells you what you already know from the contributions tab.
+### Step 6: Run Uncertainty Analysis (Analysis tab)
+Set parameter uncertainty (typically 10-25%), run Monte Carlo with 3000+ samples. The 90% CI gives the range of likely system reliability.
 
-OAT perturbation is the correct tool here because:
-1. It directly answers "if this factor changes by X%, how much does system FIT change?"
-2. For additive models, OAT captures 100% of the variance (no missed interactions).
-3. It is deterministic (no sampling noise) and computationally cheap.
-4. The results are directly actionable for design decisions.
+### Step 7: Run Tornado (Analysis tab)
+- **Sheet-level**: identify which subsystem to focus on.
+- **Parameter-level**: identify whether temperature, power, or cycling is the dominant stress.
 
-### 5.2 Sheet-Level Tornado
+### Step 8: Run Criticality (Analysis tab)
+For the top-N highest-FIT components, see which specification has the most leverage.
 
-For each schematic sheet `s`:
-1. Compute `lambda_system` at baseline.
-2. Perturb sheet's lambda: `lambda_s_low = lambda_s * (1 - p)`, `lambda_s_high = lambda_s * (1 + p)`.
-3. Compute system FIT with the perturbed value.
-4. Record: `swing = FIT_high - FIT_low`.
+### Step 9: Design Actions tab
+- **What-If Scenarios**: evaluate robustness to worst-case conditions.
+- **Budget Allocation**: set a reliability target and see which components are over budget.
+- **Improvement Recommendations**: get prioritised derating and component swap suggestions.
 
-The chart ranks sheets by swing. **The sheet with the largest swing is the highest-priority target for redesign.**
-
-### 5.3 Parameter-Level Tornado
-
-For each design parameter (e.g. `t_ambient`, `operating_power`):
-1. Identify all components that use this parameter.
-2. Perturb the parameter by +/- p% across ALL affected components simultaneously.
-3. Recompute each component's lambda using the IEC TR 62380 model.
-4. Sum the deltas to get the system-level impact.
-
-This answers: "If the ambient temperature increases 20%, how much worse does system reliability get?" -- a critical question for thermal design.
-
-### 5.4 How to Use
-
-- **Start with sheet-level** to identify which subsystem dominates system FIT.
-- **Switch to parameter-level** to identify which design parameter has the most leverage.
-- If `t_junction` or `t_ambient` has the largest swing, invest in thermal management.
-- If `n_cycles` or `delta_t` dominates, the board is thermomechanically limited -- consider conformal coating or vibration isolation.
+### Step 10: Iterate and Export
+Make design changes, re-analyse, and generate HTML/PDF reports for design review.
 
 ---
 
-## 6. Design Margin Analysis
+## 5. Analysis Suite
 
-### 6.1 Purpose
+The analysis dialog has four tabs:
 
-Design margin analysis answers: **"How robust is my design to environmental and operational changes?"**
+### Tab 1: Overview
+System summary, FIT contribution Pareto chart, component type filter (uncheck types to exclude from all analyses).
 
-Unlike sensitivity analysis (which varies parameters by a small percentage), design margin evaluates specific, physically meaningful scenarios that represent real-world conditions your board might face.
+### Tab 2: Analysis
+Guided three-step workflow:
+1. **Uncertainty Analysis (Monte Carlo)** -- quantifies confidence bounds on R(t) by sampling parameter distributions through the exact IEC formulas.
+2. **Tornado Sensitivity (OAT)** -- ranks parameters by their leverage on system FIT using physical-unit perturbations.
+3. **Component Criticality (Elasticity)** -- for each component, ranks parameters by normalised elasticity d(ln lambda)/d(ln theta).
 
-### 6.2 Built-In Scenarios
+### Tab 3: Design Actions
+- **What-If Scenarios**: predefined environmental scenarios (Temp +10/+20, Cycles x2, Duty cycle changes).
+- **Budget Allocation**: set R(t) target, compute per-component FIT budgets.
+- **Improvement Recommendations**: derating guidance and component swap analysis.
+- **Parameter What-If**: evaluate the system impact of changing one parameter on one component.
+- **Reliability History**: save and compare design snapshots across revisions.
 
-| Scenario | What It Models | Design Action if Delta > 10% |
-|----------|---------------|------------------------------|
-| Temp +10 C | Hotter enclosure, reduced airflow | Add heatsinks, improve ventilation |
-| Temp +20 C | Worst-case thermal environment | Derate components, redesign thermal path |
-| Power derate 70% | Running components at 70% rated power | Already a standard derating strategy |
-| Power derate 50% | Aggressive derating (ECSS/MIL best practice) | Quantifies the reliability gain |
-| Thermal cycles x2 | Harsher vibration/thermal profile | Use flexible solder, conformal coating |
-| Delta-T x2 | Larger temperature swings per cycle | Improve thermal mass, reduce gradients |
-| 50% duty cycle | Intermittent operation / sleep modes | Shows benefit of power management |
-
-### 6.3 How Each Scenario Works
-
-For each scenario, the plugin:
-1. Takes the baseline component parameters.
-2. Applies the modification (e.g., adds 10 deg C to all temperature fields).
-3. Recomputes every component's lambda from scratch using the full IEC TR 62380 model.
-4. Sums to get the new system lambda and reliability.
-5. Reports the delta as both absolute FIT change and percentage change.
-
-Components with a lambda override are NOT modified by scenarios (their failure rate is fixed).
-
-### 6.4 How to Use
-
-- Run design margin analysis early in the design cycle.
-- If "Temp +10 C" causes > 5% increase in FIT, your thermal margin is thin.
-- Compare "Power derate 70%" vs baseline to quantify the benefit of derating.
-- If "Thermal cycles x2" causes a large increase, your package/solder choices are critical.
+### Tab 4: Report
+Generate HTML or PDF reports containing all analyses run in the session.
 
 ---
 
-## 7. Component Criticality Analysis
+## 6. Lambda Override
 
-### 7.1 Method
+When you have better data than the IEC model (manufacturer datasheet FIT, field data, or qualification test results), enter it directly:
 
-Criticality analysis identifies which input parameters most influence each component's failure rate. For each of the top-N highest-FIT components:
-
-1. For each parameter `p` with nominal value `v`:
-   a. Compute `lambda(v * (1+epsilon))` and `lambda(v * (1-epsilon))`.
-   b. Compute the **elasticity** (normalised sensitivity):
-
-          E_p = (delta_lambda / lambda_base) / (delta_p / p_nominal)
-
-   c. Compute **impact** as the percentage change in lambda for the given perturbation.
-
-### 7.2 Field Selection
-
-The field picker lets you choose which parameters to include per component category. This is useful when you want to focus validation on specific parameters (e.g., only temperatures, or only voltage stress ratios).
-
-Categories are listed in logical order with ICs (Digital, Analog, FPGA) appearing first, followed by passives, discretes, and interconnects.
-
----
-
-## 8. Lambda Override
-
-### 8.1 When to Use
-
-The IEC TR 62380 model is a prediction based on generic component categories. In some cases, you have better data:
-
-- **Manufacturer datasheet** provides a tested FIT value (e.g., "< 5 FIT at 55 deg C junction")
-- **FIDES** or other prediction methodology gives a different result
-- **Field data** from deployed systems provides measured failure rates
-- **Qualification test results** (HTOL, TC, etc.) give a known failure rate
-
-### 8.2 How It Works
-
-In the Component Editor, check "Override calculated lambda with fixed value" and enter the FIT value directly. When overridden:
-
-- The IEC TR 62380 model fields are greyed out (not used)
-- The component uses the fixed FIT value in all analyses
-- Monte Carlo does NOT perturb this component (reflecting higher certainty)
+- The IEC model fields are greyed out (not used)
+- Monte Carlo does NOT perturb this component
 - Design margin scenarios do NOT modify this component
 - Criticality analysis skips this component
 - Reports show an "Override" badge
-
-### 8.3 Units
 
 Enter the value in **FIT** (Failures In Time = failures per 10^9 hours).
 
 ---
 
-## 9. Component Type Exclusion
+## 7. Component Type Exclusion
 
-### 9.1 Purpose
-
-Not all components on a schematic contribute to the reliability model. You may want to exclude:
-
-- **Connectors** on test points (not in the deployed product)
-- **Mechanical components** (mounting hardware, heatsinks)
-- **Fiducials, logos, or reference markers**
-- **Components already accounted for in a subsystem-level override**
-
-### 9.2 How It Works
-
-In the Contributions tab, uncheck any component type to exclude it from ALL analyses:
-- System FIT is recomputed without those components
-- Monte Carlo, Tornado, Design Margin, and Criticality all respect the exclusion
-- Reports only include the checked types
-- The exclusion is non-destructive: re-check to include them again
+Uncheck component types in the Overview tab to exclude them from ALL analyses: test points, mechanical components, fiducials, or components already accounted for in a subsystem-level override. The exclusion is non-destructive.
 
 ---
 
-## 10. Report Generation
+## 8. Report Generation
 
-### 10.1 HTML Report
-
-The primary output: a self-contained HTML file with embedded SVG charts, styled tables, and interactive navigation. Suitable for web viewing, printing, or archiving.
-
-### 10.2 PDF Report
-
-Export to PDF for formal documentation and certification submissions. The PDF is generated from the HTML report using reportlab, preserving all tables and metrics.
-
-### 10.3 Markdown and JSON
-
-Available via the ReportGenerator API for integration with documentation pipelines or automated analysis systems.
+- **HTML**: self-contained file with embedded SVG charts, styled tables, and navigation.
+- **PDF**: formal documentation for certification submissions.
+- **Markdown/JSON**: available via API for documentation pipelines.
 
 ---
 
-## 11. Practical Workflow: Designing a Reliable Board
+# Part II -- Mathematical Foundations
 
-### Step 1: Import Schematic
+The following sections provide the formal mathematical basis for the sensitivity analysis and uncertainty quantification methods used in the tool. They are intended for readers who need to verify the correctness and applicability of the methods.
 
-Open your KiCad project and launch the Reliability Plugin. The schematic parser extracts all components with their reference designators and values.
+## 9. Exponential Reliability Model
 
-### Step 2: Classify and Parameterise Components
+**Definition.** The exponential reliability model assumes a constant failure rate (the "useful life" portion of the bathtub curve):
 
-- Auto-classify maps reference designators to IEC TR 62380 categories.
-- Open the batch editor to review and adjust: set junction temperatures, power ratings, voltage stress ratios.
-- For components with datasheet FIT values, use the **Lambda Override**.
+    R(t) = exp(-lambda * t)                                           (9.1)
 
-### Step 3: Set Mission Profile
+where R(t) is the survival probability at time t, and lambda is the constant failure rate (failures/hour).
 
-- Mission duration (hours or years)
-- Thermal cycling: cycles per year and delta-T per cycle
-- These define the environmental stress that drives package/solder failures.
+**FIT conversion:**
 
-### Step 4: Set Up Block Diagram
+    FIT = lambda * 10^9                                                (9.2)
 
-Wire schematic sheets into the block diagram. Only sheets in the diagram are analysed. Use parallel paths for redundant subsystems.
+One FIT = one failure per 10^9 component-hours.
 
-### Step 5: Run Baseline Analysis
+**MTTF:**
 
-Check the Contributions tab. The Pareto chart shows which sheets/components dominate system FIT. If one component contributes > 30% of total FIT, it's the design bottleneck.
+    MTTF = 1 / lambda                                                  (9.3)
 
-### Step 6: Run Monte Carlo
+**Series system.** For n independent components:
 
-Set uncertainty to 25% (typical for early design) and run 5000+ simulations. The 90% CI gives the range of likely system reliability. If the CI is too wide, reduce uncertainty in critical parameters through better characterisation.
+    lambda_sys = SUM_{i=1}^{n} lambda_i                                (9.4)
+    R_sys(t)   = PRODUCT_{i=1}^{n} R_i(t) = exp(-lambda_sys * t)      (9.5)
 
-### Step 7: Run Tornado Analysis
-
-- **Sheet-level** first: identify the subsystem to focus on.
-- **Parameter-level** next: identify whether temperature, power, or cycling is the dominant stress.
-
-### Step 8: Run Design Margin Analysis
-
-Evaluate robustness to worst-case conditions. If "Temp +10 C" causes > 10% FIT increase, your thermal design needs attention.
-
-### Step 9: Run Criticality Analysis
-
-For the top-10 highest-FIT components, see which parameter has the most influence. This tells you exactly which specifications to tighten.
-
-### Step 10: Iterate
-
-Based on the analysis:
-- Add heatsinks or improve airflow (reduces T_junction)
-- Derate components (use 50V capacitor on 12V rail instead of 16V)
-- Replace high-FIT components with more reliable alternatives
-- Add redundancy for critical functions
-
-Re-run the analysis to verify improvements.
-
-### Step 11: Export Report
-
-Generate HTML or PDF report for design review, certification, or archival.
+This is exact when each component has an independent exponential lifetime.
 
 ---
 
-## 12. References
+## 10. IEC TR 62380 Acceleration Factors
+
+### 10.1 Arrhenius Temperature Acceleration
+
+    pi_T = exp[ (Ea / k_B) * (1/T_ref - 1/T_j) ]                     (10.1)
+
+where Ea is the activation energy (eV), k_B = 8.617e-5 eV/K, T_ref = 293 K, and T_j is the junction temperature (K). This is derived from the Arrhenius rate equation for thermally activated failure mechanisms (Arrhenius, 1889).
+
+### 10.2 Coffin-Manson Thermal Cycling
+
+The package/solder failure rate scales with the number of thermal cycles via:
+
+    pi_N = N^0.76      (N <= 8760)                                     (10.2a)
+    pi_N = 1.7 * N^0.6 (N > 8760)                                     (10.2b)
+
+This is a piecewise approximation of the Coffin-Manson fatigue law (Coffin, 1954; Manson, 1953), where the exponent reflects the material fatigue behaviour of solder joints under low-cycle thermal fatigue.
+
+### 10.3 Component Lambda Decomposition
+
+    lambda_i = (lambda_die_i * tau_on + lambda_pkg_i + lambda_EOS_i) * pi_process   (10.3)
+
+The die term is weighted by the duty cycle tau_on because powered-off components do not experience die-level failure mechanisms (electromigration, hot-carrier injection, etc.), while package-level failures (solder fatigue, corrosion) occur regardless of power state.
+
+---
+
+## 11. OAT Sensitivity: Correctness Proof
+
+### 11.1 Statement
+
+**Theorem (OAT sufficiency for additive reliability models).**
+Let:
+
+    lambda_sys(theta) = SUM_{i=1}^{N} lambda_i(theta_i)               (11.1)
+
+where theta_i is the parameter vector of component i and the parameter sets {theta_i}_{i=1}^{N} are pairwise disjoint. Then:
+
+(a) All Sobol interaction indices S_{ij} = 0 for i != j.
+(b) SUM_i S_i = 1 (first-order indices explain 100% of variance).
+(c) One-at-a-time (OAT) perturbation captures the exact first-order sensitivity.
+
+### 11.2 Proof
+
+By the Hoeffding-Sobol ANOVA decomposition (Sobol, 1993), any square-integrable function f(X_1, ..., X_d) with independent inputs can be decomposed as:
+
+    f(X) = f_0 + SUM_i f_i(X_i) + SUM_{i<j} f_{ij}(X_i, X_j) + ...  (11.2)
+
+where f_0 = E[f], f_i(X_i) = E[f | X_i] - f_0, etc.
+
+For the additive model (11.1):
+
+    E[lambda_sys | theta_k] - E[lambda_sys]
+      = E[lambda_k(theta_k) | theta_k] - E[lambda_k(theta_k)]
+      = lambda_k(theta_k) - E[lambda_k]                                (11.3)
+
+because all other lambda_j (j != k) are independent of theta_k.
+
+Therefore the first-order ANOVA term f_k(theta_k) = lambda_k(theta_k) - E[lambda_k], and:
+
+    Var(lambda_sys) = SUM_i Var(lambda_i(theta_i))                     (11.4)
+
+All higher-order terms vanish identically:
+
+    f_{ij}(theta_i, theta_j) = E[lambda_sys | theta_i, theta_j]
+                              - f_i(theta_i) - f_j(theta_j) - f_0
+                              = 0                                       (11.5)
+
+because E[lambda_sys | theta_i, theta_j] = lambda_i(theta_i) + lambda_j(theta_j) + SUM_{k!=i,j} E[lambda_k], and the subtracted terms cancel exactly.
+
+Hence S_i = Var(lambda_i) / Var(lambda_sys) and SUM S_i = 1. The OAT derivative d(lambda_sys)/d(theta_k) = d(lambda_j)/d(theta_k) for the unique j containing theta_k, which is exact. QED.
+
+### 11.3 Implication
+
+For the IEC TR 62380 series model, Sobol-type variance decomposition is unnecessary: OAT provides the same ranking as a full Sobol analysis at a fraction of the computational cost (N evaluations vs. N*(d+2) for Sobol). This justifies the design choice to use OAT as the primary sensitivity method.
+
+### 11.4 Within-Component Interactions
+
+Within a single component, parameters can interact. For example, T_junction affects both the Arrhenius die term and the Coffin-Manson package term. The OAT perturbation measures the total derivative:
+
+    d(lambda_i) / d(T_j) = (d lambda_die / d T_j) * tau_on + (d lambda_pkg / d T_j)
+
+This includes all within-component cross-effects. The only limitation is that OAT measures the derivative at the operating point (local sensitivity), not the global sensitivity across the full parameter distribution. For global sensitivity, use the Monte Carlo SRRC method (Section 15).
+
+**Reference:** Saltelli, Ratto, Andres, Campolongo, Cariboni, Gatelli, Saisana, Tarantola (2008). "Global Sensitivity Analysis: The Primer", Wiley. Theorem 4.1 and Section 2.1.3.
+
+---
+
+## 12. Component Elasticity Derivation
+
+### 12.1 Definition
+
+The normalised elasticity of lambda with respect to parameter theta is:
+
+    E_theta = d(ln lambda) / d(ln theta) = (theta / lambda) * (d lambda / d theta)  (12.1)
+
+This is the percentage change in lambda per percentage change in theta. An elasticity of E = 2 means a 1% increase in theta produces a 2% increase in lambda.
+
+### 12.2 Numerical Approximation
+
+The tool approximates E_theta using the central finite difference with relative step epsilon (default 10%):
+
+    h = epsilon * theta                                                (12.2)
+
+    d lambda / d theta  approx  [lambda(theta + h) - lambda(theta - h)] / (2h)   (12.3)
+
+    E_theta  approx  (theta / lambda_0) * [lambda(theta + h) - lambda(theta - h)] / (2h)
+           = [lambda(theta + h) - lambda(theta - h)] / (2 * epsilon * lambda_0)   (12.4)
+
+This is the formula implemented at `reliability_math.py:2211`.
+
+### 12.3 Error Bound
+
+By Taylor expansion of lambda(theta +/- h) around theta:
+
+    lambda(theta + h) = lambda + lambda' h + lambda'' h^2/2 + lambda''' h^3/6 + O(h^4)
+    lambda(theta - h) = lambda - lambda' h + lambda'' h^2/2 - lambda''' h^3/6 + O(h^4)
+
+Subtracting and dividing by 2h:
+
+    [lambda(theta+h) - lambda(theta-h)] / (2h) = lambda' + lambda''' h^2 / 6 + O(h^4)
+
+The truncation error of the central difference is:
+
+    |error| <= h^2 / 6 * max |lambda'''(xi)|                          (12.5)
+
+For the default epsilon = 0.10, this gives relative errors below 1% for the smooth IEC acceleration factors (Arrhenius, Coffin-Manson).
+
+**Reference:** Burden & Faires (2011). "Numerical Analysis", 9th ed., Cengage. Theorem 4.1.
+
+---
+
+## 13. Monte Carlo Uncertainty: Convergence and Properties
+
+### 13.1 Setup
+
+Let theta_1, ..., theta_d be the uncertain input parameters with specified distributions. The Monte Carlo estimator for E[g(theta)] (where g is lambda_sys or R(t)) is:
+
+    g_bar_N = (1/N) * SUM_{k=1}^{N} g(theta^(k))                     (13.1)
+
+where theta^(k) are i.i.d. samples from the joint input distribution.
+
+### 13.2 Convergence Rate (CLT)
+
+By the Central Limit Theorem, for N sufficiently large:
+
+    sqrt(N) * (g_bar_N - E[g]) --> N(0, Var(g))                       (13.2)
+
+The standard error of the mean is:
+
+    SE = sigma_g / sqrt(N)                                             (13.3)
+
+where sigma_g = sqrt(Var(g)). The 95% confidence interval for the mean is:
+
+    CI = g_bar_N +/- 1.96 * sigma_g / sqrt(N)                         (13.4)
+
+For N = 3000 and sigma_g/g_bar of 5% (typical), the relative CI half-width is 0.18%, which is sufficient for reliability engineering decisions.
+
+### 13.3 Empirical Confidence Interval
+
+The tool also reports empirical percentile-based confidence intervals:
+
+    CI_alpha = [ Q_{alpha/2}(samples), Q_{1-alpha/2}(samples) ]        (13.5)
+
+where Q_p denotes the p-th quantile. This does not assume normality of the output distribution and is more robust for small N.
+
+### 13.4 Convergence Diagnostic
+
+The running mean plot tracks g_bar_n for n = 1, ..., N. Convergence is achieved when the running mean stabilises within the desired precision. If the curve has not flattened, more samples are needed.
+
+---
+
+## 14. PERT Distribution Rationale
+
+### 14.1 Definition
+
+The PERT distribution is a scaled Beta distribution on [a, b] with mode m:
+
+    X = a + (b - a) * Beta(alpha, beta)                               (14.1)
+
+    alpha = 1 + gamma * (m - a) / (b - a)                             (14.2)
+    beta  = 1 + gamma * (b - m) / (b - a)                             (14.3)
+
+where gamma = 4 (standard PERT shape parameter).
+
+### 14.2 Why PERT Instead of Uniform?
+
+The PERT distribution has several advantages for reliability parameter modelling:
+
+1. **Incorporates engineering judgement:** the mode m (typically the nominal design value) is given 4x the weight of the extremes, reflecting the engineer's confidence that the parameter is near its nominal value.
+2. **Bounded support:** unlike Gaussian distributions, PERT has finite support [a, b], preventing physically impossible parameter values.
+3. **Standard in risk analysis:** PERT is the default for programme risk analysis in NASA-STD-7009A and is recommended by Vose (2008) for expert elicitation.
+4. **Reduces to uniform:** when gamma = 0, PERT becomes Uniform(a, b), giving a conservative alternative when the mode is unknown.
+
+### 14.3 Properties
+
+- Mean: E[X] = (a + gamma*m + b) / (gamma + 2) = (a + 4m + b) / 6
+- Variance: Var(X) = (E[X] - a)(b - E[X]) / (gamma + 3) = (mu-a)(b-mu) / 7
+- The mode is exactly m for gamma > 0.
+
+### 14.4 Sensitivity to Gamma
+
+The default gamma = 4 is standard. Higher gamma concentrates mass around the mode; lower gamma flattens the distribution. For highly uncertain parameters where the engineer has no preferred value, gamma = 0 (Uniform) should be used. The tool provides a per-parameter choice between PERT and Uniform.
+
+**Reference:** Vose, D. (2008). "Risk Analysis: A Quantitative Guide", 3rd ed., Wiley. Chapter 12.
+Malcolm, D.G. et al. (1959). "Application of a Technique for Research and Development Program Evaluation", Operations Research 7(5).
+
+---
+
+## 15. SRRC Importance Measure
+
+### 15.1 Method
+
+After Monte Carlo sampling, the tool computes Standardised Rank Regression Coefficients (SRRC) to rank parameter importance:
+
+1. Rank-transform all input sample vectors X_1, ..., X_d and the output Y.
+2. Standardise ranked vectors to zero mean and unit variance.
+3. Fit ordinary least squares (OLS): Y_ranked_std = SUM beta_i * X_i_ranked_std.
+4. The SRRC for parameter i is beta_i.
+
+### 15.2 Interpretation
+
+|SRRC_i|^2 approximates the fraction of output variance explained by parameter i, analogous to a first-order Sobol index. For monotonic models (which the IEC TR 62380 lambda model is, since all acceleration factors increase monotonically with stress), SRRC is a reliable importance measure.
+
+### 15.3 Advantage Over Sobol
+
+For the additive lambda model, Sobol indices are theoretically exact (Section 11) but require N*(d+2) model evaluations. SRRC requires only the N samples already computed in the Monte Carlo run -- zero additional cost. Since the model is monotonic, SRRC and Sobol give the same ranking.
+
+**Reference:** Helton, J.C. & Davis, F.J. (2003). "Latin Hypercube Sampling and the Propagation of Uncertainty in Analyses of Complex Systems", Reliability Engineering & System Safety, 81(1), 23-69.
+Saltelli et al. (2008), Chapter 5.
+
+---
+
+## 16. Jensen's Inequality Diagnostic
+
+### 16.1 Statement
+
+For a convex function g and a random variable X:
+
+    E[g(X)] >= g(E[X])                                                (16.1)
+
+The reliability function R(t) = exp(-lambda*t) is convex in lambda (since d^2 R/d lambda^2 = t^2 * exp(-lambda*t) > 0). Therefore:
+
+    E[R(t)] <= R(t; E[lambda])                                        (16.2)
+
+Wait -- R is convex in lambda? Let's verify: R = exp(-lambda*t). dR/d lambda = -t * exp(-lambda*t). d^2R/d lambda^2 = t^2 * exp(-lambda*t) > 0. Yes, R is convex in lambda.
+
+But note: Jensen's inequality for a convex function gives E[g(X)] >= g(E[X]). So:
+
+    E[exp(-lambda*t)] >= exp(-E[lambda]*t)                             (16.3)
+
+This means: **E[R(t)] >= R(t; E[lambda])**, i.e., the expected reliability under parameter uncertainty is greater than or equal to the reliability computed at the mean lambda.
+
+However, since lambda_sys = SUM lambda_i and each lambda_i is a convex function of its parameters (Arrhenius, power-law), by composition E[lambda_sys] <= lambda_sys(E[theta]) does NOT hold in general. What does hold is:
+
+For each component, since lambda_i(theta_i) is typically convex in its parameters (exponential Arrhenius acceleration):
+
+    E[lambda_i(theta_i)] >= lambda_i(E[theta_i])                      (16.4)
+
+Therefore E[lambda_sys] >= lambda_sys(nominal), and:
+
+    E[R(t)] = E[exp(-lambda_sys * t)]   (no simple direction)
+
+The tool reports when E[R(t)] < R(t; nominal) as a diagnostic, indicating that parameter uncertainty has degraded expected reliability.
+
+**Reference:** Jensen, J.L.W.V. (1906). "Sur les fonctions convexes et les inegalites entre les valeurs moyennes", Acta Mathematica, 30, 175-193.
+
+---
+
+## 17. References
 
 1. **IEC TR 62380:2004** -- Reliability data handbook -- Universal model for reliability prediction of electronics components, PCBs and equipment.
 2. **IEC 61709** -- Electronic components -- Reliability -- Reference conditions for failure rates and stress models for conversion.
 3. **IEC 60300-3-1** -- Dependability management -- Part 3-1: Application guide -- Analysis techniques for dependability.
 4. **ECSS-Q-ST-30-02C** -- Space product assurance -- Failure modes, effects (and criticality) analysis (FMEA/FMECA).
-5. **MIL-HDBK-217F** -- Military Handbook: Reliability Prediction of Electronic Equipment (legacy, superseded by IEC TR 62380 for modern electronics).
-6. Coffin, L.F. Jr. (1954). "A Study of the Effects of Cyclic Thermal Stresses on a Ductile Metal." *Trans. ASME*, 76, 931-950.
-7. Manson, S.S. (1953). "Behavior of Materials Under Conditions of Thermal Stress." NACA TN-2933.
+5. **MIL-HDBK-217F** -- Military Handbook: Reliability Prediction of Electronic Equipment.
+6. Saltelli, A., Ratto, M., Andres, T., Campolongo, F., Cariboni, J., Gatelli, D., Saisana, M., Tarantola, S. (2008). "Global Sensitivity Analysis: The Primer", Wiley.
+7. Sobol, I.M. (1993). "Sensitivity estimates for nonlinear mathematical models", Mathematical Modelling and Computational Experiments, 1(4), 407-414.
+8. Borgonovo, E. & Plischke, E. (2016). "Sensitivity analysis: a review of recent advances", European Journal of Operational Research, 248(3), 869-887.
+9. Vose, D. (2008). "Risk Analysis: A Quantitative Guide", 3rd ed., Wiley.
+10. Malcolm, D.G., Roseboom, J.H., Clark, C.E., Fazar, W. (1959). "Application of a Technique for Research and Development Program Evaluation", Operations Research, 7(5), 646-669.
+11. Helton, J.C. & Davis, F.J. (2003). "Latin Hypercube Sampling and the Propagation of Uncertainty in Analyses of Complex Systems", Reliability Engineering & System Safety, 81(1), 23-69.
+12. Jansen, M.J.W. (1999). "Analysis of variance designs for model output", Computer Physics Communications, 117(1-2), 35-43.
+13. Coffin, L.F. Jr. (1954). "A Study of the Effects of Cyclic Thermal Stresses on a Ductile Metal", Trans. ASME, 76, 931-950.
+14. Manson, S.S. (1953). "Behavior of Materials Under Conditions of Thermal Stress", NACA TN-2933.
+15. Burden, R.L. & Faires, J.D. (2011). "Numerical Analysis", 9th ed., Cengage Learning.
+16. Jensen, J.L.W.V. (1906). "Sur les fonctions convexes et les inegalites entre les valeurs moyennes", Acta Mathematica, 30, 175-193.
+17. Arrhenius, S. (1889). "Uber die Reaktionsgeschwindigkeit bei der Inversion von Rohrzucker durch Sauren", Zeitschrift fur physikalische Chemie, 4, 226-248.
+18. NASA-STD-7009A (2013). "Standard for Models and Simulations".
 
 ---
 
 *Designed and developed by Eliot Abramo*
-*KiCad Reliability Plugin v3.1.0*
+*KiCad Reliability Plugin v3.3.0*

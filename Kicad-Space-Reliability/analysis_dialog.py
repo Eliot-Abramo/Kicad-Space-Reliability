@@ -1,21 +1,15 @@
 """
-Analysis Dialog - Reliability Analysis Suite v4
+Analysis Dialog - Reliability Analysis Suite v5
 =============================================================
-Six-tab unified interface for reliability-driven PCB co-design.
+Four-tab streamlined interface for reliability-driven PCB co-design.
 
-  Tab 1 - Dashboard:     System overview, contributions, target
-  Tab 2 - Uncertainty:   Parameter-level Monte Carlo with SRRC
-  Tab 3 - Sensitivity:   Tornado + What-If + Criticality
-  Tab 4 - Optimization:  Budget + Derating + Swap (unified)
-  Tab 5 - History:       Growth tracking across revisions
-  Tab 6 - Report:        PDF/HTML generation
+  Tab 1 - Overview:      System summary, contributions, type filter
+  Tab 2 - Analysis:      Guided MC uncertainty + Tornado + Criticality
+  Tab 3 - Design Actions: Budget + Improvements + What-If scenarios + History
+  Tab 4 - Report:        PDF/HTML generation
 
-Chart rendering principles:
-  - Proportional margins (never fixed pixel for layout)
-  - Minimum font size 8pt, adaptive scaling
-  - Label truncation with ellipsis
-  - Alternating row colours in tables
-  - No text overlap or clipping
+All heavy computations run in background threads to keep KiCad responsive.
+Errors are collected and reported -- never silently swallowed.
 
 Author:  Eliot Abramo
 """
@@ -23,6 +17,8 @@ Author:  Eliot Abramo
 import wx
 import wx.lib.scrolledpanel as scrolled
 import math
+import threading
+import traceback
 import numpy as np
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass, field
@@ -56,14 +52,6 @@ from .growth_tracking import (
     compare_revisions, build_growth_timeline,
     ReliabilitySnapshot,
 )
-try:
-    from .analysis.engine import (
-        UncertainParam, WhatIfShift,
-        run_sobol, run_whatif,
-    )
-    _NEW_ENGINE_AVAILABLE = True
-except ImportError:
-    _NEW_ENGINE_AVAILABLE = False
 
 
 # =====================================================================
@@ -90,7 +78,7 @@ class C:
 
 
 # =====================================================================
-# Chart Panels (improved rendering)
+# Chart Panels
 # =====================================================================
 
 def _trunc(s, maxlen=22):
@@ -98,7 +86,6 @@ def _trunc(s, maxlen=22):
 
 
 def _adaptive_font(dc, base_size, w, h, min_size=8):
-    """Return a font size scaled to the panel dimensions."""
     scale = min(w / 600.0, h / 400.0)
     sz = max(min_size, int(base_size * max(0.7, min(1.3, scale))))
     return sz
@@ -151,7 +138,6 @@ class HistogramPanel(wx.Panel):
             dc.DrawText("Run analysis to see distribution", w // 2 - 110, h // 2 - 10)
             return
 
-        # Margins proportional to size
         ml = max(55, int(w * 0.10))
         mr = max(20, int(w * 0.04))
         mt = max(40, int(h * 0.14))
@@ -173,20 +159,17 @@ class HistogramPanel(wx.Panel):
         def v2x(v):
             return ml + (v - min_val) / val_range * cw
 
-        # Grid
         dc.SetPen(wx.Pen(C.GRID, 1))
         for i in range(5):
             y = mt + ch * i // 4
             dc.DrawLine(ml, y, w - mr, y)
 
-        # CI shading
         if self.ci_lo is not None and self.ci_hi is not None:
             x1, x2 = int(v2x(self.ci_lo)), int(v2x(self.ci_hi))
             dc.SetBrush(wx.Brush(wx.Colour(25, 135, 84, 25)))
             dc.SetPen(wx.TRANSPARENT_PEN)
             dc.DrawRectangle(x1, mt, max(1, x2 - x1), ch)
 
-        # Bars
         dc.SetBrush(wx.Brush(C.PRI))
         dc.SetPen(wx.Pen(C.PRI.ChangeLightness(80), 1))
         for i, count in enumerate(hist):
@@ -195,7 +178,6 @@ class HistogramPanel(wx.Panel):
                 bh = max(1, int((count / max_count) * ch))
                 dc.DrawRectangle(int(x), mt + ch - bh, int(bar_w), bh)
 
-        # Vertical lines: nominal, mean, percentiles
         line_specs = []
         if self.nominal is not None:
             line_specs.append((self.nominal, wx.Colour(0, 150, 0), 2, wx.PENSTYLE_SOLID, "Nominal"))
@@ -214,12 +196,10 @@ class HistogramPanel(wx.Panel):
                 xv = int(v2x(val))
                 dc.DrawLine(xv, mt, xv, mt + ch)
 
-        # Axis frame
         dc.SetPen(wx.Pen(C.TXT_M, 1))
         dc.DrawLine(ml, mt + ch, w - mr, mt + ch)
         dc.DrawLine(ml, mt, ml, mt + ch)
 
-        # X-axis labels
         fsm = max(8, fsz - 2)
         dc.SetFont(wx.Font(fsm, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         dc.SetTextForeground(C.TXT_M)
@@ -233,7 +213,6 @@ class HistogramPanel(wx.Panel):
 
         dc.DrawText("R(t)", ml + cw // 2 - 12, h - mb + 30)
 
-        # Legend
         lx = w - mr - 130
         ly = mt + 5
         dc.SetFont(wx.Font(max(7, fsm - 1), wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
@@ -254,14 +233,13 @@ class HBarPanel(wx.Panel):
         self.SetMinSize((350, 200))
         self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
         self.title = title
-        self.data = []      # [(name, value, colour_index)]
+        self.data = []
         self.max_value = 1.0
         self.x_label = "FIT"
         self.Bind(wx.EVT_PAINT, self._paint)
         self.Bind(wx.EVT_SIZE, lambda e: self.Refresh())
 
     def set_data(self, data, max_value=None, x_label="FIT"):
-        """data: list of (name, value)"""
         self.data = [(n, v, i % len(C.BAR)) for i, (n, v) in enumerate(data)]
         self.max_value = max_value or (max(d[1] for d in self.data) if self.data else 1.0)
         self.max_value = max(self.max_value, 1e-6)
@@ -285,7 +263,6 @@ class HBarPanel(wx.Panel):
         if not self.data:
             return
 
-        # Calculate label width needed
         fsm = max(8, fsz - 1)
         dc.SetFont(wx.Font(fsm, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         max_label_w = 0
@@ -306,7 +283,6 @@ class HBarPanel(wx.Panel):
         bh = max(12, min(24, (ch - 8) // n))
         sp = max(2, (ch - n * bh) // (n + 1))
 
-        # Grid
         dc.SetPen(wx.Pen(C.GRID, 1))
         for i in range(5):
             x = ml + cw * i // 4
@@ -317,25 +293,21 @@ class HBarPanel(wx.Panel):
             bw = max(2, int((value / self.max_value) * cw))
             color = C.BAR[ci]
 
-            # Alternating row background
             if i % 2 == 1:
                 dc.SetBrush(wx.Brush(C.ROW_ALT))
                 dc.SetPen(wx.TRANSPARENT_PEN)
                 dc.DrawRectangle(0, y - sp // 2, w, bh + sp)
 
-            # Bar
             dc.SetBrush(wx.Brush(color))
             dc.SetPen(wx.Pen(color.ChangeLightness(80), 1))
             dc.DrawRoundedRectangle(ml, y, bw, bh, 2)
 
-            # Label
             dn = _trunc(name, 24)
             dc.SetTextForeground(C.TXT)
             dc.SetFont(wx.Font(fsm, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
             tw, th = dc.GetTextExtent(dn)
             dc.DrawText(dn, ml - tw - 8, y + (bh - th) // 2)
 
-            # Value
             vt = f"{value:.2f}" if value < 100 else f"{value:.1f}" if value < 10000 else f"{value:.0f}"
             vw, vh = dc.GetTextExtent(vt)
             if bw > vw + 14:
@@ -354,7 +326,7 @@ class ConvergencePanel(wx.Panel):
         self.SetMinSize((300, 140))
         self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
         self.title = title
-        self.history = []   # [(n, mean)]
+        self.history = []
         self.Bind(wx.EVT_PAINT, self._paint)
         self.Bind(wx.EVT_SIZE, lambda e: self.Refresh())
 
@@ -397,16 +369,13 @@ class ConvergencePanel(wx.Panel):
         v_min -= vr * 0.15
         v_max += vr * 0.15
         vr = v_max - v_min
-
         n_max = max(n_pts)
 
-        # Grid
         dc.SetPen(wx.Pen(C.GRID, 1))
         for i in range(5):
             y = mt + ch * i // 4
             dc.DrawLine(ml, y, w - mr, y)
 
-        # Line
         dc.SetPen(wx.Pen(C.PRI, 2))
         prev = None
         for nn, v in self.history:
@@ -416,7 +385,6 @@ class ConvergencePanel(wx.Panel):
                 dc.DrawLine(int(prev[0]), int(prev[1]), int(x), int(y))
             prev = (x, y)
 
-        # Y-axis labels
         dc.SetFont(wx.Font(max(7, fsz - 2), wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         dc.SetTextForeground(C.TXT_M)
         for i in range(3):
@@ -428,11 +396,10 @@ class ConvergencePanel(wx.Panel):
 
 
 # =====================================================================
-# Utility: styled list control
+# Utility helpers
 # =====================================================================
 
 def _make_list(parent, columns, col_widths=None):
-    """Create a clean ListCtrl with columns."""
     lc = wx.ListCtrl(parent, style=wx.LC_REPORT | wx.BORDER_SIMPLE)
     lc.SetBackgroundColour(C.WHITE)
     lc.SetFont(wx.Font(9, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
@@ -443,7 +410,6 @@ def _make_list(parent, columns, col_widths=None):
 
 
 def _add_row(lc, values, color=None):
-    """Append a row to a ListCtrl."""
     idx = lc.InsertItem(lc.GetItemCount(), str(values[0]))
     for i, v in enumerate(values[1:], 1):
         lc.SetItem(idx, i, str(v))
@@ -460,11 +426,70 @@ def _safe_float(val, default=0.0):
 
 
 # =====================================================================
+# Background thread infrastructure
+# =====================================================================
+
+class _AnalysisRunner:
+    """Run a callable in a background thread, report results via wx.CallAfter.
+
+    Usage::
+
+        runner = _AnalysisRunner(
+            work_fn=lambda cancel: slow_computation(),
+            on_done=lambda result: update_ui(result),
+            on_error=lambda exc, tb_str: show_error(exc, tb_str),
+            on_progress=lambda msg: status_bar.SetLabel(msg),
+        )
+        runner.start()
+        # runner.cancel()   -- sets cancel flag; work_fn should check it
+    """
+
+    def __init__(self, work_fn, on_done, on_error, on_progress=None):
+        self._work_fn = work_fn
+        self._on_done = on_done
+        self._on_error = on_error
+        self._on_progress = on_progress
+        self._cancel_event = threading.Event()
+        self._thread = None
+
+    @property
+    def cancelled(self):
+        return self._cancel_event.is_set()
+
+    def cancel(self):
+        self._cancel_event.set()
+
+    def start(self):
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _run(self):
+        try:
+            result = self._work_fn(self._cancel_event)
+            if not self._cancel_event.is_set():
+                wx.CallAfter(self._on_done, result)
+        except Exception as exc:
+            tb_str = traceback.format_exc()
+            if not self._cancel_event.is_set():
+                wx.CallAfter(self._on_error, exc, tb_str)
+
+    def progress(self, msg):
+        if self._on_progress and not self._cancel_event.is_set():
+            wx.CallAfter(self._on_progress, msg)
+
+
+# =====================================================================
 # Main Analysis Dialog
 # =====================================================================
 
 class AnalysisDialog(wx.Dialog):
-    """Unified 6-tab reliability analysis dialog."""
+    """Streamlined 4-tab reliability analysis dialog.
+
+    Tab 1 - Overview:       System summary, contributions, type filter
+    Tab 2 - Analysis:       MC uncertainty + Tornado + Criticality
+    Tab 3 - Design Actions: Budget + Improvements + What-If + History
+    Tab 4 - Report:         HTML/PDF generation
+    """
 
     def __init__(self, parent, system_lambda, mission_hours, sheet_data=None,
                  block_structure=None, blocks=None, root_id=None, project_path=None,
@@ -508,9 +533,12 @@ class AnalysisDialog(wx.Dialog):
         self.budget_result: Optional[BudgetAllocationResult] = None
         self.derating_result: Optional[DeratingResult] = None
         self.swap_results: List[Dict] = []
-        self.growth_snapshots: List[Dict] = []
-        self.growth_comparisons: List[Dict] = []
         self.param_specs: List[ParameterSpec] = []
+
+        # Active background runner (at most one at a time)
+        self._runner: Optional[_AnalysisRunner] = None
+        # Collected warnings from last analysis run
+        self._warnings: List[str] = []
 
         self._build_ui()
         self.Centre()
@@ -520,7 +548,6 @@ class AnalysisDialog(wx.Dialog):
     # =================================================================
 
     def _filtered(self):
-        """Active sheet data minus excluded component types."""
         result = {}
         for path, data in self._active_data.items():
             comps = [c for c in data.get("components", [])
@@ -530,7 +557,6 @@ class AnalysisDialog(wx.Dialog):
         return result
 
     def _all_components(self):
-        """Flat list of all active components."""
         comps = []
         for data in self._filtered().values():
             comps.extend(data.get("components", []))
@@ -548,6 +574,66 @@ class AnalysisDialog(wx.Dialog):
             for c in data.get("components", []):
                 types.add(c.get("class", "Unknown"))
         return types
+
+    # =================================================================
+    # Threading helpers
+    # =================================================================
+
+    def _is_busy(self):
+        return self._runner is not None and self._runner._thread is not None and self._runner._thread.is_alive()
+
+    def _start_analysis(self, work_fn, on_done, label="Running analysis...",
+                        buttons_to_disable=None):
+        """Start a background analysis. Blocks re-entry; disables given buttons."""
+        if self._is_busy():
+            wx.MessageBox(
+                "An analysis is already running. Please wait or cancel it first.",
+                "Busy", wx.OK | wx.ICON_INFORMATION)
+            return
+        self._warnings = []
+        self.status.SetLabel(label)
+        self._disabled_buttons = buttons_to_disable or []
+        for btn in self._disabled_buttons:
+            btn.Disable()
+
+        def _on_error(exc, tb_str):
+            for btn in self._disabled_buttons:
+                btn.Enable()
+            self.status.SetLabel("Analysis failed.")
+            wx.MessageBox(
+                f"Analysis error:\n\n{exc}\n\nDetails:\n{tb_str[:800]}",
+                "Analysis Error", wx.OK | wx.ICON_ERROR)
+
+        def _on_done_wrapper(result):
+            for btn in self._disabled_buttons:
+                btn.Enable()
+            on_done(result)
+            if self._warnings:
+                n = len(self._warnings)
+                summary = "\n".join(self._warnings[:20])
+                if n > 20:
+                    summary += f"\n... and {n - 20} more warnings"
+                wx.MessageBox(
+                    f"{n} warning(s) during analysis:\n\n{summary}",
+                    "Analysis Warnings", wx.OK | wx.ICON_WARNING)
+
+        def _on_progress(msg):
+            self.status.SetLabel(msg)
+
+        self._runner = _AnalysisRunner(
+            work_fn=work_fn,
+            on_done=_on_done_wrapper,
+            on_error=_on_error,
+            on_progress=_on_progress,
+        )
+        self._runner.start()
+
+    def _cancel_analysis(self):
+        if self._runner:
+            self._runner.cancel()
+            for btn in getattr(self, '_disabled_buttons', []):
+                btn.Enable()
+            self.status.SetLabel("Cancelled.")
 
     # =================================================================
     # UI Construction
@@ -573,17 +659,23 @@ class AnalysisDialog(wx.Dialog):
         il.SetFont(wx.Font(9, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         il.SetForegroundColour(wx.Colour(200, 215, 240))
         hs.Add(il, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 12)
+
+        self.btn_cancel = wx.Button(hdr, label="Cancel")
+        self.btn_cancel.SetForegroundColour(wx.WHITE)
+        self.btn_cancel.SetBackgroundColour(C.FAIL)
+        self.btn_cancel.Bind(wx.EVT_BUTTON, lambda e: self._cancel_analysis())
+        self.btn_cancel.SetToolTip("Cancel running analysis")
+        hs.Add(self.btn_cancel, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 8)
+
         hdr.SetSizer(hs)
         sizer.Add(hdr, 0, wx.EXPAND)
 
         # Notebook
         self.nb = wx.Notebook(self)
         self.nb.SetBackgroundColour(C.BG)
-        self.nb.AddPage(self._tab_dashboard(), "Dashboard")
-        self.nb.AddPage(self._tab_uncertainty(), "Uncertainty")
-        self.nb.AddPage(self._tab_sensitivity(), "Sensitivity")
-        self.nb.AddPage(self._tab_optimization(), "Optimization")
-        self.nb.AddPage(self._tab_history(), "History")
+        self.nb.AddPage(self._tab_overview(), "Overview")
+        self.nb.AddPage(self._tab_analysis(), "Analysis")
+        self.nb.AddPage(self._tab_design_actions(), "Design Actions")
         self.nb.AddPage(self._tab_report(), "Report")
         sizer.Add(self.nb, 1, wx.EXPAND | wx.ALL, 8)
 
@@ -595,10 +687,10 @@ class AnalysisDialog(wx.Dialog):
         self.SetSizer(sizer)
 
     # =================================================================
-    # Tab 1: Dashboard
+    # Tab 1: Overview (was Dashboard)
     # =================================================================
 
-    def _tab_dashboard(self):
+    def _tab_overview(self):
         panel = wx.Panel(self.nb)
         panel.SetBackgroundColour(C.BG)
         main = wx.BoxSizer(wx.VERTICAL)
@@ -608,34 +700,34 @@ class AnalysisDialog(wx.Dialog):
         fp.SetBackgroundColour(C.WHITE)
         fs = wx.BoxSizer(wx.VERTICAL)
         fl = wx.StaticText(fp, label="Component Types (uncheck to exclude from all analyses):")
-        fl.SetFont(wx.Font(9, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
-        fs.Add(fl, 0, wx.ALL, 6)
+        fl.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        fs.Add(fl, 0, wx.ALL, 8)
         tr = wx.WrapSizer(wx.HORIZONTAL)
         for tn in sorted(self._component_types()):
             cb = wx.CheckBox(fp, label=tn)
             cb.SetValue(True)
+            cb.SetFont(wx.Font(9, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
             cb.Bind(wx.EVT_CHECKBOX, self._on_type_filter)
-            tr.Add(cb, 0, wx.ALL, 3)
+            tr.Add(cb, 0, wx.ALL, 4)
             self._type_cbs[tn] = cb
-        fs.Add(tr, 0, wx.LEFT, 8)
+        fs.Add(tr, 0, wx.LEFT, 10)
         fp.SetSizer(fs)
         main.Add(fp, 0, wx.EXPAND | wx.ALL, 6)
 
-        # Charts
+        # Charts row
         charts = wx.BoxSizer(wx.HORIZONTAL)
         self.contrib_chart = HBarPanel(panel, "FIT Contributions (Top 15)")
         charts.Add(self.contrib_chart, 2, wx.EXPAND | wx.RIGHT, 6)
 
-        # Summary card
         card = wx.Panel(panel)
         card.SetBackgroundColour(C.WHITE)
         cs = wx.BoxSizer(wx.VERTICAL)
         cl = wx.StaticText(card, label="System Summary")
-        cl.SetFont(wx.Font(11, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
-        cs.Add(cl, 0, wx.ALL, 10)
+        cl.SetFont(wx.Font(12, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        cs.Add(cl, 0, wx.ALL, 12)
         self.dash_summary = wx.StaticText(card, label="")
-        self.dash_summary.SetFont(wx.Font(9, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
-        cs.Add(self.dash_summary, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
+        self.dash_summary.SetFont(wx.Font(10, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        cs.Add(self.dash_summary, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 12)
         card.SetSizer(cs)
         charts.Add(card, 1, wx.EXPAND)
         main.Add(charts, 1, wx.EXPAND | wx.ALL, 6)
@@ -643,19 +735,18 @@ class AnalysisDialog(wx.Dialog):
         # Contribution table
         self.contrib_list = _make_list(panel,
             ["Component", "Type", "\u03BB (FIT)", "Contribution %", "Cumulative %"],
-            [160, 120, 90, 95, 95])
+            [160, 130, 100, 100, 100])
         main.Add(self.contrib_list, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
 
         panel.SetSizer(main)
-        self._refresh_dashboard()
+        self._refresh_overview()
         return panel
 
-    def _refresh_dashboard(self):
+    def _refresh_overview(self):
         filtered = self._filtered()
         total_lam = sum(_safe_float(d.get("lambda", 0)) for d in filtered.values())
         total_fit = total_lam * 1e9
 
-        # Build sorted component list
         comps = []
         for data in filtered.values():
             for c in data.get("components", []):
@@ -663,11 +754,9 @@ class AnalysisDialog(wx.Dialog):
                 comps.append((c.get("ref", "?"), c.get("class", "?"), lam * 1e9))
         comps.sort(key=lambda x: -x[2])
 
-        # Chart
         chart_data = [(ref, fit) for ref, _, fit in comps[:15]]
         self.contrib_chart.set_data(chart_data, x_label="FIT")
 
-        # Table
         self.contrib_list.DeleteAllItems()
         cum = 0.0
         for ref, ctype, fit in comps:
@@ -678,7 +767,6 @@ class AnalysisDialog(wx.Dialog):
                 f"{pct:.1f}%", f"{cum:.1f}%",
             ])
 
-        # Summary
         r = reliability_from_lambda(total_lam, self.mission_hours)
         mttf = 1.0 / total_lam if total_lam > 0 else float('inf')
         mttf_yr = mttf / 8760
@@ -693,84 +781,93 @@ class AnalysisDialog(wx.Dialog):
         self.dash_summary.SetLabel("\n".join(lines))
 
     # =================================================================
-    # Tab 2: Uncertainty
+    # Tab 2: Analysis (MC + Tornado + Criticality -- guided workflow)
     # =================================================================
 
-    def _tab_uncertainty(self):
-        panel = wx.Panel(self.nb)
+    def _tab_analysis(self):
+        panel = scrolled.ScrolledPanel(self.nb)
         panel.SetBackgroundColour(C.BG)
+        panel.SetupScrolling(scroll_x=False, scrollToTop=True)
         main = wx.BoxSizer(wx.VERTICAL)
+
+        # Workflow hint
+        hint_panel = wx.Panel(panel)
+        hint_panel.SetBackgroundColour(wx.Colour(230, 240, 255))
+        hs = wx.BoxSizer(wx.VERTICAL)
+        hint = wx.StaticText(hint_panel,
+            label="Workflow: 1) Run Uncertainty Analysis to quantify confidence bounds  "
+                  "2) Run Tornado to find highest-leverage parameters  "
+                  "3) Run Criticality to identify which component specs to tighten")
+        hint.SetFont(wx.Font(9, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_ITALIC, wx.FONTWEIGHT_NORMAL))
+        hint.SetForegroundColour(C.HEADER)
+        hint.Wrap(1300)
+        hs.Add(hint, 0, wx.ALL, 10)
+        hint_panel.SetSizer(hs)
+        main.Add(hint_panel, 0, wx.EXPAND | wx.ALL, 6)
+
+        # --- Section 1: Uncertainty (Monte Carlo) ---
+        main.Add(self._section_label(panel, "Step 1: Uncertainty Analysis (Monte Carlo)"), 0, wx.EXPAND | wx.ALL, 6)
 
         # Quick setup bar
         qp = wx.Panel(panel)
         qp.SetBackgroundColour(C.WHITE)
         qs = wx.BoxSizer(wx.HORIZONTAL)
-        qs.Add(wx.StaticText(qp, label="Quick Setup:"), 0,
-               wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
-
         qs.Add(wx.StaticText(qp, label="Global \u00b1%:"), 0,
                wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 12)
-        self.unc_pct = wx.SpinCtrlDouble(qp, min=1, max=50, initial=10, inc=1, size=(65, -1))
-        qs.Add(self.unc_pct, 0, wx.ALL, 5)
+        self.unc_pct = wx.SpinCtrlDouble(qp, min=1, max=50, initial=10, inc=1, size=(70, -1))
+        qs.Add(self.unc_pct, 0, wx.ALL, 6)
 
-        qs.Add(wx.StaticText(qp, label="Distribution:"), 0,
+        qs.Add(wx.StaticText(qp, label="Dist:"), 0,
                wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 8)
         self.unc_dist = wx.Choice(qp, choices=["PERT", "Uniform"])
         self.unc_dist.SetSelection(0)
-        qs.Add(self.unc_dist, 0, wx.ALL, 5)
+        qs.Add(self.unc_dist, 0, wx.ALL, 6)
 
         btn_apply = wx.Button(qp, label="Apply to All")
         btn_apply.Bind(wx.EVT_BUTTON, self._on_apply_quick_unc)
-        qs.Add(btn_apply, 0, wx.ALL, 5)
+        qs.Add(btn_apply, 0, wx.ALL, 6)
 
         qs.AddStretchSpacer()
 
         qs.Add(wx.StaticText(qp, label="Simulations:"), 0,
                wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 8)
-        self.unc_n = wx.SpinCtrl(qp, min=500, max=50000, initial=3000, size=(80, -1))
-        qs.Add(self.unc_n, 0, wx.ALL, 5)
+        self.unc_n = wx.SpinCtrl(qp, min=500, max=50000, initial=3000, size=(85, -1))
+        qs.Add(self.unc_n, 0, wx.ALL, 6)
 
         qs.Add(wx.StaticText(qp, label="CI:"), 0,
                wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 8)
         self.unc_ci = wx.Choice(qp, choices=["80%", "90%", "95%", "99%"])
         self.unc_ci.SetSelection(1)
-        qs.Add(self.unc_ci, 0, wx.ALL, 5)
+        qs.Add(self.unc_ci, 0, wx.ALL, 6)
 
-        self.btn_run_mc = wx.Button(qp, label="\u25B6 Run Uncertainty Analysis")
+        self.btn_run_mc = wx.Button(qp, label="\u25B6  Run Uncertainty")
         self.btn_run_mc.SetBackgroundColour(C.PRI)
         self.btn_run_mc.SetForegroundColour(wx.WHITE)
+        self.btn_run_mc.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
         self.btn_run_mc.Bind(wx.EVT_BUTTON, self._on_run_uncertainty)
-        qs.Add(self.btn_run_mc, 0, wx.ALL, 5)
+        qs.Add(self.btn_run_mc, 0, wx.ALL, 6)
 
         qp.SetSizer(qs)
-        main.Add(qp, 0, wx.EXPAND | wx.ALL, 6)
+        main.Add(qp, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 6)
 
-        # Parameter table (scrollable)
+        # Parameter table
         param_panel = wx.Panel(panel)
         param_panel.SetBackgroundColour(C.WHITE)
         ps = wx.BoxSizer(wx.VERTICAL)
         pl = wx.StaticText(param_panel,
-            label="Parameter Uncertainty Bounds (edit delta/% to set uncertainty range per parameter):")
-        pl.SetFont(wx.Font(9, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
-        ps.Add(pl, 0, wx.ALL, 6)
+            label="Parameter Uncertainty Bounds (double-click to edit):")
+        pl.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        ps.Add(pl, 0, wx.ALL, 8)
 
         self.param_list = _make_list(param_panel,
             ["Parameter", "Components", "Mode", "Low Bound", "High Bound", "Distribution", "Shared"],
-            [130, 75, 70, 90, 90, 85, 60])
+            [140, 80, 80, 95, 95, 90, 65])
         ps.Add(self.param_list, 1, wx.EXPAND | wx.ALL, 4)
-
-        hint = wx.StaticText(param_panel,
-            label="Shared = one draw per sample for all components. "
-                  "Independent = each component drawn separately. "
-                  "Double-click a row to edit bounds.")
-        hint.SetForegroundColour(C.TXT_L)
-        hint.SetFont(wx.Font(8, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
-        ps.Add(hint, 0, wx.LEFT | wx.BOTTOM, 6)
 
         param_panel.SetSizer(ps)
         main.Add(param_panel, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 6)
 
-        # Results area
+        # MC results area
         res_panel = wx.Panel(panel)
         res_panel.SetBackgroundColour(C.BG)
         rs = wx.BoxSizer(wx.HORIZONTAL)
@@ -783,20 +880,18 @@ class AnalysisDialog(wx.Dialog):
         rs.Add(left, 3, wx.EXPAND | wx.RIGHT, 6)
 
         right = wx.BoxSizer(wx.VERTICAL)
-        # Stats card
-        self.mc_stats_text = wx.StaticText(res_panel, label="Run analysis to see results.")
-        self.mc_stats_text.SetFont(wx.Font(9, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         sp = wx.Panel(res_panel)
         sp.SetBackgroundColour(C.WHITE)
         ss = wx.BoxSizer(wx.VERTICAL)
         sl = wx.StaticText(sp, label="Statistics")
         sl.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
         ss.Add(sl, 0, wx.ALL, 8)
+        self.mc_stats_text = wx.StaticText(sp, label="Run analysis to see results.")
+        self.mc_stats_text.SetFont(wx.Font(9, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         ss.Add(self.mc_stats_text, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
         sp.SetSizer(ss)
         right.Add(sp, 1, wx.EXPAND)
 
-        # Importance chart
         self.mc_importance = HBarPanel(res_panel, "Parameter Importance (SRRC\u00B2)")
         right.Add(self.mc_importance, 2, wx.EXPAND | wx.TOP, 6)
 
@@ -804,27 +899,98 @@ class AnalysisDialog(wx.Dialog):
         res_panel.SetSizer(rs)
         main.Add(res_panel, 2, wx.EXPAND | wx.ALL, 6)
 
-        # Jensen note
         self.jensen_label = wx.StaticText(panel, label="")
         self.jensen_label.SetForegroundColour(C.TXT_M)
         self.jensen_label.SetFont(wx.Font(8, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_ITALIC, wx.FONTWEIGHT_NORMAL))
         main.Add(self.jensen_label, 0, wx.LEFT | wx.BOTTOM, 8)
 
-        panel.SetSizer(main)
+        # --- Section 2: Tornado Sensitivity ---
+        main.Add(self._section_label(panel, "Step 2: Tornado Sensitivity (OAT)"), 0, wx.EXPAND | wx.ALL, 6)
 
-        # Bind double-click for editing
+        tp = wx.Panel(panel)
+        tp.SetBackgroundColour(C.WHITE)
+        ts = wx.BoxSizer(wx.HORIZONTAL)
+        ts.Add(wx.StaticText(tp, label="Mode:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 12)
+        self.tornado_mode = wx.Choice(tp, choices=["Parameter-level", "Sheet-level"])
+        self.tornado_mode.SetSelection(0)
+        ts.Add(self.tornado_mode, 0, wx.ALL, 6)
+        self.btn_tornado = wx.Button(tp, label="\u25B6  Run Tornado")
+        self.btn_tornado.SetBackgroundColour(C.OK)
+        self.btn_tornado.SetForegroundColour(wx.WHITE)
+        self.btn_tornado.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        self.btn_tornado.Bind(wx.EVT_BUTTON, self._on_run_tornado)
+        ts.Add(self.btn_tornado, 0, wx.ALL, 6)
+        ts.Add(wx.StaticText(tp,
+            label="Perturbations use physical units. Double-click table to edit."),
+            0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
+        tp.SetSizer(ts)
+        main.Add(tp, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 6)
+
+        self.pert_list = _make_list(panel,
+            ["Parameter", "Low (-)", "High (+)", "Unit", "Enabled"],
+            [150, 85, 85, 85, 65])
+        self.pert_list.SetMinSize((-1, 160))
+        self._populate_pert_table()
+        self.pert_list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self._on_edit_pert)
+        main.Add(self.pert_list, 0, wx.EXPAND | wx.ALL, 6)
+
+        self.tornado_chart = HBarPanel(panel, "Tornado: System FIT Swing")
+        self.tornado_chart.SetMinSize((-1, 280))
+        main.Add(self.tornado_chart, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 6)
+
+        self.tornado_table = _make_list(panel,
+            ["Parameter", "Low FIT", "Base FIT", "High FIT", "Swing", "Perturbation"],
+            [170, 95, 95, 95, 95, 140])
+        self.tornado_table.SetMinSize((-1, 160))
+        main.Add(self.tornado_table, 0, wx.EXPAND | wx.ALL, 6)
+
+        # --- Section 3: Component Criticality ---
+        main.Add(self._section_label(panel, "Step 3: Component Criticality (Elasticity)"), 0, wx.EXPAND | wx.ALL, 6)
+
+        cp = wx.Panel(panel)
+        cp.SetBackgroundColour(C.WHITE)
+        css = wx.BoxSizer(wx.HORIZONTAL)
+        css.Add(wx.StaticText(cp, label="Top N (0 = all):"), 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 12)
+        self.crit_n = wx.SpinCtrl(cp, min=0, max=500, initial=0, size=(70, -1))
+        css.Add(self.crit_n, 0, wx.ALL, 6)
+        self.btn_crit = wx.Button(cp, label="\u25B6  Run Criticality")
+        self.btn_crit.SetBackgroundColour(C.PRI)
+        self.btn_crit.SetForegroundColour(wx.WHITE)
+        self.btn_crit.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        self.btn_crit.Bind(wx.EVT_BUTTON, self._on_run_criticality)
+        css.Add(self.btn_crit, 0, wx.ALL, 6)
+        cp.SetSizer(css)
+        main.Add(cp, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 6)
+
+        self.crit_table = _make_list(panel,
+            ["Reference", "Type", "\u03BB (FIT)", "Top Parameter", "Elasticity", "Impact %"],
+            [100, 130, 90, 150, 90, 90])
+        self.crit_table.SetMinSize((-1, 240))
+        main.Add(self.crit_table, 0, wx.EXPAND | wx.ALL, 6)
+
+        # Bind param table editing
         self.param_list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self._on_edit_param)
-
-        # Populate default parameter table
         self._populate_param_table()
 
+        panel.SetSizer(main)
         return panel
 
+    def _section_label(self, parent, text):
+        p = wx.Panel(parent)
+        p.SetBackgroundColour(wx.Colour(230, 240, 255))
+        s = wx.BoxSizer(wx.VERTICAL)
+        l = wx.StaticText(p, label=text)
+        l.SetFont(wx.Font(11, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        l.SetForegroundColour(C.HEADER)
+        s.Add(l, 0, wx.ALL, 10)
+        p.SetSizer(s)
+        return p
+
+    # -- Param table management --
+
     def _populate_param_table(self, pct=10.0, dist="pert"):
-        """Scan components and build parameter spec table."""
         comps = build_component_inputs(self._active_data, excluded_types=self.excluded_types)
         self.param_specs = build_default_param_specs(comps, pct, dist)
-
         self.param_list.DeleteAllItems()
         for spec in self.param_specs:
             mode = "Shared" if spec.shared else "Independent"
@@ -846,19 +1012,17 @@ class AnalysisDialog(wx.Dialog):
         self._populate_param_table(pct, dist)
 
     def _on_edit_param(self, event):
-        """Edit a parameter spec via dialog."""
         idx = event.GetIndex()
         if idx < 0 or idx >= len(self.param_specs):
             return
         spec = self.param_specs[idx]
 
-        dlg = wx.Dialog(self, title=f"Edit: {spec.name}", size=(380, 280))
+        dlg = wx.Dialog(self, title=f"Edit: {spec.name}", size=(400, 300))
         ds = wx.BoxSizer(wx.VERTICAL)
-
         ds.Add(wx.StaticText(dlg, label=f"Parameter: {spec.name} ({spec.n_components} components)"),
-               0, wx.ALL, 10)
+               0, wx.ALL, 12)
 
-        gs = wx.FlexGridSizer(5, 2, 6, 10)
+        gs = wx.FlexGridSizer(5, 2, 8, 12)
         gs.AddGrowableCol(1)
 
         gs.Add(wx.StaticText(dlg, label="Mode:"), 0, wx.ALIGN_CENTER_VERTICAL)
@@ -881,9 +1045,8 @@ class AnalysisDialog(wx.Dialog):
         dist_ch.SetSelection(0 if spec.distribution == "pert" else 1)
         gs.Add(dist_ch, 1, wx.EXPAND)
 
-        ds.Add(gs, 0, wx.EXPAND | wx.ALL, 10)
-        ds.Add(dlg.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL), 0,
-               wx.EXPAND | wx.ALL, 10)
+        ds.Add(gs, 0, wx.EXPAND | wx.ALL, 12)
+        ds.Add(dlg.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL), 0, wx.EXPAND | wx.ALL, 12)
         dlg.SetSizer(ds)
 
         if dlg.ShowModal() == wx.ID_OK:
@@ -901,7 +1064,6 @@ class AnalysisDialog(wx.Dialog):
             else:
                 spec.rel_low = abs(lo)
                 spec.rel_high = abs(hi)
-            # Refresh table row
             self.param_list.DeleteAllItems()
             for s in self.param_specs:
                 mode = "Shared" if s.shared else "Independent"
@@ -918,267 +1080,7 @@ class AnalysisDialog(wx.Dialog):
                 ])
         dlg.Destroy()
 
-    def _on_run_uncertainty(self, event):
-        filtered = self._filtered()
-        if not filtered:
-            wx.MessageBox("No active data.", "Error", wx.OK | wx.ICON_WARNING)
-            return
-
-        n_sims = self.unc_n.GetValue()
-        ci_map = {0: 0.80, 1: 0.90, 2: 0.95, 3: 0.99}
-        ci = ci_map.get(self.unc_ci.GetSelection(), 0.90)
-
-        self.status.SetLabel("Running uncertainty analysis...")
-        self.btn_run_mc.Disable()
-        wx.Yield()
-
-        try:
-            comps = build_component_inputs(
-                filtered, excluded_types=self.excluded_types)
-
-            # Use current param_specs (user may have edited)
-            # Re-populate nominal_by_ref from current components
-            ref_params = {}
-            for c in comps:
-                if c.override_lambda is not None:
-                    continue
-                for pname, pval in c.base_params.items():
-                    try:
-                        v = float(pval)
-                    except (TypeError, ValueError):
-                        continue
-                    if v == 0:
-                        continue
-                    ref_params.setdefault(pname, {})[c.reference] = v
-
-            for spec in self.param_specs:
-                if spec.name in ref_params:
-                    spec.nominal_by_ref = ref_params[spec.name]
-
-            def progress(cur, tot, msg):
-                self.status.SetLabel(f"MC: {cur}/{tot} samples...")
-                wx.Yield()
-
-            self.mc_result = run_uncertainty_analysis(
-                comps, self.param_specs, self.mission_hours,
-                n_simulations=n_sims, confidence_level=ci,
-                seed=42, progress_callback=progress,
-            )
-
-            self._display_mc_results()
-            self.status.SetLabel(
-                f"Uncertainty analysis complete: {n_sims} samples in "
-                f"{self.mc_result.runtime_seconds:.1f}s")
-        except Exception as e:
-            import traceback; traceback.print_exc()
-            wx.MessageBox(f"Error: {e}", "Uncertainty Analysis", wx.OK | wx.ICON_ERROR)
-        finally:
-            self.btn_run_mc.Enable()
-
-    def _display_mc_results(self):
-        r = self.mc_result
-        ci_label = f"{r.confidence_level*100:.0f}% CI"
-
-        self.mc_histogram.set_data(
-            r.reliability_samples, r.mean_reliability,
-            float(np.percentile(r.reliability_samples, 5)),
-            float(np.percentile(r.reliability_samples, 95)),
-            ci_lo=r.ci_lower, ci_hi=r.ci_upper,
-            ci_label=ci_label,
-            nominal=r.nominal_reliability,
-            jensen_note=r.jensen_note,
-        )
-        self.mc_convergence.set_data(r.convergence_history)
-
-        # Stats
-        lines = [
-            f"Nominal R(t):   {r.nominal_reliability:.6f}",
-            f"Mean R(t):      {r.mean_reliability:.6f}",
-            f"Median R(t):    {r.median_reliability:.6f}",
-            f"Std Dev:        {r.std_reliability:.6f}",
-            f"CI [{r.confidence_level*100:.0f}%]:      [{r.ci_lower:.6f}, {r.ci_upper:.6f}]",
-            f"CI Width:       {r.ci_upper - r.ci_lower:.6f}",
-            f"Mean HW CI:     \u00b1{r.mean_ci_halfwidth:.2e}",
-            f"",
-            f"Mean \u03BB:        {r.mean_lambda_fit:.2f} FIT",
-            f"Std \u03BB:         {r.std_lambda_fit:.2f} FIT",
-            f"CI \u03BB:          [{r.ci_lower_lambda_fit:.2f}, {r.ci_upper_lambda_fit:.2f}]",
-            f"",
-            f"Simulations:    {r.n_simulations:,}",
-            f"Runtime:        {r.runtime_seconds:.1f}s",
-            f"Uncertain params: {r.n_uncertain_params}",
-            f"Uncertain comps:  {r.n_uncertain_components}/{r.n_total_components}",
-        ]
-        self.mc_stats_text.SetLabel("\n".join(lines))
-
-        # Importance chart
-        if r.parameter_importance:
-            chart_data = [
-                (f"{p['name']} ({'S' if p['shared'] else 'I'})",
-                 p["srrc_sq"])
-                for p in r.parameter_importance[:12]
-                if p["srrc_sq"] > 0.001
-            ]
-            if chart_data:
-                self.mc_importance.set_data(chart_data, x_label="SRRC\u00B2")
-
-        # Jensen note
-        self.jensen_label.SetLabel(r.jensen_note)
-        self.jensen_label.Wrap(self.GetSize().Width - 40)
-
-    # =================================================================
-    # Tab 3: Sensitivity
-    # =================================================================
-
-    def _tab_sensitivity(self):
-        panel = scrolled.ScrolledPanel(self.nb)
-        panel.SetBackgroundColour(C.BG)
-        panel.SetupScrolling(scroll_x=False, scrollToTop=True)
-        main = wx.BoxSizer(wx.VERTICAL)
-
-        # --- Section 1: Tornado ---
-        sec1 = self._section_label(panel, "1. Tornado Sensitivity (OAT)")
-        main.Add(sec1, 0, wx.EXPAND | wx.ALL, 6)
-
-        tp = wx.Panel(panel)
-        tp.SetBackgroundColour(C.WHITE)
-        ts = wx.BoxSizer(wx.HORIZONTAL)
-        ts.Add(wx.StaticText(tp, label="Mode:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
-        self.tornado_mode = wx.Choice(tp, choices=["Parameter-level", "Sheet-level"])
-        self.tornado_mode.SetSelection(0)
-        ts.Add(self.tornado_mode, 0, wx.ALL, 5)
-        self.btn_tornado = wx.Button(tp, label="Run Tornado")
-        self.btn_tornado.SetBackgroundColour(C.OK)
-        self.btn_tornado.SetForegroundColour(wx.WHITE)
-        self.btn_tornado.Bind(wx.EVT_BUTTON, self._on_run_tornado)
-        ts.Add(self.btn_tornado, 0, wx.ALL, 5)
-        ts.Add(wx.StaticText(tp,
-            label="(Parameter perturbations use physical units from the table below. "
-                  "Double-click to edit.)"),
-            0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 8)
-        tp.SetSizer(ts)
-        main.Add(tp, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 6)
-
-        # Perturbation table
-        self.pert_list = _make_list(panel,
-            ["Parameter", "Low (-)", "High (+)", "Unit", "Enabled"],
-            [140, 80, 80, 80, 60])
-        self.pert_list.SetMinSize((-1, 150))
-        self._populate_pert_table()
-        self.pert_list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self._on_edit_pert)
-        main.Add(self.pert_list, 0, wx.EXPAND | wx.ALL, 6)
-
-        # Tornado chart + table
-        self.tornado_chart = HBarPanel(panel, "Tornado: System FIT Swing")
-        self.tornado_chart.SetMinSize((-1, 280))
-        main.Add(self.tornado_chart, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 6)
-
-        self.tornado_table = _make_list(panel,
-            ["Parameter", "Low FIT", "Base FIT", "High FIT", "Swing", "Perturbation"],
-            [160, 90, 90, 90, 90, 130])
-        self.tornado_table.SetMinSize((-1, 150))
-        main.Add(self.tornado_table, 0, wx.EXPAND | wx.ALL, 6)
-
-        # --- Section 2: What-If Scenarios ---
-        sec2 = self._section_label(panel, "2. What-If / Design Margin Scenarios")
-        main.Add(sec2, 0, wx.EXPAND | wx.ALL, 6)
-
-        wp = wx.Panel(panel)
-        wp.SetBackgroundColour(C.WHITE)
-        ws = wx.BoxSizer(wx.HORIZONTAL)
-        self.btn_whatif = wx.Button(wp, label="Run Scenarios")
-        self.btn_whatif.SetBackgroundColour(C.PRI)
-        self.btn_whatif.SetForegroundColour(wx.WHITE)
-        self.btn_whatif.Bind(wx.EVT_BUTTON, self._on_run_whatif)
-        ws.Add(self.btn_whatif, 0, wx.ALL, 5)
-        ws.Add(wx.StaticText(wp,
-            label="Evaluates predefined environmental scenarios. "
-                  "Each recomputes every component through IEC TR 62380."),
-            0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 8)
-        wp.SetSizer(ws)
-        main.Add(wp, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 6)
-
-        self.whatif_table = _make_list(panel,
-            ["Scenario", "Description", "\u03BB (FIT)", "R(t)", "\u0394\u03BB %", "\u0394R"],
-            [130, 260, 90, 95, 80, 90])
-        self.whatif_table.SetMinSize((-1, 220))
-        main.Add(self.whatif_table, 0, wx.EXPAND | wx.ALL, 6)
-
-        # --- Section 3: Component Criticality ---
-        sec3 = self._section_label(panel, "3. Component Criticality (Elasticity)")
-        main.Add(sec3, 0, wx.EXPAND | wx.ALL, 6)
-
-        cp = wx.Panel(panel)
-        cp.SetBackgroundColour(C.WHITE)
-        css = wx.BoxSizer(wx.HORIZONTAL)
-        css.Add(wx.StaticText(cp, label="Top N:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
-        self.crit_n = wx.SpinCtrl(cp, min=0, max=500, initial=0, size=(65, -1))
-        self.crit_n.SetToolTip("0 = analyze ALL components")
-        css.Add(self.crit_n, 0, wx.ALL, 5)
-        self.btn_crit = wx.Button(cp, label="Run Criticality")
-        self.btn_crit.SetBackgroundColour(C.PRI)
-        self.btn_crit.SetForegroundColour(wx.WHITE)
-        self.btn_crit.Bind(wx.EVT_BUTTON, self._on_run_criticality)
-        css.Add(self.btn_crit, 0, wx.ALL, 5)
-        cp.SetSizer(css)
-        main.Add(cp, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 6)
-
-        self.crit_table = _make_list(panel,
-            ["Reference", "Type", "\u03BB (FIT)", "Top Parameter", "Elasticity", "Impact %"],
-            [90, 120, 80, 140, 80, 80])
-        self.crit_table.SetMinSize((-1, 220))
-        main.Add(self.crit_table, 0, wx.EXPAND | wx.ALL, 6)
-
-        # --- Section 4: Sobol Sensitivity (new engine) ---
-        if _NEW_ENGINE_AVAILABLE and self.blocks and self.root_id:
-            sec4 = self._section_label(panel, "4. Sobol Sensitivity (Pick-Freeze)")
-            main.Add(sec4, 0, wx.EXPAND | wx.ALL, 6)
-            sp = wx.Panel(panel)
-            sp.SetBackgroundColour(C.WHITE)
-            ss = wx.BoxSizer(wx.HORIZONTAL)
-            ss.Add(wx.StaticText(sp, label="Run Monte Carlo first to select parameters, then:"), 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 8)
-            self.btn_sobol = wx.Button(sp, label="Run Sobol (1000)")
-            self.btn_sobol.Bind(wx.EVT_BUTTON, self._on_run_sobol)
-            ss.Add(self.btn_sobol, 0, wx.ALL, 5)
-            sp.SetSizer(ss)
-            main.Add(sp, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 6)
-            self.sobol_table = _make_list(panel, ["Level", "Name", "S_i", "\u00B1std"], [80, 200, 90, 80])
-            main.Add(self.sobol_table, 0, wx.EXPAND | wx.ALL, 6)
-
-        # --- Section 5: User-defined What-If (parameter shifts) ---
-        if _NEW_ENGINE_AVAILABLE and self.blocks and self.root_id:
-            sec5 = self._section_label(panel, "5. User-defined What-If (Parameter Shifts)")
-            main.Add(sec5, 0, wx.EXPAND | wx.ALL, 6)
-            wp2 = wx.Panel(panel)
-            wp2.SetBackgroundColour(C.WHITE)
-            ws2 = wx.BoxSizer(wx.HORIZONTAL)
-            self.btn_user_whatif = wx.Button(wp2, label="Add shift...")
-            self.btn_user_whatif.Bind(wx.EVT_BUTTON, self._on_add_user_shift)
-            ws2.Add(self.btn_user_whatif, 0, wx.ALL, 5)
-            self.btn_run_user_whatif = wx.Button(wp2, label="Run User What-If")
-            self.btn_run_user_whatif.Bind(wx.EVT_BUTTON, self._on_run_user_whatif)
-            ws2.Add(self.btn_run_user_whatif, 0, wx.ALL, 5)
-            wp2.SetSizer(ws2)
-            main.Add(wp2, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 6)
-            self.user_whatif_shifts = []
-            self.user_whatif_list = _make_list(panel, ["Ref", "Field", "New value"], [80, 120, 100])
-            main.Add(self.user_whatif_list, 0, wx.EXPAND | wx.ALL, 6)
-            self.user_whatif_result = wx.StaticText(panel, label="")
-            main.Add(self.user_whatif_result, 0, wx.LEFT | wx.BOTTOM, 6)
-
-        panel.SetSizer(main)
-        return panel
-
-    def _section_label(self, parent, text):
-        p = wx.Panel(parent)
-        p.SetBackgroundColour(wx.Colour(230, 240, 255))
-        s = wx.BoxSizer(wx.VERTICAL)
-        l = wx.StaticText(p, label=text)
-        l.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
-        l.SetForegroundColour(C.HEADER)
-        s.Add(l, 0, wx.ALL, 8)
-        p.SetSizer(s)
-        return p
+    # -- Perturbation table --
 
     def _populate_pert_table(self):
         self._perturbations = list(DEFAULT_PERTURBATIONS)
@@ -1204,199 +1106,184 @@ class AnalysisDialog(wx.Dialog):
                 p.delta_high = abs(float(parts[1])) if len(parts) > 1 else p.delta_low
                 p.enabled = True
             except (ValueError, IndexError):
-                pass
+                wx.MessageBox("Invalid format. Use 'low,high' (e.g. '10,15').",
+                              "Input Error", wx.OK | wx.ICON_WARNING)
             self._populate_pert_table()
         dlg.Destroy()
 
+    # -- Uncertainty analysis (threaded) --
+
+    def _on_run_uncertainty(self, event):
+        filtered = self._filtered()
+        if not filtered:
+            wx.MessageBox("No active data.", "Error", wx.OK | wx.ICON_WARNING)
+            return
+
+        n_sims = self.unc_n.GetValue()
+        ci_map = {0: 0.80, 1: 0.90, 2: 0.95, 3: 0.99}
+        ci = ci_map.get(self.unc_ci.GetSelection(), 0.90)
+
+        comps = build_component_inputs(filtered, excluded_types=self.excluded_types)
+
+        ref_params = {}
+        for c in comps:
+            if c.override_lambda is not None:
+                continue
+            for pname, pval in c.base_params.items():
+                try:
+                    v = float(pval)
+                except (TypeError, ValueError):
+                    continue
+                if v == 0:
+                    continue
+                ref_params.setdefault(pname, {})[c.reference] = v
+
+        specs = list(self.param_specs)
+        for spec in specs:
+            if spec.name in ref_params:
+                spec.nominal_by_ref = ref_params[spec.name]
+
+        runner_ref = [None]
+
+        def work(cancel_event):
+            def progress(cur, tot, msg):
+                if cancel_event.is_set():
+                    raise InterruptedError("Cancelled by user")
+                if runner_ref[0]:
+                    runner_ref[0].progress(f"MC: {cur}/{tot} samples...")
+
+            return run_uncertainty_analysis(
+                comps, specs, self.mission_hours,
+                n_simulations=n_sims, confidence_level=ci,
+                seed=42, progress_callback=progress,
+            )
+
+        def on_done(result):
+            self.mc_result = result
+            self._display_mc_results()
+            self.status.SetLabel(
+                f"Uncertainty analysis complete: {n_sims} samples in "
+                f"{self.mc_result.runtime_seconds:.1f}s")
+
+        self._start_analysis(work, on_done,
+                             label=f"Running uncertainty analysis ({n_sims} samples)...",
+                             buttons_to_disable=[self.btn_run_mc])
+        runner_ref[0] = self._runner
+
+    def _display_mc_results(self):
+        r = self.mc_result
+        ci_label = f"{r.confidence_level*100:.0f}% CI"
+
+        self.mc_histogram.set_data(
+            r.reliability_samples, r.mean_reliability,
+            float(np.percentile(r.reliability_samples, 5)),
+            float(np.percentile(r.reliability_samples, 95)),
+            ci_lo=r.ci_lower, ci_hi=r.ci_upper,
+            ci_label=ci_label,
+            nominal=r.nominal_reliability,
+            jensen_note=r.jensen_note,
+        )
+        self.mc_convergence.set_data(r.convergence_history)
+
+        lines = [
+            f"Nominal R(t):   {r.nominal_reliability:.6f}",
+            f"Mean R(t):      {r.mean_reliability:.6f}",
+            f"Median R(t):    {r.median_reliability:.6f}",
+            f"Std Dev:        {r.std_reliability:.6f}",
+            f"CI [{r.confidence_level*100:.0f}%]:      [{r.ci_lower:.6f}, {r.ci_upper:.6f}]",
+            f"CI Width:       {r.ci_upper - r.ci_lower:.6f}",
+            f"Mean HW CI:     \u00b1{r.mean_ci_halfwidth:.2e}",
+            f"",
+            f"Mean \u03BB:        {r.mean_lambda_fit:.2f} FIT",
+            f"Std \u03BB:         {r.std_lambda_fit:.2f} FIT",
+            f"CI \u03BB:          [{r.ci_lower_lambda_fit:.2f}, {r.ci_upper_lambda_fit:.2f}]",
+            f"",
+            f"Simulations:    {r.n_simulations:,}",
+            f"Runtime:        {r.runtime_seconds:.1f}s",
+            f"Uncertain params: {r.n_uncertain_params}",
+            f"Uncertain comps:  {r.n_uncertain_components}/{r.n_total_components}",
+        ]
+        self.mc_stats_text.SetLabel("\n".join(lines))
+
+        if r.parameter_importance:
+            chart_data = [
+                (f"{p['name']} ({'S' if p['shared'] else 'I'})",
+                 p["srrc_sq"])
+                for p in r.parameter_importance[:12]
+                if p["srrc_sq"] > 0.001
+            ]
+            if chart_data:
+                self.mc_importance.set_data(chart_data, x_label="SRRC\u00B2")
+
+        self.jensen_label.SetLabel(r.jensen_note)
+        self.jensen_label.Wrap(self.GetSize().Width - 40)
+
+    # -- Tornado analysis (threaded) --
+
     def _on_run_tornado(self, event):
         filtered = self._filtered()
+        if not filtered:
+            wx.MessageBox("No active data.", "Error", wx.OK | wx.ICON_WARNING)
+            return
+
         mode = "parameter" if self.tornado_mode.GetSelection() == 0 else "sheet"
-        self.status.SetLabel("Running tornado analysis...")
-        wx.Yield()
-        try:
-            self.tornado_result = tornado_analysis(
-                filtered, self.mission_hours,
-                perturbations=self._perturbations,
-                active_sheets=list(filtered.keys()),
-                excluded_types=self.excluded_types,
+        perturbations = list(self._perturbations)
+        active = list(filtered.keys())
+        excluded = set(self.excluded_types)
+        mh = self.mission_hours
+
+        def work(cancel_event):
+            return tornado_analysis(
+                filtered, mh,
+                perturbations=perturbations,
+                active_sheets=active,
+                excluded_types=excluded,
                 mode=mode,
             )
+
+        def on_done(result):
+            self.tornado_result = result
             self.tornado_chart.set_data(
-                [(e.name, e.swing) for e in self.tornado_result.entries[:15]],
+                [(e.name, e.swing) for e in result.entries[:15]],
                 x_label="FIT Swing",
             )
             self.tornado_table.DeleteAllItems()
-            for e in self.tornado_result.entries:
+            for e in result.entries:
                 _add_row(self.tornado_table, [
                     e.name, f"{e.low_value:.2f}", f"{e.base_value:.2f}",
                     f"{e.high_value:.2f}", f"{e.swing:.2f}", e.perturbation_desc,
                 ])
-            self.status.SetLabel(f"Tornado: {len(self.tornado_result.entries)} parameters analyzed")
-        except Exception as ex:
-            import traceback; traceback.print_exc()
-            wx.MessageBox(str(ex), "Tornado Error", wx.OK | wx.ICON_ERROR)
+            self.status.SetLabel(f"Tornado: {len(result.entries)} parameters analyzed")
 
-    def _on_run_whatif(self, event):
-        filtered = self._filtered()
-        self.status.SetLabel("Running what-if scenarios...")
-        wx.Yield()
-        try:
-            self.scenario_result = scenario_analysis(
-                filtered, self.mission_hours,
-                active_sheets=list(filtered.keys()),
-                excluded_types=self.excluded_types,
-            )
-            self.whatif_table.DeleteAllItems()
-            for s in self.scenario_result.scenarios:
-                color = C.OK if s.delta_lambda_pct < 0 else (
-                    C.FAIL if s.delta_lambda_pct > 5 else C.TXT)
-                _add_row(self.whatif_table, [
-                    s.name, s.description, f"{s.lambda_fit:.2f}",
-                    f"{s.reliability:.6f}", f"{s.delta_lambda_pct:+.1f}%",
-                    f"{s.delta_reliability:+.6f}",
-                ], color=color)
-            self.status.SetLabel(f"Scenarios: {len(self.scenario_result.scenarios)} evaluated")
-        except Exception as ex:
-            import traceback; traceback.print_exc()
-            wx.MessageBox(str(ex), "Scenario Error", wx.OK | wx.ICON_ERROR)
+        self._start_analysis(work, on_done,
+                             label="Running tornado analysis...",
+                             buttons_to_disable=[self.btn_tornado])
 
-    def _param_specs_to_uncertain_params(self):
-        """Convert param_specs + sheet_data to list of UncertainParam for new engine."""
-        out = []
-        if not _NEW_ENGINE_AVAILABLE:
-            return out
-        filtered = self._filtered()
-        ref_to_path = {}
-        for path, data in filtered.items():
-            for comp in data.get("components", []):
-                ref = comp.get("ref")
-                if ref:
-                    ref_to_path[ref] = path
-        for spec in self.param_specs:
-            if not spec.is_uncertain:
-                continue
-            for ref, nominal in spec.nominal_by_ref.items():
-                path = ref_to_path.get(ref)
-                if path is None:
-                    continue
-                if spec.shared:
-                    low = nominal + spec.delta_low
-                    high = nominal + spec.delta_high
-                else:
-                    low = nominal * (1 - spec.rel_low / 100)
-                    high = nominal * (1 + spec.rel_high / 100)
-                out.append(UncertainParam(
-                    sheet_path=path, reference=ref, field_name=spec.name,
-                    nominal=nominal, low=low, high=high, distribution=spec.distribution,
-                ))
-        return out
-
-    def _on_run_sobol(self, event):
-        if not _NEW_ENGINE_AVAILABLE or not self.blocks or not self.root_id:
-            return
-        params = self._param_specs_to_uncertain_params()
-        if not params:
-            wx.MessageBox("Run Monte Carlo first and ensure parameters have uncertainty bounds.", "No params", wx.OK)
-            return
-        self.status.SetLabel("Running Sobol...")
-        wx.Yield()
-        try:
-            result = run_sobol(
-                self.sheet_data, self.blocks, self.root_id, self.mission_hours,
-                params, n_samples=1000,
-            )
-            self.sobol_table.DeleteAllItems()
-            for e in result.parameter_level[:15]:
-                _add_row(self.sobol_table, ["Param", e.name, f"{e.sobol_index:.4f}", f"{e.sobol_std:.4f}"])
-            for e in result.component_level[:15]:
-                _add_row(self.sobol_table, ["Comp", e.name, f"{e.sobol_index:.4f}", f"{e.sobol_std:.4f}"])
-            self.status.SetLabel(f"Sobol: {len(result.parameter_level)} params, {len(result.component_level)} comps")
-        except Exception as ex:
-            import traceback; traceback.print_exc()
-            wx.MessageBox(str(ex), "Sobol Error", wx.OK | wx.ICON_ERROR)
-
-    def _collect_numeric_fields_for_whatif(self):
-        out = []
-        for path, data in self._filtered().items():
-            for comp in data.get("components", []):
-                if comp.get("override_lambda") is not None:
-                    continue
-                params = comp.get("params") or {}
-                for fn, val in params.items():
-                    if fn.startswith("_"):
-                        continue
-                    try:
-                        v = float(val)
-                        out.append((path, comp.get("ref", "?"), fn, v))
-                    except (TypeError, ValueError):
-                        pass
-        return out
-
-    def _on_add_user_shift(self, event):
-        fields = self._collect_numeric_fields_for_whatif()
-        if not fields:
-            wx.MessageBox("No numeric parameters found.", "Info", wx.OK)
-            return
-        choices = [f"{ref} / {fn} = {nom:.3g}" for _, ref, fn, nom in fields]
-        dlg = wx.SingleChoiceDialog(self, "Select parameter:", "Add shift", choices)
-        if dlg.ShowModal() != wx.ID_OK:
-            dlg.Destroy()
-            return
-        idx = dlg.GetSelection()
-        if idx < 0 or idx >= len(fields):
-            dlg.Destroy()
-            return
-        path, ref, fn, nom = fields[idx]
-        val_dlg = wx.TextEntryDialog(self, "New value:", "Value", str(nom))
-        if val_dlg.ShowModal() != wx.ID_OK:
-            val_dlg.Destroy()
-            dlg.Destroy()
-            return
-        try:
-            new_val = float(val_dlg.GetValue())
-        except ValueError:
-            wx.MessageBox("Invalid number.", "Error", wx.OK | wx.ICON_ERROR)
-            val_dlg.Destroy()
-            dlg.Destroy()
-            return
-        val_dlg.Destroy()
-        dlg.Destroy()
-        self.user_whatif_shifts.append(WhatIfShift(sheet_path=path, reference=ref, field_name=fn, new_value=new_val))
-        i = self.user_whatif_list.GetItemCount()
-        self.user_whatif_list.InsertItem(i, ref)
-        self.user_whatif_list.SetItem(i, 1, fn)
-        self.user_whatif_list.SetItem(i, 2, str(new_val))
-
-    def _on_run_user_whatif(self, event):
-        if not self.user_whatif_shifts:
-            wx.MessageBox("Add at least one parameter shift.", "No shifts", wx.OK)
-            return
-        try:
-            result = run_whatif(
-                self.sheet_data, self.blocks, self.root_id, self.mission_hours,
-                self.user_whatif_shifts, scenario_name="User-defined",
-            )
-            self.user_whatif_result.SetLabel(
-                f"R {result.baseline_R:.6f} -> {result.shifted_R:.6f}, "
-                f"\u0394R = {result.delta_R:+.6f}, \u0394FIT = {result.delta_lambda_pct:+.1f}%"
-            )
-        except Exception as ex:
-            wx.MessageBox(str(ex), "What-If Error", wx.OK | wx.ICON_ERROR)
+    # -- Criticality analysis (threaded) --
 
     def _on_run_criticality(self, event):
         filtered = self._filtered()
+        if not filtered:
+            wx.MessageBox("No active data.", "Error", wx.OK | wx.ICON_WARNING)
+            return
+
         top_n = self.crit_n.GetValue()
-        self.status.SetLabel("Running criticality analysis...")
-        wx.Yield()
-        try:
-            self.criticality_results = component_criticality(
-                filtered, self.mission_hours, perturbation=0.10,
-                active_sheets=list(filtered.keys()),
-                excluded_types=self.excluded_types,
+        mh = self.mission_hours
+        active = list(filtered.keys())
+        excluded = set(self.excluded_types)
+
+        def work(cancel_event):
+            return component_criticality(
+                filtered, mh, perturbation=0.10,
+                active_sheets=active,
+                excluded_types=excluded,
                 max_components=top_n,
             )
+
+        def on_done(results):
+            self.criticality_results = results
             self.crit_table.DeleteAllItems()
-            for entry in self.criticality_results:
+            for entry in results:
                 top_field = entry.fields[0] if entry.fields else {}
                 _add_row(self.crit_table, [
                     entry.reference, _trunc(entry.component_type, 18),
@@ -1406,138 +1293,240 @@ class AnalysisDialog(wx.Dialog):
                     f"{top_field.get('impact_pct', 0):.1f}%",
                 ])
             self.status.SetLabel(
-                f"Criticality: {len(self.criticality_results)} components analyzed")
-        except Exception as ex:
-            import traceback; traceback.print_exc()
-            wx.MessageBox(str(ex), "Criticality Error", wx.OK | wx.ICON_ERROR)
+                f"Criticality: {len(results)} components analyzed")
+
+        self._start_analysis(work, on_done,
+                             label="Running criticality analysis...",
+                             buttons_to_disable=[self.btn_crit])
 
     # =================================================================
-    # Tab 4: Optimization
+    # Tab 3: Design Actions (Budget + Improvements + Scenarios + History)
     # =================================================================
 
-    def _tab_optimization(self):
+    def _tab_design_actions(self):
         panel = scrolled.ScrolledPanel(self.nb)
         panel.SetBackgroundColour(C.BG)
         panel.SetupScrolling(scroll_x=False, scrollToTop=True)
         main = wx.BoxSizer(wx.VERTICAL)
 
-        # --- Target setting ---
-        sec1 = self._section_label(panel, "1. Reliability Target & Budget Allocation")
-        main.Add(sec1, 0, wx.EXPAND | wx.ALL, 6)
+        # --- Section 1: What-If Scenarios ---
+        main.Add(self._section_label(panel, "1. What-If / Design Margin Scenarios"), 0, wx.EXPAND | wx.ALL, 6)
+
+        wp = wx.Panel(panel)
+        wp.SetBackgroundColour(C.WHITE)
+        ws = wx.BoxSizer(wx.HORIZONTAL)
+        self.btn_whatif = wx.Button(wp, label="\u25B6  Run Scenarios")
+        self.btn_whatif.SetBackgroundColour(C.PRI)
+        self.btn_whatif.SetForegroundColour(wx.WHITE)
+        self.btn_whatif.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        self.btn_whatif.Bind(wx.EVT_BUTTON, self._on_run_whatif)
+        ws.Add(self.btn_whatif, 0, wx.ALL, 6)
+        ws.Add(wx.StaticText(wp,
+            label="Evaluates environmental scenarios (Temp, Cycling, Duty). "
+                  "Each recomputes every component through IEC TR 62380."),
+            0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
+        wp.SetSizer(ws)
+        main.Add(wp, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 6)
+
+        self.whatif_table = _make_list(panel,
+            ["Scenario", "Description", "\u03BB (FIT)", "R(t)", "\u0394\u03BB %", "\u0394R"],
+            [140, 280, 95, 100, 85, 95])
+        self.whatif_table.SetMinSize((-1, 240))
+        main.Add(self.whatif_table, 0, wx.EXPAND | wx.ALL, 6)
+
+        # --- Section 2: Budget allocation ---
+        main.Add(self._section_label(panel, "2. Reliability Target & Budget Allocation"), 0, wx.EXPAND | wx.ALL, 6)
 
         tp = wx.Panel(panel)
         tp.SetBackgroundColour(C.WHITE)
         ts = wx.BoxSizer(wx.HORIZONTAL)
         ts.Add(wx.StaticText(tp, label="R target:"), 0,
-               wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
-        self.opt_target = wx.TextCtrl(tp, value="0.999", size=(75, -1))
-        ts.Add(self.opt_target, 0, wx.ALL, 5)
+               wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 12)
+        self.opt_target = wx.TextCtrl(tp, value="0.999", size=(80, -1))
+        ts.Add(self.opt_target, 0, wx.ALL, 6)
         ts.Add(wx.StaticText(tp, label="Strategy:"), 0,
-               wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 8)
+               wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
         self.opt_strategy = wx.Choice(tp,
             choices=["Proportional", "Equal", "Complexity", "Criticality"])
         self.opt_strategy.SetSelection(0)
-        ts.Add(self.opt_strategy, 0, wx.ALL, 5)
+        ts.Add(self.opt_strategy, 0, wx.ALL, 6)
         ts.Add(wx.StaticText(tp, label="Margin %:"), 0,
-               wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 8)
+               wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
         self.opt_margin = wx.SpinCtrlDouble(tp, min=0, max=50, initial=10,
-                                             inc=1, size=(60, -1))
-        ts.Add(self.opt_margin, 0, wx.ALL, 5)
-        self.btn_budget = wx.Button(tp, label="Allocate Budget")
+                                             inc=1, size=(65, -1))
+        ts.Add(self.opt_margin, 0, wx.ALL, 6)
+        self.btn_budget = wx.Button(tp, label="\u25B6  Allocate Budget")
         self.btn_budget.SetBackgroundColour(C.PRI)
         self.btn_budget.SetForegroundColour(wx.WHITE)
+        self.btn_budget.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
         self.btn_budget.Bind(wx.EVT_BUTTON, self._on_run_budget)
-        ts.Add(self.btn_budget, 0, wx.ALL, 5)
+        ts.Add(self.btn_budget, 0, wx.ALL, 6)
         tp.SetSizer(ts)
         main.Add(tp, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 6)
 
         self.budget_info = wx.StaticText(panel, label="Set target and run budget allocation.")
         self.budget_info.SetForegroundColour(C.TXT_M)
-        main.Add(self.budget_info, 0, wx.ALL, 8)
+        self.budget_info.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        main.Add(self.budget_info, 0, wx.ALL, 10)
 
         self.budget_list = _make_list(panel,
             ["Reference", "Type", "Actual FIT", "Budget FIT", "Margin", "Util %", "Status"],
-            [85, 110, 80, 80, 75, 65, 55])
-        self.budget_list.SetMinSize((-1, 250))
+            [90, 120, 85, 85, 80, 70, 60])
+        self.budget_list.SetMinSize((-1, 260))
         main.Add(self.budget_list, 0, wx.EXPAND | wx.ALL, 6)
 
-        # --- Improvement recommendations ---
-        sec2 = self._section_label(panel,
-            "2. Improvement Recommendations (Derating + Component Swap)")
-        main.Add(sec2, 0, wx.EXPAND | wx.ALL, 6)
+        # --- Section 3: Improvements ---
+        main.Add(self._section_label(panel, "3. Improvement Recommendations (Derating + Swap)"), 0, wx.EXPAND | wx.ALL, 6)
 
         rp = wx.Panel(panel)
         rp.SetBackgroundColour(C.WHITE)
         rps = wx.BoxSizer(wx.HORIZONTAL)
-        self.btn_improve = wx.Button(rp, label="Generate Recommendations")
+        self.btn_improve = wx.Button(rp, label="\u25B6  Generate Recommendations")
         self.btn_improve.SetBackgroundColour(C.OK)
         self.btn_improve.SetForegroundColour(wx.WHITE)
+        self.btn_improve.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
         self.btn_improve.Bind(wx.EVT_BUTTON, self._on_run_improvements)
-        rps.Add(self.btn_improve, 0, wx.ALL, 5)
+        rps.Add(self.btn_improve, 0, wx.ALL, 6)
         self.improve_info = wx.StaticText(rp, label="Run budget first, then generate improvements.")
         self.improve_info.SetForegroundColour(C.TXT_M)
-        rps.Add(self.improve_info, 1, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
+        rps.Add(self.improve_info, 1, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 12)
         rp.SetSizer(rps)
         main.Add(rp, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 6)
 
         self.improve_list = _make_list(panel,
             ["#", "Reference", "Type", "Action", "Current", "Proposed",
              "FIT Saved", "Feasibility"],
-            [35, 75, 100, 110, 75, 75, 75, 70])
+            [40, 80, 110, 120, 80, 80, 80, 75])
         self.improve_list.SetMinSize((-1, 280))
         main.Add(self.improve_list, 0, wx.EXPAND | wx.ALL, 6)
 
-        # --- Bidirectional what-if ---
-        sec3 = self._section_label(panel, "3. Parameter What-If (bidirectional)")
-        main.Add(sec3, 0, wx.EXPAND | wx.ALL, 6)
+        # --- Section 4: Parameter What-If (bidirectional) ---
+        main.Add(self._section_label(panel, "4. Parameter What-If (single component)"), 0, wx.EXPAND | wx.ALL, 6)
 
         bip = wx.Panel(panel)
         bip.SetBackgroundColour(C.WHITE)
         bis = wx.BoxSizer(wx.HORIZONTAL)
         bis.Add(wx.StaticText(bip, label="Component:"), 0,
-                wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
-        self.wi_ref = wx.TextCtrl(bip, size=(70, -1))
-        bis.Add(self.wi_ref, 0, wx.ALL, 5)
+                wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 12)
+        self.wi_ref = wx.TextCtrl(bip, size=(75, -1))
+        bis.Add(self.wi_ref, 0, wx.ALL, 6)
         bis.Add(wx.StaticText(bip, label="Param:"), 0,
-                wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 8)
-        self.wi_param = wx.TextCtrl(bip, size=(100, -1))
-        bis.Add(self.wi_param, 0, wx.ALL, 5)
+                wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
+        self.wi_param = wx.TextCtrl(bip, size=(110, -1))
+        bis.Add(self.wi_param, 0, wx.ALL, 6)
         bis.Add(wx.StaticText(bip, label="New value:"), 0,
-                wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 8)
-        self.wi_val = wx.TextCtrl(bip, size=(80, -1))
-        bis.Add(self.wi_val, 0, wx.ALL, 5)
+                wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
+        self.wi_val = wx.TextCtrl(bip, size=(85, -1))
+        bis.Add(self.wi_val, 0, wx.ALL, 6)
         self.btn_wi = wx.Button(bip, label="Evaluate")
         self.btn_wi.Bind(wx.EVT_BUTTON, self._on_whatif_single)
-        bis.Add(self.btn_wi, 0, wx.ALL, 5)
+        bis.Add(self.btn_wi, 0, wx.ALL, 6)
         bip.SetSizer(bis)
         main.Add(bip, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 6)
 
         self.wi_result = wx.StaticText(panel, label="")
         self.wi_result.SetFont(wx.Font(9, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
-        main.Add(self.wi_result, 0, wx.ALL, 8)
+        main.Add(self.wi_result, 0, wx.ALL, 10)
+
+        # --- Section 5: History ---
+        main.Add(self._section_label(panel, "5. Reliability History"), 0, wx.EXPAND | wx.ALL, 6)
+
+        snap_panel = wx.Panel(panel)
+        snap_panel.SetBackgroundColour(C.WHITE)
+        snap_s = wx.BoxSizer(wx.HORIZONTAL)
+        snap_s.Add(wx.StaticText(snap_panel, label="Version:"), 0,
+               wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 12)
+        self.snap_label = wx.TextCtrl(snap_panel, size=(120, -1))
+        snap_s.Add(self.snap_label, 0, wx.ALL, 6)
+        snap_s.Add(wx.StaticText(snap_panel, label="Notes:"), 0,
+               wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
+        self.snap_notes = wx.TextCtrl(snap_panel, size=(200, -1))
+        snap_s.Add(self.snap_notes, 0, wx.ALL, 6)
+        btn_snap = wx.Button(snap_panel, label="Save Snapshot")
+        btn_snap.Bind(wx.EVT_BUTTON, self._on_save_snapshot)
+        snap_s.Add(btn_snap, 0, wx.ALL, 6)
+        btn_load = wx.Button(snap_panel, label="Load History")
+        btn_load.Bind(wx.EVT_BUTTON, self._on_load_history)
+        snap_s.Add(btn_load, 0, wx.ALL, 6)
+        snap_panel.SetSizer(snap_s)
+        main.Add(snap_panel, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 6)
+
+        self.history_list = _make_list(panel,
+            ["Version", "Date", "System FIT", "R(t)", "Components", "Notes"],
+            [110, 150, 95, 105, 85, 210])
+        self.history_list.SetMinSize((-1, 180))
+        main.Add(self.history_list, 0, wx.EXPAND | wx.ALL, 6)
 
         panel.SetSizer(main)
         return panel
 
+    # -- What-If Scenarios (threaded) --
+
+    def _on_run_whatif(self, event):
+        filtered = self._filtered()
+        if not filtered:
+            wx.MessageBox("No active data.", "Error", wx.OK | wx.ICON_WARNING)
+            return
+        active = list(filtered.keys())
+        excluded = set(self.excluded_types)
+        mh = self.mission_hours
+
+        def work(cancel_event):
+            return scenario_analysis(
+                filtered, mh,
+                active_sheets=active,
+                excluded_types=excluded,
+            )
+
+        def on_done(result):
+            self.scenario_result = result
+            self.whatif_table.DeleteAllItems()
+            for s in result.scenarios:
+                color = C.OK if s.delta_lambda_pct < 0 else (
+                    C.FAIL if s.delta_lambda_pct > 5 else C.TXT)
+                _add_row(self.whatif_table, [
+                    s.name, s.description, f"{s.lambda_fit:.2f}",
+                    f"{s.reliability:.6f}", f"{s.delta_lambda_pct:+.1f}%",
+                    f"{s.delta_reliability:+.6f}",
+                ], color=color)
+            self.status.SetLabel(f"Scenarios: {len(result.scenarios)} evaluated")
+
+        self._start_analysis(work, on_done,
+                             label="Running what-if scenarios...",
+                             buttons_to_disable=[self.btn_whatif])
+
+    # -- Budget allocation (threaded) --
+
     def _on_run_budget(self, event):
         filtered = self._filtered()
         if not filtered:
+            wx.MessageBox("No active data.", "Error", wx.OK | wx.ICON_WARNING)
             return
-        self.status.SetLabel("Allocating budget...")
-        wx.Yield()
+
         try:
             target_r = float(self.opt_target.GetValue())
-            strat_map = {0: "proportional", 1: "equal", 2: "complexity", 3: "criticality"}
-            strategy = strat_map.get(self.opt_strategy.GetSelection(), "proportional")
-            margin = self.opt_margin.GetValue()
+            if not (0.0 < target_r < 1.0):
+                raise ValueError("Target must be between 0 and 1")
+        except ValueError as e:
+            wx.MessageBox(f"Invalid target R: {e}", "Input Error", wx.OK | wx.ICON_ERROR)
+            return
 
-            self.budget_result = allocate_budget(
-                filtered, self.mission_hours, target_reliability=target_r,
-                strategy=strategy, active_sheets=list(filtered.keys()),
+        strat_map = {0: "proportional", 1: "equal", 2: "complexity", 3: "criticality"}
+        strategy = strat_map.get(self.opt_strategy.GetSelection(), "proportional")
+        margin = self.opt_margin.GetValue()
+        active = list(filtered.keys())
+        mh = self.mission_hours
+
+        def work(cancel_event):
+            return allocate_budget(
+                filtered, mh, target_reliability=target_r,
+                strategy=strategy, active_sheets=active,
                 margin_percent=margin)
 
+        def on_done(result):
+            self.budget_result = result
             self.budget_list.DeleteAllItems()
-            for sb in self.budget_result.sheet_budgets:
+            for sb in result.sheet_budgets:
                 for cb in sb.component_budgets:
                     color = C.OK if cb.within_budget else C.FAIL
                     _add_row(self.budget_list, [
@@ -1546,47 +1535,50 @@ class AnalysisDialog(wx.Dialog):
                         f"{cb.margin_fit:+.2f}", f"{cb.utilization*100:.0f}%",
                         "PASS" if cb.within_budget else "OVER",
                     ], color=color)
-
-            br = self.budget_result
-            icon = "\u2705" if br.system_within_budget else "\u274C"
+            icon = "\u2705" if result.system_within_budget else "\u274C"
             self.budget_info.SetLabel(
-                f"{icon}  Target R={target_r} => {br.target_fit:.1f} FIT, "
-                f"Actual {br.actual_fit:.1f} FIT, "
-                f"Margin {br.system_margin_fit:+.1f} FIT. "
-                f"{br.components_over_budget}/{br.total_components} over budget.")
+                f"{icon}  Target R={target_r} => {result.target_fit:.1f} FIT, "
+                f"Actual {result.actual_fit:.1f} FIT, "
+                f"Margin {result.system_margin_fit:+.1f} FIT. "
+                f"{result.components_over_budget}/{result.total_components} over budget.")
             self.budget_info.SetForegroundColour(
-                C.OK if br.system_within_budget else C.FAIL)
-            self.status.SetLabel(f"Budget: {br.total_components} components allocated")
-        except Exception as ex:
-            import traceback; traceback.print_exc()
-            wx.MessageBox(str(ex), "Budget Error", wx.OK | wx.ICON_ERROR)
+                C.OK if result.system_within_budget else C.FAIL)
+            self.status.SetLabel(f"Budget: {result.total_components} components allocated")
+
+        self._start_analysis(work, on_done,
+                             label="Allocating budget...",
+                             buttons_to_disable=[self.btn_budget])
+
+    # -- Improvements (threaded) --
 
     def _on_run_improvements(self, event):
         filtered = self._filtered()
         if not filtered:
+            wx.MessageBox("No active data.", "Error", wx.OK | wx.ICON_WARNING)
             return
 
-        self.status.SetLabel("Generating improvement recommendations...")
-        self.btn_improve.Disable()
-        wx.Yield()
-        try:
-            # Derating
-            target_fit = self.budget_result.target_fit if self.budget_result else (
-                lambda_from_reliability(0.999, self.mission_hours) * 1e9)
+        active = list(filtered.keys())
+        mh = self.mission_hours
+        target_fit = self.budget_result.target_fit if self.budget_result else (
+            lambda_from_reliability(0.999, mh) * 1e9)
+        all_comps = self._all_components()
+        sys_fit = sum(_safe_float(c.get("lambda", 0)) for c in all_comps) * 1e9
 
-            self.derating_result = compute_derating_guidance(
-                filtered, self.mission_hours, target_fit,
-                active_sheets=list(filtered.keys()), top_n=500)
+        def work(cancel_event):
+            derating = compute_derating_guidance(
+                filtered, mh, target_fit,
+                active_sheets=active, top_n=500)
+            swaps = rank_all_swaps(all_comps, sys_fit, max_per_component=3)
+            return derating, swaps, sys_fit, target_fit
 
-            # Swap
-            all_comps = self._all_components()
-            sys_fit = sum(_safe_float(c.get("lambda", 0)) for c in all_comps) * 1e9
-            self.swap_results = rank_all_swaps(all_comps, sys_fit, max_per_component=3)
+        def on_done(result):
+            derating, swaps, sf, tf = result
+            self.derating_result = derating
+            self.swap_results = swaps
 
-            # Merge into unified list sorted by FIT saved
             merged = []
-            if self.derating_result:
-                for rec in self.derating_result.recommendations:
+            if derating:
+                for rec in derating.recommendations:
                     merged.append({
                         "ref": rec.reference, "type": rec.component_type,
                         "action": f"Derate {rec.parameter}",
@@ -1595,7 +1587,7 @@ class AnalysisDialog(wx.Dialog):
                         "fit_saved": rec.system_fit_reduction,
                         "feasibility": rec.feasibility,
                     })
-            for sw in self.swap_results:
+            for sw in swaps:
                 if sw.get("delta_fit", 0) < 0:
                     merged.append({
                         "ref": sw.get("reference", "?"),
@@ -1618,18 +1610,19 @@ class AnalysisDialog(wx.Dialog):
                     f"{rec['fit_saved']:.2f}", rec["feasibility"],
                 ])
 
-            gap = (sys_fit - target_fit) if sys_fit > target_fit else 0
+            gap = (sf - tf) if sf > tf else 0
             self.improve_info.SetLabel(
                 f"{len(merged)} recommendations. "
                 f"Total potential savings: {total_saved:.1f} FIT"
                 + (f" (covers {total_saved/gap*100:.0f}% of gap)" if gap > 0 else "")
             )
             self.status.SetLabel(f"Improvements: {len(merged)} recommendations generated")
-        except Exception as ex:
-            import traceback; traceback.print_exc()
-            wx.MessageBox(str(ex), "Improvement Error", wx.OK | wx.ICON_ERROR)
-        finally:
-            self.btn_improve.Enable()
+
+        self._start_analysis(work, on_done,
+                             label="Generating improvement recommendations...",
+                             buttons_to_disable=[self.btn_improve])
+
+    # -- Single-param what-if (instant, no thread needed) --
 
     def _on_whatif_single(self, event):
         ref = self.wi_ref.GetValue().strip()
@@ -1637,26 +1630,33 @@ class AnalysisDialog(wx.Dialog):
         val_str = self.wi_val.GetValue().strip()
         if not ref or not param or not val_str:
             wx.MessageBox("Fill in component reference, parameter name, and new value.",
-                          "Missing Input", wx.OK)
+                          "Missing Input", wx.OK | wx.ICON_WARNING)
             return
         try:
             new_val = float(val_str)
         except ValueError:
-            new_val = val_str
+            wx.MessageBox(f"'{val_str}' is not a valid number.", "Input Error", wx.OK | wx.ICON_ERROR)
+            return
 
-        # Find component
         comp = None
         for c in self._all_components():
             if c.get("ref", "") == ref:
                 comp = c
                 break
         if comp is None:
-            self.wi_result.SetLabel(f"Component '{ref}' not found.")
+            self.wi_result.SetLabel(f"Component '{ref}' not found in active sheets.")
+            self.wi_result.SetForegroundColour(C.FAIL)
             return
 
-        result = single_param_whatif(
-            comp, param, new_val, self.system_lambda, self.mission_hours)
+        try:
+            result = single_param_whatif(
+                comp, param, new_val, self.system_lambda, self.mission_hours)
+        except Exception as e:
+            self.wi_result.SetLabel(f"Error: {e}")
+            self.wi_result.SetForegroundColour(C.FAIL)
+            return
 
+        self.wi_result.SetForegroundColour(C.TXT)
         self.wi_result.SetLabel(
             f"Component {ref}: {param} = {result['old_value']} -> {new_val}\n"
             f"  Component FIT: {result['comp_fit_before']:.2f} -> {result['comp_fit_after']:.2f} "
@@ -1666,43 +1666,7 @@ class AnalysisDialog(wx.Dialog):
             f"({result['delta_r']:+.6f})"
         )
 
-    # =================================================================
-    # Tab 5: History
-    # =================================================================
-
-    def _tab_history(self):
-        panel = wx.Panel(self.nb)
-        panel.SetBackgroundColour(C.BG)
-        main = wx.BoxSizer(wx.VERTICAL)
-
-        # Snapshot creation
-        sp = wx.Panel(panel)
-        sp.SetBackgroundColour(C.WHITE)
-        ss = wx.BoxSizer(wx.HORIZONTAL)
-        ss.Add(wx.StaticText(sp, label="Version label:"), 0,
-               wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
-        self.snap_label = wx.TextCtrl(sp, size=(120, -1))
-        ss.Add(self.snap_label, 0, wx.ALL, 5)
-        ss.Add(wx.StaticText(sp, label="Notes:"), 0,
-               wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 8)
-        self.snap_notes = wx.TextCtrl(sp, size=(200, -1))
-        ss.Add(self.snap_notes, 0, wx.ALL, 5)
-        btn_snap = wx.Button(sp, label="Save Snapshot")
-        btn_snap.Bind(wx.EVT_BUTTON, self._on_save_snapshot)
-        ss.Add(btn_snap, 0, wx.ALL, 5)
-        btn_load = wx.Button(sp, label="Load History")
-        btn_load.Bind(wx.EVT_BUTTON, self._on_load_history)
-        ss.Add(btn_load, 0, wx.ALL, 5)
-        sp.SetSizer(ss)
-        main.Add(sp, 0, wx.EXPAND | wx.ALL, 6)
-
-        self.history_list = _make_list(panel,
-            ["Version", "Date", "System FIT", "R(t)", "Components", "Notes"],
-            [100, 140, 90, 100, 80, 200])
-        main.Add(self.history_list, 1, wx.EXPAND | wx.ALL, 6)
-
-        panel.SetSizer(main)
-        return panel
+    # -- History --
 
     def _on_save_snapshot(self, event):
         if not self.project_path:
@@ -1710,26 +1674,32 @@ class AnalysisDialog(wx.Dialog):
             return
         label = self.snap_label.GetValue().strip() or "v1"
         notes = self.snap_notes.GetValue().strip()
-        snap = create_snapshot(self._active_data, self.system_lambda,
-                               self.mission_hours, label, notes)
-        path = save_snapshot(snap, self.project_path)
-        self.status.SetLabel(f"Snapshot '{label}' saved to {path}")
-        self._on_load_history(None)
+        try:
+            snap = create_snapshot(self._active_data, self.system_lambda,
+                                   self.mission_hours, label, notes)
+            path = save_snapshot(snap, self.project_path)
+            self.status.SetLabel(f"Snapshot '{label}' saved to {path}")
+            self._on_load_history(None)
+        except Exception as e:
+            wx.MessageBox(f"Failed to save snapshot: {e}", "Error", wx.OK | wx.ICON_ERROR)
 
     def _on_load_history(self, event):
         if not self.project_path:
             return
-        snapshots = load_snapshots(self.project_path)
-        self.history_list.DeleteAllItems()
-        for s in reversed(snapshots):
-            _add_row(self.history_list, [
-                s.version_label, s.timestamp[:19],
-                f"{s.system_fit:.2f}", f"{s.system_reliability:.6f}",
-                str(s.n_components), s.notes[:40],
-            ])
+        try:
+            snapshots = load_snapshots(self.project_path)
+            self.history_list.DeleteAllItems()
+            for s in reversed(snapshots):
+                _add_row(self.history_list, [
+                    s.version_label, s.timestamp[:19],
+                    f"{s.system_fit:.2f}", f"{s.system_reliability:.6f}",
+                    str(s.n_components), s.notes[:40],
+                ])
+        except Exception as e:
+            wx.MessageBox(f"Failed to load history: {e}", "Error", wx.OK | wx.ICON_ERROR)
 
     # =================================================================
-    # Tab 6: Report
+    # Tab 4: Report
     # =================================================================
 
     def _tab_report(self):
@@ -1743,23 +1713,26 @@ class AnalysisDialog(wx.Dialog):
         self.btn_html = wx.Button(rp, label="Generate HTML Report")
         self.btn_html.SetBackgroundColour(C.PRI)
         self.btn_html.SetForegroundColour(wx.WHITE)
+        self.btn_html.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
         self.btn_html.Bind(wx.EVT_BUTTON, self._on_gen_html)
-        rs.Add(self.btn_html, 0, wx.ALL, 8)
+        rs.Add(self.btn_html, 0, wx.ALL, 10)
         self.btn_pdf = wx.Button(rp, label="Generate PDF Report")
         self.btn_pdf.SetBackgroundColour(C.OK)
         self.btn_pdf.SetForegroundColour(wx.WHITE)
+        self.btn_pdf.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
         self.btn_pdf.Bind(wx.EVT_BUTTON, self._on_gen_pdf)
-        rs.Add(self.btn_pdf, 0, wx.ALL, 8)
+        rs.Add(self.btn_pdf, 0, wx.ALL, 10)
         rs.Add(wx.StaticText(rp,
             label="Reports include all analyses run in this session. "
                   "Run analyses first, then generate."),
-            0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
+            0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 12)
         rp.SetSizer(rs)
         main.Add(rp, 0, wx.EXPAND | wx.ALL, 6)
 
         self.report_status = wx.StaticText(panel, label="")
         self.report_status.SetForegroundColour(C.TXT_M)
-        main.Add(self.report_status, 0, wx.ALL, 12)
+        self.report_status.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        main.Add(self.report_status, 0, wx.ALL, 14)
 
         panel.SetSizer(main)
         return panel
@@ -1811,23 +1784,35 @@ class AnalysisDialog(wx.Dialog):
         )
 
     def _on_gen_html(self, event):
-        report_data = self._build_report_data()
-        gen = ReportGenerator(logo_path=self.logo_path, logo_mime=self.logo_mime)
-        html = gen.generate_html(report_data)
+        try:
+            report_data = self._build_report_data()
+            gen = ReportGenerator(logo_path=self.logo_path, logo_mime=self.logo_mime)
+            html = gen.generate_html(report_data)
+        except Exception as e:
+            wx.MessageBox(f"Failed to build report: {e}", "Report Error", wx.OK | wx.ICON_ERROR)
+            return
 
         dlg = wx.FileDialog(self, "Save HTML Report",
                             wildcard="HTML files (*.html)|*.html",
                             style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT)
         if dlg.ShowModal() == wx.ID_OK:
             path = dlg.GetPath()
-            with open(path, "w", encoding="utf-8") as f:
-                f.write(html)
-            self.report_status.SetLabel(f"HTML report saved: {path}")
+            try:
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(html)
+                self.report_status.SetLabel(f"HTML report saved: {path}")
+            except Exception as e:
+                wx.MessageBox(f"Failed to write report: {e}", "Error", wx.OK | wx.ICON_ERROR)
         dlg.Destroy()
 
     def _on_gen_pdf(self, event):
-        report_data = self._build_report_data()
-        gen = ReportGenerator(logo_path=self.logo_path, logo_mime=self.logo_mime)
+        try:
+            report_data = self._build_report_data()
+            gen = ReportGenerator(logo_path=self.logo_path, logo_mime=self.logo_mime)
+        except Exception as e:
+            wx.MessageBox(f"Failed to build report: {e}", "Report Error", wx.OK | wx.ICON_ERROR)
+            return
+
         dlg = wx.FileDialog(self, "Save PDF Report",
                             wildcard="PDF files (*.pdf)|*.pdf",
                             style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT)
@@ -1837,7 +1822,6 @@ class AnalysisDialog(wx.Dialog):
                 gen.generate_pdf(report_data, path)
                 self.report_status.SetLabel(f"PDF report saved: {path}")
             except Exception as ex:
-                # Fallback: save as HTML
                 html_path = path.rsplit(".", 1)[0] + ".html"
                 try:
                     html = gen.generate_html(report_data)
@@ -1846,7 +1830,7 @@ class AnalysisDialog(wx.Dialog):
                     self.report_status.SetLabel(
                         f"PDF failed ({ex}). HTML saved: {html_path}")
                 except Exception as ex2:
-                    self.report_status.SetLabel(f"Report generation failed: {ex2}")
+                    wx.MessageBox(f"Report generation failed: {ex2}", "Error", wx.OK | wx.ICON_ERROR)
         dlg.Destroy()
 
     # =================================================================
@@ -1858,4 +1842,4 @@ class AnalysisDialog(wx.Dialog):
         for tn, cb in self._type_cbs.items():
             if not cb.GetValue():
                 self.excluded_types.add(tn)
-        self._refresh_dashboard()
+        self._refresh_overview()

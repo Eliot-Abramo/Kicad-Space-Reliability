@@ -110,9 +110,17 @@ class SchematicParser:
                 pos = start + 1
                 continue
             props = self._extract_properties(symbol_content)
-            # KiCad 6+ may put Reference in (instances (path ... (reference "R1")))
-            reference = props.get("Reference") or self._extract_reference_from_instances(symbol_content)
-            reference = reference or "?"
+            # KiCad 6+/9: (property "Reference" "U?") is the unannotated template.
+            # The actual annotated designator lives in (instances (project ...) (path ... (reference "U1"))).
+            # We must prefer the instances value when the property is unannotated.
+            prop_ref = props.get("Reference") or ""
+            inst_ref = self._extract_reference_from_instances(symbol_content)
+            if inst_ref and not inst_ref.endswith("?"):
+                reference = inst_ref
+            elif prop_ref and not prop_ref.endswith("?"):
+                reference = prop_ref
+            else:
+                reference = inst_ref or prop_ref or "?"
             value = props.get("Value", "")
             footprint = props.get("Footprint", "")
             if reference.startswith("#") or lib_id.lower().startswith("power:"):
@@ -127,9 +135,20 @@ class SchematicParser:
         return components
 
     def _extract_reference_from_instances(self, symbol_sexp: str) -> Optional[str]:
-        """Extract reference designator from (instances ... (reference "R1"))."""
-        match = re.search(r'\(reference\s+"([^"]*)"\)', symbol_sexp)
-        return match.group(1) if match else None
+        """Extract reference designator from (instances ... (reference "R1")).
+
+        KiCad 9 format nests references inside:
+            (instances (project "Name") (path "/uuid" (reference "U1") (unit 1)))
+        KiCad 6/7 may use a flatter structure.  We search for all
+        (reference "...") occurrences and prefer the first annotated one.
+        """
+        matches = re.findall(r'\(reference\s+"([^"]*)"\)', symbol_sexp)
+        # Prefer the first match that is not unannotated (doesn't end with '?')
+        for m in matches:
+            if m and not m.endswith("?"):
+                return m
+        # Fall back to any match (may still be "U?" if nothing annotated)
+        return matches[0] if matches else None
     
     def _parse_child_sheets(self, content: str) -> List[Tuple[str, str]]:
         children = []
