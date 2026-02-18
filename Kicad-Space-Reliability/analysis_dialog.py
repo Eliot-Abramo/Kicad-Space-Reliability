@@ -506,6 +506,14 @@ def _add_row(lc, values, color=None):
     return idx
 
 
+def _autosize_columns(lc, min_width=90):
+    """Auto-fit every column to its content, enforcing a minimum width."""
+    for col in range(lc.GetColumnCount()):
+        lc.SetColumnWidth(col, wx.LIST_AUTOSIZE)
+        if lc.GetColumnWidth(col) < min_width:
+            lc.SetColumnWidth(col, min_width)
+
+
 def _safe_float(val, default=0.0):
     try:
         return float(val)
@@ -725,6 +733,7 @@ class AnalysisDialog(wx.Dialog):
                         e.name, f"{e.low_value:.2f}", f"{e.base_value:.2f}",
                         f"{e.high_value:.2f}", f"{e.swing:.2f}", e.perturbation_desc,
                     ])
+                _autosize_columns(self.tornado_table)
             except Exception:
                 pass
 
@@ -743,12 +752,13 @@ class AnalysisDialog(wx.Dialog):
                 for entry in self.criticality_results:
                     top_field = entry.fields[0] if entry.fields else {}
                     _add_row(self.crit_table, [
-                        entry.reference, _trunc(entry.component_type, 18),
+                        entry.reference, entry.component_type,
                         f"{entry.base_lambda_fit:.2f}",
                         top_field.get("name", "-"),
                         f"{top_field.get('elasticity', 0):.3f}",
                         f"{top_field.get('impact_pct', 0):.1f}%",
                     ])
+                _autosize_columns(self.crit_table)
             except Exception:
                 pass
 
@@ -770,6 +780,7 @@ class AnalysisDialog(wx.Dialog):
                         f"{s.reliability:.6f}", f"{s.delta_lambda_pct:+.1f}%",
                         f"{s.delta_reliability:+.6f}",
                     ], color=color)
+                _autosize_columns(self.whatif_table)
             except Exception:
                 pass
 
@@ -830,9 +841,17 @@ class AnalysisDialog(wx.Dialog):
 
     def _filtered(self):
         result = {}
+        seen_refs = set()
         for path, data in self._active_data.items():
-            comps = [c for c in data.get("components", [])
-                     if c.get("class", "Unknown") not in self.excluded_types]
+            comps = []
+            for c in data.get("components", []):
+                if c.get("class", "Unknown") in self.excluded_types:
+                    continue
+                ref = c.get("ref", "?")
+                if ref in seen_refs:
+                    continue
+                seen_refs.add(ref)
+                comps.append(c)
             new_lam = sum(_safe_float(c.get("lambda", 0)) for c in comps)
             result[path] = {**data, "components": comps, "lambda": new_lam}
         return result
@@ -1028,7 +1047,7 @@ class AnalysisDialog(wx.Dialog):
         # Contribution table
         self.contrib_list = _make_list(panel,
             ["Component", "Type", "\u03BB (FIT)", "Contribution %", "Cumulative %"],
-            [180, 160, 110, 120, 110])
+            [180, 200, 110, 130, 120])
         main.Add(self.contrib_list, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
 
         panel.SetSizer(main)
@@ -1056,9 +1075,10 @@ class AnalysisDialog(wx.Dialog):
             pct = (fit / total_fit * 100) if total_fit > 0 else 0
             cum += pct
             _add_row(self.contrib_list, [
-                ref, _trunc(ctype, 18), f"{fit:.2f}",
+                ref, ctype, f"{fit:.2f}",
                 f"{pct:.1f}%", f"{cum:.1f}%",
             ])
+        _autosize_columns(self.contrib_list)
 
         r = reliability_from_lambda(total_lam, self.mission_hours)
         mttf = 1.0 / total_lam if total_lam > 0 else float('inf')
@@ -1154,7 +1174,7 @@ class AnalysisDialog(wx.Dialog):
 
         self.param_list = _make_list(param_panel,
             ["Parameter", "Components", "Mode", "Low Bound", "High Bound", "Distribution", "Shared"],
-            [140, 80, 80, 95, 95, 90, 65])
+            [170, 100, 110, 110, 110, 110, 90])
         ps.Add(self.param_list, 1, wx.EXPAND | wx.ALL, 4)
 
         param_panel.SetSizer(ps)
@@ -1221,7 +1241,7 @@ class AnalysisDialog(wx.Dialog):
 
         self.pert_list = _make_list(panel,
             ["Parameter", "Low (-)", "High (+)", "Unit", "Enabled"],
-            [150, 85, 85, 85, 65])
+            [180, 100, 100, 100, 90])
         self.pert_list.SetMinSize((-1, 160))
         self._populate_pert_table()
         self.pert_list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self._on_edit_pert)
@@ -1233,7 +1253,7 @@ class AnalysisDialog(wx.Dialog):
 
         self.tornado_table = _make_list(panel,
             ["Parameter", "Low FIT", "Base FIT", "High FIT", "Swing", "Perturbation"],
-            [200, 100, 100, 100, 100, 180])
+            [220, 110, 110, 110, 110, 220])
         self.tornado_table.SetMinSize((-1, 160))
         main.Add(self.tornado_table, 0, wx.EXPAND | wx.ALL, 6)
 
@@ -1270,7 +1290,7 @@ class AnalysisDialog(wx.Dialog):
 
         self.crit_table = _make_list(panel,
             ["Reference", "Type", "\u03BB (FIT)", "Top Parameter", "Elasticity", "Impact %"],
-            [110, 160, 100, 180, 100, 100])
+            [130, 200, 110, 220, 110, 110])
         self.crit_table.SetMinSize((-1, 240))
         main.Add(self.crit_table, 0, wx.EXPAND | wx.ALL, 6)
 
@@ -1311,6 +1331,7 @@ class AnalysisDialog(wx.Dialog):
                 lo, hi, spec.distribution.upper(),
                 "Yes" if spec.shared else "No",
             ])
+        _autosize_columns(self.param_list)
 
     def _on_apply_quick_unc(self, event):
         pct = self.unc_pct.GetValue()
@@ -1384,6 +1405,7 @@ class AnalysisDialog(wx.Dialog):
                     lo_s, hi_s, s.distribution.upper(),
                     "Yes" if s.shared else "No",
                 ])
+            _autosize_columns(self.param_list)
         dlg.Destroy()
 
     # -- Perturbation table --
@@ -1396,6 +1418,7 @@ class AnalysisDialog(wx.Dialog):
                 p.param_name, f"{p.delta_low}", f"{p.delta_high}",
                 p.unit, "Yes" if p.enabled else "No",
             ])
+        _autosize_columns(self.pert_list)
 
     def _on_edit_pert(self, event):
         idx = event.GetIndex()
@@ -1591,6 +1614,7 @@ class AnalysisDialog(wx.Dialog):
                     e.name, f"{e.low_value:.2f}", f"{e.base_value:.2f}",
                     f"{e.high_value:.2f}", f"{e.swing:.2f}", e.perturbation_desc,
                 ])
+            _autosize_columns(self.tornado_table)
             self.status.SetLabel(f"Tornado: {len(result.entries)} parameters analyzed")
 
         self._start_analysis(work, on_done,
@@ -1624,12 +1648,13 @@ class AnalysisDialog(wx.Dialog):
             for entry in results:
                 top_field = entry.fields[0] if entry.fields else {}
                 _add_row(self.crit_table, [
-                    entry.reference, _trunc(entry.component_type, 18),
+                    entry.reference, entry.component_type,
                     f"{entry.base_lambda_fit:.2f}",
                     top_field.get("name", "-"),
                     f"{top_field.get('elasticity', 0):.3f}",
                     f"{top_field.get('impact_pct', 0):.1f}%",
                 ])
+            _autosize_columns(self.crit_table)
             self.status.SetLabel(
                 f"Criticality: {len(results)} components analyzed")
 
@@ -1670,7 +1695,7 @@ class AnalysisDialog(wx.Dialog):
         self.smart_list = _make_list(panel,
             ["#", "Parameter", "Score", "FIT Gain", "Suggestion",
              "Components", "Source"],
-            [35, 140, 80, 90, 300, 120, 140])
+            [40, 160, 90, 100, 350, 140, 150])
         self.smart_list.SetMinSize((-1, 220))
         main.Add(self.smart_list, 0, wx.EXPAND | wx.ALL, 6)
 
@@ -1731,7 +1756,7 @@ class AnalysisDialog(wx.Dialog):
 
         self.whatif_table = _make_list(panel,
             ["Scenario", "Description", "\u03BB (FIT)", "R(t)", "\u0394\u03BB %", "\u0394R"],
-            [160, 320, 100, 110, 90, 100])
+            [180, 360, 110, 120, 100, 110])
         self.whatif_table.SetMinSize((-1, 240))
         main.Add(self.whatif_table, 0, wx.EXPAND | wx.ALL, 6)
 
@@ -1786,7 +1811,7 @@ class AnalysisDialog(wx.Dialog):
 
         self.budget_list = _make_list(panel,
             ["Reference", "Type", "Actual FIT", "Budget FIT", "Margin", "Util %", "Status"],
-            [100, 150, 95, 95, 90, 80, 70])
+            [130, 200, 110, 110, 100, 100, 90])
         self.budget_list.SetMinSize((-1, 260))
         main.Add(self.budget_list, 0, wx.EXPAND | wx.ALL, 6)
 
@@ -1811,7 +1836,7 @@ class AnalysisDialog(wx.Dialog):
         self.improve_list = _make_list(panel,
             ["#", "Reference", "Type", "Action", "Current", "Proposed",
              "FIT Saved", "Feasibility"],
-            [40, 90, 130, 150, 90, 90, 90, 80])
+            [40, 120, 180, 180, 120, 150, 100, 100])
         self.improve_list.SetMinSize((-1, 280))
         main.Add(self.improve_list, 0, wx.EXPAND | wx.ALL, 6)
 
@@ -1881,7 +1906,7 @@ class AnalysisDialog(wx.Dialog):
 
         self.history_list = _make_list(panel,
             ["Version", "Date", "System FIT", "R(t)", "Components", "Notes"],
-            [110, 150, 95, 105, 85, 210])
+            [130, 170, 110, 120, 110, 280])
         self.history_list.SetMinSize((-1, 180))
         main.Add(self.history_list, 0, wx.EXPAND | wx.ALL, 6)
 
@@ -1929,9 +1954,10 @@ class AnalysisDialog(wx.Dialog):
                     refs += f" (+{len(a.component_refs)-5})"
                 _add_row(self.smart_list, [
                     str(i), a.parameter, f"{a.score:.3f}",
-                    f"{a.fit_improvement:.1f}", _trunc(a.suggested_change, 50),
+                    f"{a.fit_improvement:.1f}", a.suggested_change,
                     refs, a.source,
                 ])
+            _autosize_columns(self.smart_list)
             if actions:
                 top = actions[0]
                 self.smart_detail.SetLabel(
@@ -2009,6 +2035,7 @@ class AnalysisDialog(wx.Dialog):
                     f"{s.reliability:.6f}", f"{s.delta_lambda_pct:+.1f}%",
                     f"{s.delta_reliability:+.6f}",
                 ], color=color)
+            _autosize_columns(self.whatif_table)
             self.status.SetLabel(f"Scenarios: {len(result.scenarios)} evaluated")
 
         self._start_analysis(work, on_done,
@@ -2050,11 +2077,12 @@ class AnalysisDialog(wx.Dialog):
                 for cb in sb.component_budgets:
                     color = C.OK if cb.within_budget else C.FAIL
                     _add_row(self.budget_list, [
-                        cb.reference, _trunc(cb.component_type, 16),
+                        cb.reference, cb.component_type,
                         f"{cb.actual_fit:.2f}", f"{cb.budget_fit:.2f}",
                         f"{cb.margin_fit:+.2f}", f"{cb.utilization*100:.0f}%",
                         "PASS" if cb.within_budget else "OVER",
                     ], color=color)
+            _autosize_columns(self.budget_list)
             icon = "\u2705" if result.system_within_budget else "\u274C"
             self.budget_info.SetLabel(
                 f"{icon}  Target R={target_r} => {result.target_fit:.1f} FIT, "
@@ -2114,7 +2142,7 @@ class AnalysisDialog(wx.Dialog):
                         "type": sw.get("component_type", "?"),
                         "action": sw.get("swap_type", "swap"),
                         "current": "",
-                        "proposed": _trunc(sw.get("description", ""), 18),
+                        "proposed": sw.get("description", ""),
                         "fit_saved": abs(sw.get("delta_fit", 0)),
                         "feasibility": "swap",
                     })
@@ -2125,10 +2153,11 @@ class AnalysisDialog(wx.Dialog):
             for i, rec in enumerate(merged, 1):
                 total_saved += rec["fit_saved"]
                 _add_row(self.improve_list, [
-                    str(i), rec["ref"], _trunc(rec["type"], 14),
+                    str(i), rec["ref"], rec["type"],
                     rec["action"], rec["current"], rec["proposed"],
                     f"{rec['fit_saved']:.2f}", rec["feasibility"],
                 ])
+            _autosize_columns(self.improve_list)
 
             gap = (sf - tf) if sf > tf else 0
             self.improve_info.SetLabel(
@@ -2214,8 +2243,9 @@ class AnalysisDialog(wx.Dialog):
                 _add_row(self.history_list, [
                     s.version_label, s.timestamp[:19],
                     f"{s.system_fit:.2f}", f"{s.system_reliability:.6f}",
-                    str(s.n_components), s.notes[:40],
+                    str(s.n_components), s.notes,
                 ])
+            _autosize_columns(self.history_list)
         except Exception as e:
             wx.MessageBox(f"Failed to load history: {e}", "Error", wx.OK | wx.ICON_ERROR)
 

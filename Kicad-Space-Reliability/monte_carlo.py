@@ -727,11 +727,9 @@ def build_component_inputs(
             seen_refs.add(ref)
             params = comp.get("params", {})
             override = comp.get("override_lambda")
-            if override is not None and float(override) <= 0:
-                override = None
 
             if override is not None:
-                nom_lam = override * 1e-9
+                nom_lam = float(override) * 1e-9
             else:
                 nom_lam = float(comp.get("lambda", 0) or 0)
 

@@ -351,8 +351,7 @@ def tornado_analysis(
             n_affected = 0
 
             for comp in all_comps:
-                ovr = comp.get("override_lambda")
-                if ovr is not None and float(ovr) > 0:
+                if comp.get("override_lambda") is not None:
                     continue
                 params = comp.get("params", {})
                 ct = comp.get("class", "Resistor")
@@ -500,15 +499,20 @@ def scenario_analysis(
 
     def _run_scenario(mods):
         total = 0.0
+        seen_refs = set()
         scale_fn = mods.get("_scale_lambda")
         for data in filtered.values():
             for comp in data.get("components", []):
+                ref = comp.get("ref", "?")
+                if ref in seen_refs:
+                    continue
+                seen_refs.add(ref)
                 ctype = comp.get("class", "Unknown")
                 if ctype in excluded:
                     continue
                 ovr = comp.get("override_lambda")
-                if ovr is not None and float(ovr) > 0:
-                    total += ovr
+                if ovr is not None:
+                    total += float(ovr)
                     continue
                 p = dict(comp.get("params", {}))
                 for pn, fn in mods.items():
@@ -628,8 +632,7 @@ def component_criticality(
             ctype = comp.get("class", "Unknown")
             if ctype in excluded:
                 continue
-            ovr = comp.get("override_lambda")
-            if ovr is not None and float(ovr) > 0:
+            if comp.get("override_lambda") is not None:
                 continue
             all_comps.append(comp)
 

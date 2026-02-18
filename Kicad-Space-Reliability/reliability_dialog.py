@@ -25,6 +25,7 @@ from .reliability_math import (
     r_parallel,
     r_k_of_n,
     calculate_lambda,
+    get_field_definitions,
 )
 from .component_editor import (
     ComponentEditorDialog,
@@ -546,19 +547,20 @@ class ReliabilityMainDialog(wx.Dialog):
                     continue
                 ct = edited.get("_component_type", "Resistor")
                 ovr = edited.get("override_lambda")
-                if ovr is not None and float(ovr) > 0:
+                has_override = ovr is not None
+
+                params = self._build_full_params(
+                    ct, edited, None, cycles, dt, tau_on)
+
+                if has_override:
                     lam = float(ovr) * 1e-9
-                    params = edited.copy()
                 else:
-                    params = edited.copy()
-                    params.setdefault("n_cycles", cycles)
-                    params.setdefault("delta_t", dt)
-                    params.setdefault("tau_on", tau_on)
                     try:
                         res = calculate_component_lambda(ct, params)
                         lam = float(res.get("lambda_total", 0) or 0)
                     except Exception:
                         lam = 0.0
+
                 r = reliability_from_lambda(lam, hours)
                 total_lam += lam
                 comp_entry = {
@@ -569,11 +571,49 @@ class ReliabilityMainDialog(wx.Dialog):
                     "r": r,
                     "params": params,
                 }
-                if ovr is not None and float(ovr) > 0:
+                if has_override:
                     comp_entry["override_lambda"] = ovr
                 comp_data.append(comp_entry)
             sheet_r = reliability_from_lambda(total_lam, hours)
             self.sheet_data[path] = {"components": comp_data, "lambda": total_lam, "r": sheet_r}
+
+    def _build_full_params(self, component_type, edited, schematic_comp,
+                           cycles, dt, tau_on):
+        """Build a complete parameter dict for a component.
+
+        Strategy (simple & robust):
+        1. Start from get_field_definitions() defaults for the type
+        2. Overlay any schematic fields from the parsed component
+        3. Overlay any user edits from the ECSS editor
+        4. Apply global settings (n_cycles, delta_t, tau_on)
+
+        This guarantees every parameter is present for both the IEC
+        calculation AND downstream sensitivity / Monte Carlo analysis.
+        """
+        field_defs = get_field_definitions(component_type)
+        params = {}
+        for fname, fdef in field_defs.items():
+            params[fname] = fdef.get("default", 0)
+
+        if schematic_comp is not None:
+            for fname in field_defs:
+                sch_val = schematic_comp.get_field(fname, None)
+                if sch_val is not None and sch_val != "":
+                    try:
+                        params[fname] = float(sch_val)
+                    except (TypeError, ValueError):
+                        params[fname] = sch_val
+
+        if edited:
+            for k, v in edited.items():
+                if k.startswith("_") or k == "override_lambda":
+                    continue
+                params[k] = v
+
+        params["n_cycles"] = cycles
+        params["delta_t"] = dt
+        params["tau_on"] = tau_on
+        return params
 
     def _calculate_sheets(self):
         if not self.parser:
@@ -589,54 +629,39 @@ class ReliabilityMainDialog(wx.Dialog):
             total_lam = 0.0
 
             for c in components:
-                edited = self.component_edits.get(path, {}).get(c.reference, {})
-                if edited:
-                    ct = edited.get("_component_type", "Resistor")
-                    # Check for lambda override FIRST
-                    ovr = edited.get("override_lambda")
-                    if ovr is not None and float(ovr) > 0:
-                        lam = float(ovr) * 1e-9   # override is in FIT, convert to /h
-                        cls_name = ct
-                        params = edited.copy()
-                    else:
-                        params = edited.copy()
-                        params.setdefault("n_cycles", cycles)
-                        params.setdefault("delta_t", dt)
-                        params.setdefault("tau_on", tau_on)
-                        result = calculate_component_lambda(ct, params)
-                        lam = float(result.get("lambda_total", 0) or 0)
-                        cls_name = ct
+                edited = self.component_edits.get(path, {}).get(
+                    c.reference, {})
+                ct = (edited.get("_component_type")
+                      if edited else None)
+                if not ct:
+                    ct = classify_component(c.reference, c.value, c.fields)
+
+                ovr = edited.get("override_lambda") if edited else None
+                has_override = ovr is not None
+
+                if has_override:
+                    lam = float(ovr) * 1e-9
+                    params = self._build_full_params(
+                        ct, edited, c, cycles, dt, tau_on)
                 else:
-                    cls = c.get_field("Reliability_Class", c.get_field("Class", ""))
-                    if not cls:
-                        cls = classify_component(c.reference, c.value, {})
-                    params = {
-                        "n_cycles": cycles,
-                        "delta_t": dt,
-                        "tau_on": tau_on,
-                        "t_ambient": c.get_float("T_Ambient", 25),
-                        "t_junction": c.get_float("T_Junction", 85),
-                        "operating_power": c.get_float("Operating_Power", 0.01),
-                        "rated_power": c.get_float("Rated_Power", 0.125),
-                    }
-                    lam = float(calculate_lambda(cls or "Resistor", params) or 0)
-                    cls_name = cls or "Unknown"
+                    params = self._build_full_params(
+                        ct, edited, c, cycles, dt, tau_on)
+                    result = calculate_component_lambda(ct, params)
+                    lam = float(result.get("lambda_total", 0) or 0)
 
                 r = reliability_from_lambda(lam, hours)
                 total_lam += lam
-                # Store params for Monte Carlo uncertainty analysis
+
                 comp_entry = {
                     "ref": c.reference,
                     "value": c.value,
-                    "class": cls_name,
+                    "class": ct,
                     "lambda": lam,
                     "r": r,
                     "params": params,
                 }
-                # Propagate override flag so sensitivity/MC can skip this component
-                ovr_val = edited.get("override_lambda") if edited else None
-                if ovr_val is not None and float(ovr_val) > 0:
-                    comp_entry["override_lambda"] = ovr_val
+                if has_override:
+                    comp_entry["override_lambda"] = ovr
                 comp_data.append(comp_entry)
 
             sheet_r = reliability_from_lambda(total_lam, hours)
