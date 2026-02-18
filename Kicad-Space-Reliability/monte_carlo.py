@@ -715,17 +715,23 @@ def build_component_inputs(
         filtered = sheet_data
 
     inputs = []
+    seen_refs = set()
     for path, data in filtered.items():
         for comp in data.get("components", []):
             ctype = comp.get("class", "Unknown")
             if ctype in excluded:
                 continue
             ref = comp.get("ref", "?")
+            if ref in seen_refs:
+                continue
+            seen_refs.add(ref)
             params = comp.get("params", {})
             override = comp.get("override_lambda")
+            if override is not None and float(override) <= 0:
+                override = None
 
             if override is not None:
-                nom_lam = override * 1e-9  # override is in FIT, convert to /h
+                nom_lam = override * 1e-9
             else:
                 nom_lam = float(comp.get("lambda", 0) or 0)
 
@@ -745,36 +751,39 @@ def build_component_inputs(
 # Helper: Build default ParameterSpec list from components
 # =====================================================================
 
+ORBIT_PARAMS = {"n_cycles", "delta_t", "tau_on"}
+
+
 def build_default_param_specs(
     components: List[ComponentInput],
-    global_uncertainty_pct: float = 10.0,
+    global_uncertainty_pct: float = 0.0,
     distribution: str = "pert",
     shared_params: Optional[set] = None,
 ) -> List[ParameterSpec]:
     """Build ParameterSpec list by scanning components for numeric fields.
 
     Default shared parameters (environmental, board-level):
-        t_ambient, n_cycles, delta_t
+        t_ambient
 
     Default independent parameters (component-specific):
-        Everything else (t_junction, tau_on, operating_power, ...)
+        Everything else (t_junction, operating_power, ...)
+
+    Orbit-fixed parameters (n_cycles, delta_t, tau_on) are excluded --
+    they are mission constants set in the Settings panel and are not
+    relevant to the sensitivity / co-design study.
 
     Parameters
     ----------
     global_uncertainty_pct : float
-        Applied as relative +/- percent for independent params,
-        and as absolute delta scaled to typical ranges for shared params.
+        Applied as relative +/- percent (default 0 -- user sets explicitly).
     distribution : str
         "pert" or "uniform"
     shared_params : set, optional
-        Parameter names to treat as shared.  Defaults to
-        {'t_ambient', 'n_cycles', 'delta_t'}.
+        Parameter names to treat as shared.  Defaults to {'t_ambient'}.
     """
     if shared_params is None:
-        shared_params = {"t_ambient", "n_cycles", "delta_t"}
+        shared_params = {"t_ambient"}
 
-    # Scan all components for numeric parameters
-    # param_name -> {ref: nominal_value}
     param_nominals = {}
     for comp in components:
         if comp.override_lambda is not None:
@@ -782,11 +791,11 @@ def build_default_param_specs(
         for pname, pval in comp.base_params.items():
             if pname.startswith("_"):
                 continue
+            if pname in ORBIT_PARAMS:
+                continue
             try:
                 v = float(pval)
             except (TypeError, ValueError):
-                continue
-            if v == 0:
                 continue
             param_nominals.setdefault(pname, {})[comp.reference] = v
 
@@ -799,10 +808,8 @@ def build_default_param_specs(
         is_shared = pname in shared_params
 
         if is_shared:
-            # Compute typical nominal across components
             vals = list(ref_vals.values())
             typical = np.median(vals)
-            # Delta is pct% of the typical value
             delta = abs(typical * pct / 100.0)
             spec = ParameterSpec(
                 name=pname,

@@ -467,7 +467,7 @@ class ReliabilityMainDialog(wx.Dialog):
             return False
 
     def _ensure_default_components(self):
-        """Ensure every parsed component has an entry (Miscellaneous, override 0)."""
+        """Ensure every parsed component has a properly classified entry."""
         if not self.parser:
             return
         for path in self.parser.get_sheet_paths():
@@ -476,8 +476,8 @@ class ReliabilityMainDialog(wx.Dialog):
                     self.component_edits[path] = {}
                 if c.reference not in self.component_edits[path]:
                     self.component_edits[path][c.reference] = {
-                        "_component_type": "Miscellaneous",
-                        "override_lambda": 0.0,
+                        "_component_type": classify_component(
+                            c.reference, c.value, c.fields),
                     }
 
     def _save_reliability_data(self):
@@ -546,7 +546,7 @@ class ReliabilityMainDialog(wx.Dialog):
                     continue
                 ct = edited.get("_component_type", "Resistor")
                 ovr = edited.get("override_lambda")
-                if ovr is not None:
+                if ovr is not None and float(ovr) > 0:
                     lam = float(ovr) * 1e-9
                     params = edited.copy()
                 else:
@@ -569,7 +569,7 @@ class ReliabilityMainDialog(wx.Dialog):
                     "r": r,
                     "params": params,
                 }
-                if ovr is not None:
+                if ovr is not None and float(ovr) > 0:
                     comp_entry["override_lambda"] = ovr
                 comp_data.append(comp_entry)
             sheet_r = reliability_from_lambda(total_lam, hours)
@@ -594,7 +594,7 @@ class ReliabilityMainDialog(wx.Dialog):
                     ct = edited.get("_component_type", "Resistor")
                     # Check for lambda override FIRST
                     ovr = edited.get("override_lambda")
-                    if ovr is not None:
+                    if ovr is not None and float(ovr) > 0:
                         lam = float(ovr) * 1e-9   # override is in FIT, convert to /h
                         cls_name = ct
                         params = edited.copy()
@@ -634,8 +634,9 @@ class ReliabilityMainDialog(wx.Dialog):
                     "params": params,
                 }
                 # Propagate override flag so sensitivity/MC can skip this component
-                if edited and edited.get("override_lambda") is not None:
-                    comp_entry["override_lambda"] = edited["override_lambda"]
+                ovr_val = edited.get("override_lambda") if edited else None
+                if ovr_val is not None and float(ovr_val) > 0:
+                    comp_entry["override_lambda"] = ovr_val
                 comp_data.append(comp_entry)
 
             sheet_r = reliability_from_lambda(total_lam, hours)
@@ -726,15 +727,13 @@ class ReliabilityMainDialog(wx.Dialog):
             )
             return
         if components is not None:
-            comp_list = [
-                ComponentData(
-                    c.reference,
-                    c.value,
-                    classify_component(c.reference, c.value, c.fields),
-                    dict(c.fields),
-                )
-                for c in components
-            ]
+            comp_list = []
+            for c in components:
+                edited = self.component_edits.get(sheet_path, {}).get(c.reference, {})
+                ct = edited.get("_component_type",
+                                classify_component(c.reference, c.value, c.fields))
+                fields = dict(edited) if edited else dict(c.fields)
+                comp_list.append(ComponentData(c.reference, c.value, ct, fields))
         else:
             comps = self.sheet_data[sheet_path]["components"]
             comp_list = [

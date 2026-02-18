@@ -30,8 +30,9 @@ from .monte_carlo import (
     build_default_param_specs,
 )
 from .sensitivity_analysis import (
-    TornadoResult, ScenarioResult, CriticalityEntry, SmartAction,
-    TornadoPerturbation, DEFAULT_PERTURBATIONS,
+    TornadoResult, TornadoEntry, ScenarioResult, ScenarioEntry,
+    CriticalityEntry, SmartAction,
+    TornadoPerturbation, DEFAULT_PERTURBATIONS, ORBIT_PARAMS,
     tornado_analysis, scenario_analysis, component_criticality,
     single_param_whatif, get_active_sheet_paths, identify_smart_actions,
 )
@@ -407,17 +408,96 @@ class ConvergencePanel(wx.Panel):
 # Utility helpers
 # =====================================================================
 
+class _SortableListCtrl(wx.ListCtrl):
+    """ListCtrl with column-click sorting and per-item tooltips."""
+
+    def __init__(self, parent, **kwargs):
+        super().__init__(parent, **kwargs)
+        self._sort_col = -1
+        self._sort_asc = True
+        self._rows = []
+        self._colors = {}
+        self.Bind(wx.EVT_LIST_COL_CLICK, self._on_col_click)
+        self.Bind(wx.EVT_MOTION, self._on_motion)
+
+    def append_row(self, values, color=None):
+        row_idx = len(self._rows)
+        self._rows.append([str(v) for v in values])
+        if color:
+            self._colors[row_idx] = color
+        idx = self.InsertItem(self.GetItemCount(), str(values[0]))
+        for i, v in enumerate(values[1:], 1):
+            self.SetItem(idx, i, str(v))
+        if color:
+            self.SetItemTextColour(idx, color)
+        return idx
+
+    def DeleteAllItems(self):
+        super().DeleteAllItems()
+        self._rows.clear()
+        self._colors.clear()
+
+    def _on_col_click(self, event):
+        col = event.GetColumn()
+        if col == self._sort_col:
+            self._sort_asc = not self._sort_asc
+        else:
+            self._sort_col = col
+            self._sort_asc = True
+
+        def sort_key(row_tuple):
+            _, row = row_tuple
+            val = row[col] if col < len(row) else ""
+            val = val.rstrip("%").lstrip("+")
+            try:
+                return (0, float(val))
+            except ValueError:
+                return (1, val.lower())
+
+        indexed = list(enumerate(self._rows))
+        indexed.sort(key=sort_key, reverse=not self._sort_asc)
+
+        self.DeleteAllItems()
+        new_colors = {}
+        for new_i, (orig_i, row) in enumerate(indexed):
+            self.InsertItem(new_i, row[0])
+            for ci, v in enumerate(row[1:], 1):
+                self.SetItem(new_i, ci, v)
+            if orig_i in self._colors:
+                self.SetItemTextColour(new_i, self._colors[orig_i])
+                new_colors[new_i] = self._colors[orig_i]
+
+        self._rows = [row for _, row in indexed]
+        old_colors = self._colors.copy()
+        self._colors = {}
+        for new_i, (orig_i, _) in enumerate(indexed):
+            if orig_i in old_colors:
+                self._colors[new_i] = old_colors[orig_i]
+
+    def _on_motion(self, event):
+        idx, flags = self.HitTest(event.GetPosition())
+        if idx >= 0 and idx < len(self._rows):
+            tip = " | ".join(self._rows[idx])
+            self.SetToolTip(tip)
+        else:
+            self.SetToolTip("")
+        event.Skip()
+
+
 def _make_list(parent, columns, col_widths=None):
-    lc = wx.ListCtrl(parent, style=wx.LC_REPORT | wx.BORDER_SIMPLE)
+    lc = _SortableListCtrl(parent,
+                            style=wx.LC_REPORT | wx.BORDER_SIMPLE)
     lc.SetBackgroundColour(C.WHITE)
     lc.SetFont(wx.Font(9, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
     for i, name in enumerate(columns):
-        w = col_widths[i] if col_widths and i < len(col_widths) else 100
+        w = col_widths[i] if col_widths and i < len(col_widths) else 120
         lc.InsertColumn(i, name, width=w)
     return lc
 
 
 def _add_row(lc, values, color=None):
+    if isinstance(lc, _SortableListCtrl):
+        return lc.append_row(values, color)
     idx = lc.InsertItem(lc.GetItemCount(), str(values[0]))
     for i, v in enumerate(values[1:], 1):
         lc.SetItem(idx, i, str(v))
@@ -549,7 +629,200 @@ class AnalysisDialog(wx.Dialog):
         self._warnings: List[str] = []
 
         self._build_ui()
+        self._load_persisted_state()
         self.Centre()
+
+    # =================================================================
+    # Persistence: save/load analysis state
+    # =================================================================
+
+    def _state_path(self) -> Optional[Path]:
+        if not self.project_path:
+            return None
+        p = Path(self.project_path)
+        rel_dir = p / "Reliability" if not p.name == "Reliability" else p
+        return rel_dir / "analysis_state.json"
+
+    def _save_persisted_state(self):
+        """Serialize analysis results to JSON so they survive dialog close."""
+        import json
+        sp = self._state_path()
+        if not sp:
+            return
+        state = {}
+        if self.mc_result:
+            try:
+                # Save lightweight MC stats (no huge sample arrays)
+                d = self.mc_result.to_dict()
+                d.pop("samples", None)
+                d.pop("lambda_samples_fit", None)
+                state["mc"] = d
+            except Exception as e:
+                state["_mc_error"] = str(e)
+        if self.tornado_result:
+            try:
+                state["tornado"] = self.tornado_result.to_dict()
+            except Exception as e:
+                state["_tornado_error"] = str(e)
+        if self.scenario_result:
+            try:
+                state["scenario"] = self.scenario_result.to_dict()
+            except Exception as e:
+                state["_scenario_error"] = str(e)
+        if self.criticality_results:
+            try:
+                state["criticality"] = [
+                    {"reference": e.reference, "component_type": e.component_type,
+                     "base_lambda_fit": e.base_lambda_fit, "fields": e.fields}
+                    for e in self.criticality_results
+                ]
+            except Exception as e:
+                state["_criticality_error"] = str(e)
+        if self.budget_result:
+            try:
+                state["budget"] = self.budget_result.to_dict()
+            except Exception as e:
+                state["_budget_error"] = str(e)
+        try:
+            sp.parent.mkdir(parents=True, exist_ok=True)
+            with open(sp, "w", encoding="utf-8") as f:
+                json.dump(state, f, indent=2, default=str)
+        except Exception as e:
+            try:
+                wx.CallAfter(self.status.SetLabel,
+                             f"Warning: could not save analysis state: {e}")
+            except Exception:
+                pass
+
+    def _load_persisted_state(self):
+        """Load previously saved analysis results."""
+        import json
+        sp = self._state_path()
+        if not sp or not sp.exists():
+            return
+        try:
+            with open(sp, "r", encoding="utf-8") as f:
+                state = json.load(f)
+        except Exception:
+            return
+
+        if "tornado" in state and state["tornado"]:
+            try:
+                entries = [TornadoEntry(**e) for e in state["tornado"].get("entries", [])]
+                self.tornado_result = TornadoResult(
+                    entries=entries,
+                    base_lambda_fit=state["tornado"].get("base_lambda_fit", 0),
+                    base_reliability=state["tornado"].get("base_reliability", 1),
+                    mission_hours=state["tornado"].get("mission_hours", self.mission_hours),
+                )
+                self.tornado_chart.set_data(
+                    [(e.name, e.swing) for e in entries[:15]],
+                    x_label="FIT Swing",
+                )
+                self.tornado_table.DeleteAllItems()
+                for e in entries:
+                    _add_row(self.tornado_table, [
+                        e.name, f"{e.low_value:.2f}", f"{e.base_value:.2f}",
+                        f"{e.high_value:.2f}", f"{e.swing:.2f}", e.perturbation_desc,
+                    ])
+            except Exception:
+                pass
+
+        if "criticality" in state and state["criticality"]:
+            try:
+                self.criticality_results = [
+                    CriticalityEntry(
+                        reference=e["reference"],
+                        component_type=e["component_type"],
+                        base_lambda_fit=e["base_lambda_fit"],
+                        fields=e.get("fields", []),
+                    )
+                    for e in state["criticality"]
+                ]
+                self.crit_table.DeleteAllItems()
+                for entry in self.criticality_results:
+                    top_field = entry.fields[0] if entry.fields else {}
+                    _add_row(self.crit_table, [
+                        entry.reference, _trunc(entry.component_type, 18),
+                        f"{entry.base_lambda_fit:.2f}",
+                        top_field.get("name", "-"),
+                        f"{top_field.get('elasticity', 0):.3f}",
+                        f"{top_field.get('impact_pct', 0):.1f}%",
+                    ])
+            except Exception:
+                pass
+
+        if "scenario" in state and state["scenario"]:
+            try:
+                entries = [ScenarioEntry(**e) for e in state["scenario"].get("scenarios", [])]
+                self.scenario_result = ScenarioResult(
+                    scenarios=entries,
+                    baseline_lambda_fit=state["scenario"].get("baseline_lambda_fit", 0),
+                    baseline_reliability=state["scenario"].get("baseline_reliability", 1),
+                    mission_hours=state["scenario"].get("mission_hours", self.mission_hours),
+                )
+                self.whatif_table.DeleteAllItems()
+                for s in entries:
+                    color = C.OK if s.delta_lambda_pct < 0 else (
+                        C.FAIL if s.delta_lambda_pct > 5 else C.TXT)
+                    _add_row(self.whatif_table, [
+                        s.name, s.description, f"{s.lambda_fit:.2f}",
+                        f"{s.reliability:.6f}", f"{s.delta_lambda_pct:+.1f}%",
+                        f"{s.delta_reliability:+.6f}",
+                    ], color=color)
+            except Exception:
+                pass
+
+    def _on_clear_all(self, event):
+        """Clear all analysis results and delete persisted state."""
+        if wx.MessageBox("Clear all analysis results?", "Confirm",
+                         wx.YES_NO | wx.ICON_QUESTION) != wx.YES:
+            return
+        self.mc_result = None
+        self.tornado_result = None
+        self.scenario_result = None
+        self.criticality_results = []
+        self.budget_result = None
+        self.derating_result = None
+        self.swap_results = []
+
+        for table in (self.tornado_table, self.crit_table, self.whatif_table,
+                      self.budget_list, self.improve_list, self.smart_list):
+            table.DeleteAllItems()
+
+        self.mc_histogram.samples = None
+        self.mc_histogram.Refresh()
+        self.mc_convergence.history = []
+        self.mc_convergence.Refresh()
+        self.mc_stats_text.SetLabel("Run analysis to see results.")
+        self.mc_importance.data = []
+        self.mc_importance.Refresh()
+        self.jensen_label.SetLabel("")
+        self.tornado_chart.data = []
+        self.tornado_chart.Refresh()
+        self.budget_info.SetLabel("Set target and run budget allocation.")
+        self.wi_result.SetValue("")
+        self.smart_detail.SetLabel("")
+
+        sp = self._state_path()
+        if sp and sp.exists():
+            try:
+                sp.unlink()
+            except Exception:
+                pass
+
+        self._refresh_report_preview()
+        self.status.SetLabel("All results cleared.")
+
+    def EndModal(self, retCode):
+        """Override to save state before closing."""
+        self._save_persisted_state()
+        super().EndModal(retCode)
+
+    def Destroy(self):
+        """Also save state if dialog is destroyed directly."""
+        self._save_persisted_state()
+        return super().Destroy()
 
     # =================================================================
     # Data helpers
@@ -566,8 +839,13 @@ class AnalysisDialog(wx.Dialog):
 
     def _all_components(self):
         comps = []
+        seen = set()
         for data in self._filtered().values():
-            comps.extend(data.get("components", []))
+            for c in data.get("components", []):
+                ref = c.get("ref", "?")
+                if ref not in seen:
+                    seen.add(ref)
+                    comps.append(c)
         return comps
 
     def _sys_fit(self):
@@ -668,6 +946,13 @@ class AnalysisDialog(wx.Dialog):
         il.SetForegroundColour(wx.Colour(200, 215, 240))
         hs.Add(il, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 12)
 
+        btn_clear = wx.Button(hdr, label="Clear All")
+        btn_clear.SetForegroundColour(wx.WHITE)
+        btn_clear.SetBackgroundColour(C.WARN)
+        btn_clear.Bind(wx.EVT_BUTTON, self._on_clear_all)
+        btn_clear.SetToolTip("Clear all analysis results and reset tables")
+        hs.Add(btn_clear, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 8)
+
         self.btn_cancel = wx.Button(hdr, label="Cancel")
         self.btn_cancel.SetForegroundColour(wx.WHITE)
         self.btn_cancel.SetBackgroundColour(C.FAIL)
@@ -743,7 +1028,7 @@ class AnalysisDialog(wx.Dialog):
         # Contribution table
         self.contrib_list = _make_list(panel,
             ["Component", "Type", "\u03BB (FIT)", "Contribution %", "Cumulative %"],
-            [160, 130, 100, 100, 100])
+            [180, 160, 110, 120, 110])
         main.Add(self.contrib_list, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
 
         panel.SetSizer(main)
@@ -822,7 +1107,7 @@ class AnalysisDialog(wx.Dialog):
         qs = wx.BoxSizer(wx.HORIZONTAL)
         qs.Add(wx.StaticText(qp, label="Global \u00b1%:"), 0,
                wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 12)
-        self.unc_pct = wx.SpinCtrlDouble(qp, min=1, max=50, initial=10, inc=1, size=(70, -1))
+        self.unc_pct = wx.SpinCtrlDouble(qp, min=0, max=50, initial=0, inc=1, size=(70, -1))
         qs.Add(self.unc_pct, 0, wx.ALL, 6)
 
         qs.Add(wx.StaticText(qp, label="Dist:"), 0,
@@ -948,12 +1233,25 @@ class AnalysisDialog(wx.Dialog):
 
         self.tornado_table = _make_list(panel,
             ["Parameter", "Low FIT", "Base FIT", "High FIT", "Swing", "Perturbation"],
-            [170, 95, 95, 95, 95, 140])
+            [200, 100, 100, 100, 100, 180])
         self.tornado_table.SetMinSize((-1, 160))
         main.Add(self.tornado_table, 0, wx.EXPAND | wx.ALL, 6)
 
         # --- Section 3: Component Criticality ---
         main.Add(self._section_label(panel, "Step 3: Component Criticality (Elasticity)"), 0, wx.EXPAND | wx.ALL, 6)
+
+        elas_note = wx.StaticText(panel,
+            label="Elasticity measures how sensitive the system failure rate is to each "
+                  "component's parameters. A 10% perturbation is applied to each numeric "
+                  "field; the resulting change in component FIT is normalized to give a "
+                  "dimensionless elasticity: e = (\u0394\u03BB/\u03BB) / (\u0394x/x). "
+                  "Higher elasticity = more design leverage. 'Impact %' shows the "
+                  "contribution of that parameter's swing relative to the total system FIT.")
+        elas_note.SetForegroundColour(C.TXT_M)
+        elas_note.SetFont(wx.Font(8, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_ITALIC,
+                                   wx.FONTWEIGHT_NORMAL))
+        elas_note.Wrap(1200)
+        main.Add(elas_note, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
         cp = wx.Panel(panel)
         cp.SetBackgroundColour(C.WHITE)
@@ -972,7 +1270,7 @@ class AnalysisDialog(wx.Dialog):
 
         self.crit_table = _make_list(panel,
             ["Reference", "Type", "\u03BB (FIT)", "Top Parameter", "Elasticity", "Impact %"],
-            [100, 130, 90, 150, 90, 90])
+            [110, 160, 100, 180, 100, 100])
         self.crit_table.SetMinSize((-1, 240))
         main.Add(self.crit_table, 0, wx.EXPAND | wx.ALL, 6)
 
@@ -996,7 +1294,7 @@ class AnalysisDialog(wx.Dialog):
 
     # -- Param table management --
 
-    def _populate_param_table(self, pct=10.0, dist="pert"):
+    def _populate_param_table(self, pct=0.0, dist="pert"):
         comps = build_component_inputs(self._active_data, excluded_types=self.excluded_types)
         self.param_specs = build_default_param_specs(comps, pct, dist)
         self.param_list.DeleteAllItems()
@@ -1104,18 +1402,44 @@ class AnalysisDialog(wx.Dialog):
         if idx < 0 or idx >= len(self._perturbations):
             return
         p = self._perturbations[idx]
-        dlg = wx.TextEntryDialog(self,
-            f"Enter low,high for {p.param_name} (e.g. '10,15'):",
-            "Edit Perturbation", f"{p.delta_low},{p.delta_high}")
+
+        dlg = wx.Dialog(self, title=f"Edit Perturbation: {p.param_name}",
+                        size=(380, 240))
+        ds = wx.BoxSizer(wx.VERTICAL)
+        gs = wx.FlexGridSizer(4, 2, 8, 12)
+        gs.AddGrowableCol(1)
+
+        gs.Add(wx.StaticText(dlg, label="Enabled:"), 0, wx.ALIGN_CENTER_VERTICAL)
+        en_cb = wx.CheckBox(dlg, label="Include in Tornado analysis")
+        en_cb.SetValue(p.enabled)
+        gs.Add(en_cb, 1, wx.EXPAND)
+
+        gs.Add(wx.StaticText(dlg, label="Low (-):"), 0, wx.ALIGN_CENTER_VERTICAL)
+        lo_ctrl = wx.TextCtrl(dlg, value=f"{p.delta_low}")
+        gs.Add(lo_ctrl, 1, wx.EXPAND)
+
+        gs.Add(wx.StaticText(dlg, label="High (+):"), 0, wx.ALIGN_CENTER_VERTICAL)
+        hi_ctrl = wx.TextCtrl(dlg, value=f"{p.delta_high}")
+        gs.Add(hi_ctrl, 1, wx.EXPAND)
+
+        gs.Add(wx.StaticText(dlg, label="Unit:"), 0, wx.ALIGN_CENTER_VERTICAL)
+        gs.Add(wx.StaticText(dlg, label=p.unit or "(none)"), 0)
+
+        ds.Add(gs, 0, wx.EXPAND | wx.ALL, 12)
+        ds.Add(dlg.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL),
+               0, wx.EXPAND | wx.ALL, 12)
+        dlg.SetSizer(ds)
+
         if dlg.ShowModal() == wx.ID_OK:
             try:
-                parts = dlg.GetValue().split(",")
-                p.delta_low = abs(float(parts[0]))
-                p.delta_high = abs(float(parts[1])) if len(parts) > 1 else p.delta_low
-                p.enabled = True
-            except (ValueError, IndexError):
-                wx.MessageBox("Invalid format. Use 'low,high' (e.g. '10,15').",
+                p.delta_low = abs(float(lo_ctrl.GetValue()))
+                p.delta_high = abs(float(hi_ctrl.GetValue()))
+            except ValueError:
+                wx.MessageBox("Invalid number format.",
                               "Input Error", wx.OK | wx.ICON_WARNING)
+                dlg.Destroy()
+                return
+            p.enabled = en_cb.GetValue()
             self._populate_pert_table()
         dlg.Destroy()
 
@@ -1138,6 +1462,8 @@ class AnalysisDialog(wx.Dialog):
             if c.override_lambda is not None:
                 continue
             for pname, pval in c.base_params.items():
+                if pname in ORBIT_PARAMS:
+                    continue
                 try:
                     v = float(pval)
                 except (TypeError, ValueError):
@@ -1344,7 +1670,7 @@ class AnalysisDialog(wx.Dialog):
         self.smart_list = _make_list(panel,
             ["#", "Parameter", "Score", "FIT Gain", "Suggestion",
              "Components", "Source"],
-            [35, 120, 70, 80, 260, 100, 130])
+            [35, 140, 80, 90, 300, 120, 140])
         self.smart_list.SetMinSize((-1, 220))
         main.Add(self.smart_list, 0, wx.EXPAND | wx.ALL, 6)
 
@@ -1376,11 +1702,13 @@ class AnalysisDialog(wx.Dialog):
         row2 = wx.BoxSizer(wx.HORIZONTAL)
         row2.Add(wx.StaticText(wp, label="Custom:"), 0,
                  wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 12)
-        self.custom_sc_name = wx.TextCtrl(wp, value="", size=(110, -1))
+        self.custom_sc_name = wx.TextCtrl(wp, value="", size=(100, -1))
         self.custom_sc_name.SetHint("Name")
         row2.Add(self.custom_sc_name, 0, wx.ALL, 4)
-        self.custom_sc_param = wx.TextCtrl(wp, value="", size=(110, -1))
-        self.custom_sc_param.SetHint("Parameter")
+        all_params = self._collect_all_param_names()
+        self.custom_sc_param = wx.Choice(wp, choices=all_params, size=(130, -1))
+        if all_params:
+            self.custom_sc_param.SetSelection(0)
         row2.Add(self.custom_sc_param, 0, wx.ALL, 4)
         self.custom_sc_op = wx.Choice(wp, choices=["multiply", "add", "set to"])
         self.custom_sc_op.SetSelection(0)
@@ -1403,7 +1731,7 @@ class AnalysisDialog(wx.Dialog):
 
         self.whatif_table = _make_list(panel,
             ["Scenario", "Description", "\u03BB (FIT)", "R(t)", "\u0394\u03BB %", "\u0394R"],
-            [140, 280, 95, 100, 85, 95])
+            [160, 320, 100, 110, 90, 100])
         self.whatif_table.SetMinSize((-1, 240))
         main.Add(self.whatif_table, 0, wx.EXPAND | wx.ALL, 6)
 
@@ -1437,6 +1765,20 @@ class AnalysisDialog(wx.Dialog):
         tp.SetSizer(ts)
         main.Add(tp, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 6)
 
+        budget_help = wx.StaticText(panel,
+            label="How it works: Converts your target R to a total FIT budget "
+                  "(\u03BB = -ln(R)/hours), distributes it across components using the "
+                  "chosen strategy, and flags components that exceed their allocation.\n"
+                  "Strategies: Proportional = budget proportional to current FIT share | "
+                  "Equal = same budget per component | "
+                  "Complexity = weighted by parameter count | "
+                  "Criticality = weighted by elasticity results")
+        budget_help.SetForegroundColour(C.TXT_L)
+        budget_help.SetFont(wx.Font(8, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_ITALIC,
+                                     wx.FONTWEIGHT_NORMAL))
+        budget_help.Wrap(1200)
+        main.Add(budget_help, 0, wx.LEFT | wx.RIGHT, 12)
+
         self.budget_info = wx.StaticText(panel, label="Set target and run budget allocation.")
         self.budget_info.SetForegroundColour(C.TXT_M)
         self.budget_info.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
@@ -1444,7 +1786,7 @@ class AnalysisDialog(wx.Dialog):
 
         self.budget_list = _make_list(panel,
             ["Reference", "Type", "Actual FIT", "Budget FIT", "Margin", "Util %", "Status"],
-            [90, 120, 85, 85, 80, 70, 60])
+            [100, 150, 95, 95, 90, 80, 70])
         self.budget_list.SetMinSize((-1, 260))
         main.Add(self.budget_list, 0, wx.EXPAND | wx.ALL, 6)
 
@@ -1469,7 +1811,7 @@ class AnalysisDialog(wx.Dialog):
         self.improve_list = _make_list(panel,
             ["#", "Reference", "Type", "Action", "Current", "Proposed",
              "FIT Saved", "Feasibility"],
-            [40, 80, 110, 120, 80, 80, 80, 75])
+            [40, 90, 130, 150, 90, 90, 90, 80])
         self.improve_list.SetMinSize((-1, 280))
         main.Add(self.improve_list, 0, wx.EXPAND | wx.ALL, 6)
 
@@ -1481,15 +1823,22 @@ class AnalysisDialog(wx.Dialog):
         bis = wx.BoxSizer(wx.HORIZONTAL)
         bis.Add(wx.StaticText(bip, label="Component:"), 0,
                 wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 12)
-        self.wi_ref = wx.TextCtrl(bip, size=(75, -1))
+        comp_refs = sorted(set(c.get("ref", "?") for c in self._all_components()))
+        self.wi_ref = wx.Choice(bip, choices=comp_refs, size=(90, -1))
+        if comp_refs:
+            self.wi_ref.SetSelection(0)
+        self.wi_ref.Bind(wx.EVT_CHOICE, self._on_wi_ref_changed)
         bis.Add(self.wi_ref, 0, wx.ALL, 6)
         bis.Add(wx.StaticText(bip, label="Param:"), 0,
                 wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
-        self.wi_param = wx.TextCtrl(bip, size=(110, -1))
+        self.wi_param = wx.Choice(bip, choices=[], size=(130, -1))
+        self.wi_param.Bind(wx.EVT_CHOICE, self._on_wi_param_changed)
         bis.Add(self.wi_param, 0, wx.ALL, 6)
         bis.Add(wx.StaticText(bip, label="New value:"), 0,
                 wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
-        self.wi_val = wx.TextCtrl(bip, size=(85, -1))
+        self._wi_val_panel = bip
+        self._wi_val_sizer = bis
+        self.wi_val = wx.TextCtrl(bip, size=(100, -1))
         bis.Add(self.wi_val, 0, wx.ALL, 6)
         self.btn_wi = wx.Button(bip, label="Evaluate")
         self.btn_wi.Bind(wx.EVT_BUTTON, self._on_whatif_single)
@@ -1497,9 +1846,15 @@ class AnalysisDialog(wx.Dialog):
         bip.SetSizer(bis)
         main.Add(bip, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 6)
 
-        self.wi_result = wx.StaticText(panel, label="")
+        if comp_refs:
+            self._on_wi_ref_changed(None)
+
+        self.wi_result = wx.TextCtrl(panel, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.BORDER_SIMPLE)
         self.wi_result.SetFont(wx.Font(9, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
-        main.Add(self.wi_result, 0, wx.ALL, 10)
+        self.wi_result.SetBackgroundColour(wx.Colour(250, 250, 250))
+        self.wi_result.SetMinSize((-1, 80))
+        self.wi_result.SetMaxSize((-1, 100))
+        main.Add(self.wi_result, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
         # --- Section 5: History ---
         main.Add(self._section_label(panel, "5. Reliability History"), 0, wx.EXPAND | wx.ALL, 6)
@@ -1593,7 +1948,8 @@ class AnalysisDialog(wx.Dialog):
 
     def _on_add_custom_scenario(self, event):
         name = self.custom_sc_name.GetValue().strip()
-        param = self.custom_sc_param.GetValue().strip()
+        sel = self.custom_sc_param.GetSelection()
+        param = self.custom_sc_param.GetString(sel) if sel >= 0 else ""
         val_str = self.custom_sc_val.GetValue().strip()
         if not name or not param or not val_str:
             wx.MessageBox("Fill in name, parameter, and value.",
@@ -1789,9 +2145,13 @@ class AnalysisDialog(wx.Dialog):
     # -- Single-param what-if (instant, no thread needed) --
 
     def _on_whatif_single(self, event):
-        ref = self.wi_ref.GetValue().strip()
-        param = self.wi_param.GetValue().strip()
-        val_str = self.wi_val.GetValue().strip()
+        ref_sel = self.wi_ref.GetSelection()
+        ref = self.wi_ref.GetString(ref_sel) if ref_sel >= 0 else ""
+        param_sel = self.wi_param.GetSelection()
+        param = self.wi_param.GetString(param_sel) if param_sel >= 0 else ""
+        val_str = self.wi_val.GetValue().strip() if isinstance(self.wi_val, wx.TextCtrl) else (
+            self.wi_val.GetString(self.wi_val.GetSelection())
+            if isinstance(self.wi_val, wx.Choice) and self.wi_val.GetSelection() >= 0 else "")
         if not ref or not param or not val_str:
             wx.MessageBox("Fill in component reference, parameter name, and new value.",
                           "Missing Input", wx.OK | wx.ICON_WARNING)
@@ -1808,20 +2168,17 @@ class AnalysisDialog(wx.Dialog):
                 comp = c
                 break
         if comp is None:
-            self.wi_result.SetLabel(f"Component '{ref}' not found in active sheets.")
-            self.wi_result.SetForegroundColour(C.FAIL)
+            self.wi_result.SetValue(f"Component '{ref}' not found in active sheets.")
             return
 
         try:
             result = single_param_whatif(
                 comp, param, new_val, self.system_lambda, self.mission_hours)
         except Exception as e:
-            self.wi_result.SetLabel(f"Error: {e}")
-            self.wi_result.SetForegroundColour(C.FAIL)
+            self.wi_result.SetValue(f"Error: {e}")
             return
 
-        self.wi_result.SetForegroundColour(C.TXT)
-        self.wi_result.SetLabel(
+        self.wi_result.SetValue(
             f"Component {ref}: {param} = {result['old_value']} -> {new_val}\n"
             f"  Component FIT: {result['comp_fit_before']:.2f} -> {result['comp_fit_after']:.2f} "
             f"({result['comp_delta_fit']:+.2f})\n"
@@ -2093,6 +2450,53 @@ class AnalysisDialog(wx.Dialog):
                 except Exception as ex2:
                     wx.MessageBox(f"Report generation failed: {ex2}", "Error", wx.OK | wx.ICON_ERROR)
         dlg.Destroy()
+
+    # =================================================================
+    # What-If dropdown helpers
+    # =================================================================
+
+    def _collect_all_param_names(self):
+        """Collect all numeric parameter names from active components."""
+        names = set()
+        for c in self._all_components():
+            for k, v in c.get("params", {}).items():
+                if k.startswith("_") or k in ORBIT_PARAMS:
+                    continue
+                try:
+                    float(v)
+                    names.add(k)
+                except (TypeError, ValueError):
+                    pass
+        return sorted(names)
+
+    def _on_wi_ref_changed(self, event):
+        """Update parameter dropdown when component selection changes."""
+        ref_sel = self.wi_ref.GetSelection()
+        if ref_sel < 0:
+            return
+        ref = self.wi_ref.GetString(ref_sel)
+        comp = None
+        for c in self._all_components():
+            if c.get("ref", "") == ref:
+                comp = c
+                break
+        if not comp:
+            return
+        params = []
+        for k, v in comp.get("params", {}).items():
+            if k.startswith("_") or k in ORBIT_PARAMS:
+                continue
+            params.append(k)
+        self.wi_param.Clear()
+        for p in sorted(params):
+            self.wi_param.Append(p)
+        if params:
+            self.wi_param.SetSelection(0)
+            self._on_wi_param_changed(None)
+
+    def _on_wi_param_changed(self, event):
+        """Update value control when parameter selection changes."""
+        pass
 
     # =================================================================
     # Type filter handler

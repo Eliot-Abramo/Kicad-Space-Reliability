@@ -209,18 +209,19 @@ class TornadoPerturbation:
 # Default Perturbations (physical units)
 # =====================================================================
 
+ORBIT_PARAMS = {"n_cycles", "delta_t", "tau_on"}
+
 DEFAULT_PERTURBATIONS = [
     TornadoPerturbation("t_junction", 10.0, 10.0, "degC"),
     TornadoPerturbation("t_ambient", 10.0, 10.0, "degC"),
-    TornadoPerturbation("n_cycles", 1000, 1000, "cycles/yr"),
-    TornadoPerturbation("delta_t", 5.0, 5.0, "degC"),
-    TornadoPerturbation("tau_on", 0.1, 0.1, ""),
-    TornadoPerturbation("operating_power", 0.0, 0.0, "W"),  # disabled
+    TornadoPerturbation("operating_power", 0.01, 0.01, "W"),
+    TornadoPerturbation("rated_power", 0.05, 0.05, "W"),
     TornadoPerturbation("voltage_stress_vds", 0.05, 0.05, "ratio"),
     TornadoPerturbation("voltage_stress_vgs", 0.05, 0.05, "ratio"),
     TornadoPerturbation("voltage_stress_vce", 0.05, 0.05, "ratio"),
     TornadoPerturbation("ripple_ratio", 0.05, 0.05, "ratio"),
-    TornadoPerturbation("if_applied", 0.05, 0.05, "A"),
+    TornadoPerturbation("v_applied", 1.0, 1.0, "V"),
+    TornadoPerturbation("if_applied", 5.0, 5.0, "mA"),
 ]
 
 
@@ -294,10 +295,15 @@ def tornado_analysis(
     else:
         filtered = sheet_data
 
-    # Gather components
+    # Gather components (deduplicate by reference)
     all_comps = []
+    seen_refs = set()
     for data in filtered.values():
         for comp in data.get("components", []):
+            ref = comp.get("ref", "?")
+            if ref in seen_refs:
+                continue
+            seen_refs.add(ref)
             ctype = comp.get("class", "Unknown")
             if ctype in excluded:
                 continue
@@ -345,7 +351,8 @@ def tornado_analysis(
             n_affected = 0
 
             for comp in all_comps:
-                if comp.get("override_lambda") is not None:
+                ovr = comp.get("override_lambda")
+                if ovr is not None and float(ovr) > 0:
                     continue
                 params = comp.get("params", {})
                 ct = comp.get("class", "Resistor")
@@ -435,30 +442,25 @@ PREDEFINED_SCENARIOS = [
     ("Hi-rel parts (-50% base FIT)",
      "Use highest-reliability screened parts with 50% lower base failure rates",
      {"_scale_lambda": lambda v: v * 0.50}),
-    ("Reduce duty cycle to 50%",
-     "Duty-cycle components to tau_on = 0.5 (active thermal management)",
-     {"tau_on": lambda _: 0.5}),
-    ("Continuous operation",
-     "All components at tau_on = 1.0 (worst case duty cycle)",
-     {"tau_on": lambda _: 1.0}),
     ("Voltage derating 20%",
      "Reduce all voltage stress ratios by 20% (conservative design)",
      {"voltage_stress_vds": lambda v: v * 0.80,
       "voltage_stress_vgs": lambda v: v * 0.80,
       "voltage_stress_vce": lambda v: v * 0.80,
       "ripple_ratio": lambda v: v * 0.80}),
-    # ---- Environmental context (for awareness) ----
+    ("Voltage derating 50%",
+     "Aggressive voltage derating for high-reliability (50% reduction)",
+     {"voltage_stress_vds": lambda v: v * 0.50,
+      "voltage_stress_vgs": lambda v: v * 0.50,
+      "voltage_stress_vce": lambda v: v * 0.50,
+      "ripple_ratio": lambda v: v * 0.50}),
+    # ---- Thermal design scenarios ----
     ("Temp +10 degC",
      "Environment: all temperatures +10 degC",
-     {"t_ambient": lambda v: v + 10, "t_junction": lambda v: v + 10,
-      "temperature_c": lambda v: v + 10}),
+     {"t_ambient": lambda v: v + 10, "t_junction": lambda v: v + 10}),
     ("Temp -10 degC",
      "Improved cooling: all temperatures -10 degC",
-     {"t_ambient": lambda v: v - 10, "t_junction": lambda v: v - 10,
-      "temperature_c": lambda v: v - 10}),
-    ("Thermal cycles x2",
-     "Environment: double annual thermal cycling count",
-     {"n_cycles": lambda v: v * 2}),
+     {"t_ambient": lambda v: v - 10, "t_junction": lambda v: v - 10}),
 ]
 
 
@@ -505,7 +507,7 @@ def scenario_analysis(
                 if ctype in excluded:
                     continue
                 ovr = comp.get("override_lambda")
-                if ovr is not None:
+                if ovr is not None and float(ovr) > 0:
                     total += ovr
                     continue
                 p = dict(comp.get("params", {}))
@@ -614,14 +616,20 @@ def component_criticality(
     else:
         filtered = sheet_data
 
-    # Gather and sort all components
+    # Gather and sort all components (deduplicate by reference)
     all_comps = []
+    seen_refs = set()
     for data in filtered.values():
         for comp in data.get("components", []):
+            ref = comp.get("ref", "?")
+            if ref in seen_refs:
+                continue
+            seen_refs.add(ref)
             ctype = comp.get("class", "Unknown")
             if ctype in excluded:
                 continue
-            if comp.get("override_lambda") is not None:
+            ovr = comp.get("override_lambda")
+            if ovr is not None and float(ovr) > 0:
                 continue
             all_comps.append(comp)
 
@@ -937,19 +945,6 @@ def _suggest_change(param_name: str, all_comps: list, swing_fit: float,
         return ("Derate operating power (use components at lower % of rated power)",
                 "Power derating reduces internal temperature rise and electrical "
                 "stress, both of which reduce failure rate per IEC TR 62380.")
-    elif "tau_on" in pn or "duty" in pn:
-        return ("Reduce duty cycle where possible (power management, sleep modes)",
-                "Working time ratio (tau_on) linearly scales the die contribution "
-                "to failure rate. Duty-cycling saves FIT budget.")
-    elif "n_cycles" in pn or "cycles" in pn:
-        return ("Reduce thermal cycling count (softer power-on/off profiles)",
-                "Coffin-Manson fatigue: fewer thermal cycles reduce package/solder "
-                "stress. This is typically an environmental constraint, but "
-                "thermal buffering can help.")
-    elif "delta_t" in pn:
-        return ("Reduce thermal cycling amplitude (better thermal management)",
-                "Coffin-Manson: cycle amplitude has a strong power-law effect "
-                "on package fatigue failure rate.")
     elif "voltage" in pn or "vds" in pn or "vgs" in pn or "vce" in pn:
         return ("Reduce voltage stress ratio (use higher-rated components)",
                 "Voltage derating reduces electrical overstress and dielectric "

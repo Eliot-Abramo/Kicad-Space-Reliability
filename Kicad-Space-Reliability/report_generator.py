@@ -514,7 +514,9 @@ class ReportGenerator:
             html += f'<img src="data:{self.logo_mime};base64,{self.logo_base64}" alt="Logo" class="header-logo">'
         html += f"""</div>
 
-<div class="card"><h2>System Summary</h2>
+{self._toc(data)}
+
+<div class="card"><h2 id="sec-summary">System Summary</h2>
 <div class="grid">
 <div class="metric {sc}"><div class="v">{data.system_reliability:.6f}</div><div class="l">System Reliability</div></div>
 <div class="metric"><div class="v">{fit:.1f}</div><div class="l">Failure Rate (FIT)</div></div>
@@ -526,6 +528,9 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
 """
         # Executive Summary
         html += self._executive_summary(data, sc, fit, mttf_years)
+
+        # Methodology section
+        html += self._methodology_section()
 
         if data.monte_carlo:
             html += self._mc_section(data.monte_carlo)
@@ -557,12 +562,191 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
             html += self._sheet_mc_section(data.sheet_mc)
         html += self._sheets_section(data.sheets)
 
+        html += self._glossary()
+
         html += """
 <div class="footer">
 <p>Designed and developed by Eliot Abramo | KiCad Reliability Plugin v3.3.0 | IEC TR 62380:2004</p>
 <p>This report is for engineering reference. Verify critical calculations independently.</p>
 </div></div></body></html>"""
         return html
+
+    def _toc(self, data: ReportData) -> str:
+        """Generate a sticky Table of Contents with anchor links."""
+        entries = [
+            ("sec-summary", "System Summary"),
+            ("sec-executive", "Executive Summary"),
+            ("sec-methodology", "Methodology"),
+        ]
+        if data.monte_carlo:
+            entries.append(("sec-mc", "Monte Carlo Uncertainty"))
+        if data.tornado:
+            entries.append(("sec-tornado", "Tornado Sensitivity"))
+        if data.design_margin:
+            entries.append(("sec-whatif", "What-If Scenarios"))
+        if data.criticality:
+            entries.append(("sec-criticality", "Component Criticality"))
+        if data.budget:
+            entries.append(("sec-budget", "Budget Allocation"))
+        if data.derating:
+            entries.append(("sec-derating", "Derating Guidance"))
+        if data.swap_analysis:
+            entries.append(("sec-swap", "Swap Analysis"))
+        entries.append(("sec-contributions", "FIT Contributions"))
+        entries.append(("sec-sheets", "Sheet Details"))
+        entries.append(("sec-glossary", "Glossary"))
+
+        links = " &middot; ".join(
+            f'<a href="#{eid}" style="color:#2563eb;text-decoration:none">{label}</a>'
+            for eid, label in entries
+        )
+        return (
+            '<div class="card" style="position:sticky;top:0;z-index:100;'
+            'background:#fff;border-bottom:2px solid #2563eb;padding:8px 18px;'
+            'font-size:0.85rem">'
+            f'<strong>Contents:</strong> {links}'
+            '</div>\n'
+        )
+
+    def _glossary(self) -> str:
+        """Generate a glossary section with definitions."""
+        terms = [
+            ("FIT", "Failure In Time",
+             "Unit of failure rate: 1 FIT = 1 failure per 10<sup>9</sup> device-hours. "
+             "Widely used in reliability engineering per IEC 61709 and IEC TR 62380."),
+            ("R(t)", "Reliability Function",
+             "Probability that a system survives to time <em>t</em> without failure. "
+             "For constant failure rate: R(t) = exp(&minus;&lambda; &times; t)."),
+            ("MTTF", "Mean Time To Failure",
+             "Expected operating time before the first failure: MTTF = 1/&lambda;. "
+             "For space systems, typically expressed in years."),
+            ("&lambda;", "Failure Rate",
+             "Instantaneous failure rate in failures per hour. "
+             "Related to FIT by &lambda; = FIT &times; 10<sup>&minus;9</sup>."),
+            ("CI", "Confidence Interval",
+             "Range of values that contains the true parameter with a given probability. "
+             "A 90% CI means 90% of Monte Carlo samples fall within the bounds."),
+            ("Monte Carlo", "Monte Carlo Simulation",
+             "Statistical technique that propagates parameter uncertainty through repeated "
+             "random sampling. Each sample draws parameters from their uncertainty distributions "
+             "and recomputes the system failure rate."),
+            ("PERT", "Program Evaluation and Review Technique",
+             "Three-point estimation distribution (min, mode, max) using a scaled Beta distribution. "
+             "More peaked than Uniform, suitable for expert-elicited uncertainty bounds."),
+            ("OAT", "One-At-a-Time Sensitivity",
+             "Deterministic method that perturbs one parameter at a time while holding others "
+             "at their nominal values. Used in Tornado charts."),
+            ("Tornado Chart", "Tornado Sensitivity Chart",
+             "Horizontal bar chart showing the system FIT swing caused by each parameter's "
+             "perturbation, ordered by impact magnitude."),
+            ("SRRC", "Standardized Rank Regression Coefficient",
+             "Sensitivity measure from Monte Carlo: the standardized regression coefficient "
+             "of the rank-transformed output on rank-transformed inputs. SRRC&sup2; is the "
+             "variance fraction explained by each parameter."),
+            ("Elasticity", "Normalized Sensitivity",
+             "Dimensionless measure: (dY/Y) / (dX/X). An elasticity of 0.5 means a 1% change "
+             "in parameter X causes a 0.5% change in output Y."),
+            ("Arrhenius", "Arrhenius Acceleration",
+             "Temperature-dependent failure acceleration: &pi;<sub>T</sub> = exp(E<sub>a</sub>/k "
+             "&times; (1/T<sub>ref</sub> &minus; 1/T)). Higher junction temperature exponentially "
+             "increases failure rate."),
+            ("Coffin-Manson", "Coffin-Manson Fatigue",
+             "Thermal cycling fatigue model: failure rate contribution proportional to "
+             "N<sup>0.76</sup> &times; &Delta;T<sup>0.68</sup>. Drives package/solder stress."),
+            ("Derating", "Electrical Derating",
+             "Operating components below their rated limits (voltage, power, current) to reduce "
+             "stress and improve reliability. A standard practice in high-reliability design."),
+            ("Jensen's Inequality", "Jensen's Inequality Effect",
+             "For convex functions like exp(&minus;&lambda;t), the expected value under uncertainty "
+             "is lower than the nominal value: E[R(t)] &le; R(E[&lambda;],t). "
+             "This means parameter uncertainty always degrades expected reliability."),
+        ]
+
+        rows = ""
+        for abbr, full, desc in terms:
+            rows += (
+                f'<tr><td style="font-weight:bold;white-space:nowrap;vertical-align:top">'
+                f'<a id="gl-{abbr.lower().replace("(", "").replace(")", "").replace("&lambda;","lambda")}">'
+                f'{abbr}</a></td>'
+                f'<td style="vertical-align:top"><strong>{full}</strong><br>'
+                f'<span style="color:#555">{desc}</span></td></tr>\n'
+            )
+
+        return (
+            f'<div class="card"><h2 id="sec-glossary">Glossary</h2>\n'
+            f'<table class="tbl" style="width:100%"><tbody>\n{rows}</tbody></table></div>\n'
+        )
+
+    def _methodology_section(self) -> str:
+        """Generate a methodology and mathematical foundations section."""
+        return """<div class="card"><h2 id="sec-methodology">Methodology &amp; Mathematical Foundations</h2>
+<p>This tool implements the <strong>IEC TR 62380:2004</strong> standard for reliability prediction
+of electronic components. The sensitivity analysis extensions use established techniques from
+global sensitivity analysis to identify design leverage points.</p>
+
+<h3>Core Reliability Model</h3>
+<p>Each component's failure rate &lambda;<sub>i</sub> is computed via the IEC TR 62380 formula,
+which models failure rate as a sum of contributions from the die, package, and overstress mechanisms:</p>
+<pre style="background:#f8f9fa;padding:12px;border-radius:4px;font-size:0.9em">
+  &lambda;<sub>i</sub> = &pi;<sub>die</sub> &middot; &lambda;<sub>base</sub> + &pi;<sub>pkg</sub> &middot; &lambda;<sub>therm</sub> + &pi;<sub>EOS</sub> &middot; &lambda;<sub>overstress</sub>
+</pre>
+<p>where &pi;<sub>die</sub> includes the <strong>Arrhenius temperature acceleration</strong>
+(exponential dependence on junction temperature T<sub>j</sub>), &pi;<sub>pkg</sub> includes the
+<strong>Coffin&ndash;Manson thermal cycling fatigue</strong> (power-law dependence on &Delta;T and
+N<sub>cycles</sub>), and &pi;<sub>EOS</sub> models electrical overstress contributions.</p>
+
+<p>The system failure rate is the sum of all component failure rates
+(series reliability model):</p>
+<pre style="background:#f8f9fa;padding:12px;border-radius:4px;font-size:0.9em">
+  &lambda;<sub>sys</sub> = &Sigma; &lambda;<sub>i</sub>     R(t) = exp(&minus;&lambda;<sub>sys</sub> &middot; t)
+</pre>
+
+<h3>Tornado Sensitivity (OAT)</h3>
+<p>The <strong>One-At-a-Time (OAT)</strong> method perturbs each parameter by a user-specified
+amount while holding all other parameters at their nominal values. For each perturbation
+&Delta;x of parameter x:</p>
+<pre style="background:#f8f9fa;padding:12px;border-radius:4px;font-size:0.9em">
+  FIT<sub>swing</sub> = |&lambda;<sub>sys</sub>(x + &Delta;x) &minus; &lambda;<sub>sys</sub>(x &minus; &Delta;x)| &times; 10<sup>9</sup>
+</pre>
+<p><strong>Justification:</strong> For an additive model &lambda;<sub>sys</sub> = &Sigma;&lambda;<sub>i</sub>,
+OAT captures all first-order effects exactly. Cross-component interactions are zero by construction.
+Within-component interactions (e.g., T<sub>j</sub> affecting both Arrhenius and Coffin&ndash;Manson)
+are second-order and captured via re-evaluation of the full IEC formula.
+<em>Reference: Saltelli et al. (2008) &ldquo;Global Sensitivity Analysis: The Primer&rdquo;, Section 2.1.</em></p>
+
+<h3>Component Criticality (Elasticity)</h3>
+<p>The <strong>normalized elasticity</strong> (log-log derivative) measures the proportional
+sensitivity of &lambda;<sub>i</sub> to each parameter &theta;:</p>
+<pre style="background:#f8f9fa;padding:12px;border-radius:4px;font-size:0.9em">
+  e = (d&lambda;/&lambda;) / (d&theta;/&theta;) &approx; (&lambda;(&theta;+&Delta;&theta;) &minus; &lambda;(&theta;&minus;&Delta;&theta;)) / (2&Delta;&theta;/&theta;) / &lambda;<sub>nom</sub>
+</pre>
+<p>This central finite-difference approximation is second-order accurate: error is O(h&sup2;).
+<em>Reference: Borgonovo &amp; Plischke (2016) &ldquo;Sensitivity analysis: A review of recent advances.&rdquo;</em></p>
+
+<h3>Monte Carlo Uncertainty Analysis</h3>
+<p>Propagates parameter uncertainty through repeated random sampling. For each simulation:</p>
+<ol>
+<li>Draw shared parameters once (environmental) and independent parameters per component</li>
+<li>Recompute &lambda;<sub>i</sub> through the full IEC TR 62380 formula</li>
+<li>Sum to obtain &lambda;<sub>sys</sub> and compute R(t) = exp(&minus;&lambda;<sub>sys</sub> &middot; t)</li>
+</ol>
+<p>Convergence rate: O(1/&radic;N) by the Central Limit Theorem. Confidence intervals are computed
+directly from empirical quantiles of the sample distribution.</p>
+<p><strong>PERT distribution</strong> (Beta-PERT) with &gamma;=4 is used for expert-elicited bounds.
+<em>Reference: Vose (2008) &ldquo;Risk Analysis: A Quantitative Guide.&rdquo;</em></p>
+
+<h3>SRRC (Parameter Importance)</h3>
+<p><strong>Standardized Rank Regression Coefficients</strong> rank parameters by their contribution
+to output variance. The rank transformation makes SRRC robust to non-linear (but monotonic)
+input-output relationships. SRRC&sup2; represents the fraction of output variance explained.
+<em>Reference: Helton &amp; Davis (2003) &ldquo;Latin Hypercube Sampling and Propagation of Uncertainty.&rdquo;</em></p>
+
+<h3>Jensen's Inequality Diagnostic</h3>
+<p>Since R(t) = exp(&minus;&lambda;t) is <strong>convex</strong> in &lambda;, Jensen's inequality gives:
+E[R(t)] &le; R(E[&lambda;],t). This means parameter uncertainty always degrades expected reliability.
+The diagnostic flag alerts when this effect is significant.</p>
+</div>
+"""
 
     def _executive_summary(self, data: ReportData, sc: str, fit: float,
                               mttf_years: float) -> str:
@@ -617,7 +801,7 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
             recommendations.append("Run tornado and criticality analyses to identify "
                                    "improvement opportunities.")
 
-        html = '<div class="card"><h2>Executive Summary</h2>'
+        html = '<div class="card"><h2 id="sec-executive">Executive Summary</h2>'
         html += '<h3 style="margin-top:0">Key Findings</h3><ul>'
         for f in findings:
             html += f'<li>{f}</li>'
@@ -644,7 +828,7 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
         ci_hi = mc.get('ci_upper', p95)
         cl_pct = cl * 100
 
-        html = f"""<div class="card"><h2>Monte Carlo Uncertainty Analysis</h2>
+        html = f"""<div class="card"><h2 id="sec-mc">Monte Carlo Uncertainty Analysis</h2>
 <div class="grid">
 <div class="metric"><div class="v">{mean:.6f}</div><div class="l">Mean Reliability</div></div>
 <div class="metric"><div class="v">{std:.6f}</div><div class="l">Standard Deviation</div></div>
@@ -701,7 +885,7 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
         base = tornado.get("base_lambda_fit", 0)
         pct = tornado.get("perturbation_pct", 20)
 
-        html = f"""<div class="card"><h2>Sensitivity Analysis (Tornado)</h2>
+        html = f"""<div class="card"><h2 id="sec-tornado">Sensitivity Analysis (Tornado)</h2>
 <p>One-at-a-time perturbation of +/-{pct:.0f}% showing system failure rate impact.</p>
 """
         html += '<div class="chart-single">'
@@ -723,7 +907,7 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
         bl = dm.get("baseline_lambda_fit", 0)
         br = dm.get("baseline_reliability", 1)
 
-        html = """<div class="card"><h2>Design Margin Analysis (What-If Scenarios)</h2>
+        html = """<div class="card"><h2 id="sec-whatif">Design Margin Analysis (What-If Scenarios)</h2>
 <p>Impact of environmental and design parameter changes on system reliability.</p>
 <table><thead><tr><th>Scenario</th><th>Description</th><th>Lambda (FIT)</th><th>R(t)</th><th>Delta Lambda</th><th>Delta R</th></tr></thead><tbody>
 """
@@ -767,7 +951,7 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
         return html
 
     def _criticality_section(self, criticality: List) -> str:
-        html = '<div class="card"><h2>Component Parameter Criticality</h2>\n'
+        html = '<div class="card"><h2 id="sec-criticality">Component Parameter Criticality</h2>\n'
         html += '<p>Parameter sensitivity showing which inputs most influence each component\'s failure rate.</p>\n'
         for entry in criticality:
             ref = entry.get("reference", "?")
@@ -841,7 +1025,7 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
         status_cls = "ok" if n_over == 0 else "bad"
         status_txt = "All Within Budget" if n_over == 0 else f"{n_over} Over Budget"
 
-        html = f"""<div class="card"><h2>Reliability Budget Allocation</h2>
+        html = f"""<div class="card"><h2 id="sec-budget">Reliability Budget Allocation</h2>
 <div class="grid">
 <div class="metric"><div class="v">{target_r:.4f}</div><div class="l">Target R(t)</div></div>
 <div class="metric"><div class="v">{target_fit:.1f}</div><div class="l">Max Allowable (FIT)</div></div>
@@ -902,7 +1086,7 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
         gap_cls = "ok" if system_gap <= 0 else "bad"
         gap_txt = "Within Target" if system_gap <= 0 else "Above Target"
 
-        html = f"""<div class="card"><h2>Derating Guidance</h2>
+        html = f"""<div class="card"><h2 id="sec-derating">Derating Guidance</h2>
 <div class="grid">
 <div class="metric"><div class="v">{system_actual:.2f}</div><div class="l">Actual System (FIT)</div></div>
 <div class="metric"><div class="v">{system_target:.1f}</div><div class="l">Target (FIT)</div></div>
@@ -940,7 +1124,7 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
         total_analyzed = swap.get("total_analyzed", 0)
         best_single = swap.get("best_single_improvement", None)
 
-        html = f"""<div class="card"><h2>Component Swap Analysis</h2>
+        html = f"""<div class="card"><h2 id="sec-swap">Component Swap Analysis</h2>
 <p>Analyzed {total_analyzed} possible swaps across all components.</p>
 """
         if best_single:
@@ -1098,7 +1282,7 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
         if total_lam == 0:
             return ""
         contribs.sort(key=lambda x: -x[1])
-        html = """<div class="card"><h2>Failure Rate Contributions</h2>
+        html = """<div class="card"><h2 id="sec-contributions">Failure Rate Contributions</h2>
 <table><thead><tr><th>Sheet</th><th>Lambda (FIT)</th><th>Contribution</th><th>Cumulative</th><th></th></tr></thead><tbody>
 """
         cum = 0
@@ -1134,7 +1318,7 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
         return html
 
     def _sheets_section(self, sheets: Dict) -> str:
-        html = '<div class="card"><h2>Component Details by Sheet</h2>\n'
+        html = '<div class="card"><h2 id="sec-sheets">Component Details by Sheet</h2>\n'
         for path, sheet_data in sorted(sheets.items()):
             sf = sheet_data.get("lambda", 0) * 1e9
             sr = sheet_data.get("r", 1.0)
