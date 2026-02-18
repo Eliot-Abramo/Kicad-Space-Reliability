@@ -420,9 +420,29 @@ def run_uncertainty_analysis(
     ref_to_idx = {c.reference: i for i, c in enumerate(components)}
     n_comp = len(components)
 
-    # ---- Pre-compute nominal system lambda ----
-    nominal_lambdas = np.array([c.nominal_lambda for c in components])
-    nominal_sys_lambda = nominal_lambdas.sum()
+    # ---- CRITICAL: Recompute all nominal lambdas using current calculate_component_lambda ----
+    # This ensures consistency: the baseline matches what we recompute during MC sampling.
+    # The original comp.nominal_lambda from sheet_data may use different code/logic.
+    computed_nominal_lambdas = []
+    for comp in components:
+        if comp.override_lambda is not None:
+            # Override lambdas are stored as FIT, convert to /h
+            computed_nominal_lambdas.append(float(comp.override_lambda) * 1e-9)
+        else:
+            try:
+                # Recompute lambda using current IEC formula with base_params
+                result = calc_lambda(comp.component_type, comp.base_params)
+                lam = result.get("lambda_total", 0.0)
+                if lam < 0.0:
+                    lam = 0.0
+            except Exception:
+                # Fallback to original nominal if calculation fails
+                lam = comp.nominal_lambda
+            computed_nominal_lambdas.append(lam)
+    
+    # Use freshly computed values instead of sheet_data values
+    computed_nominal_lambdas = np.array(computed_nominal_lambdas)
+    nominal_sys_lambda = computed_nominal_lambdas.sum()
     nominal_R = rel_from_lambda(nominal_sys_lambda, mission_hours)
     nominal_mttf = 1.0 / nominal_sys_lambda if nominal_sys_lambda > 0 else float('inf')
 
@@ -443,13 +463,18 @@ def run_uncertainty_analysis(
     n_uncertain_comps = len(uncertain_comp_indices)
 
     # ---- Fixed component lambda sum (never changes) ----
+    # A "fixed" component is one that:
+    #   - Has NO uncertain parameters (not in uncertain_comp_indices)
+    #   - AND has NO override_lambda
+    # Everything else (uncertain params or override) is computed during MC loop.
     fixed_mask = np.ones(n_comp, dtype=bool)
     for idx in uncertain_comp_indices:
         fixed_mask[idx] = False
-    for i, c in enumerate(components):
-        if c.override_lambda is not None:
-            fixed_mask[i] = True
-    fixed_lambda_sum = nominal_lambdas[fixed_mask].sum()
+    for i, comp in enumerate(components):
+        if comp.override_lambda is not None:
+            fixed_mask[i] = False
+    # Use computed nominal lambdas for consistency
+    fixed_lambda_sum = computed_nominal_lambdas[fixed_mask].sum()
 
     # ---- Pre-generate all parameter samples ----
     # Shared: one sample vector per parameter (N,)
@@ -507,33 +532,31 @@ def run_uncertainty_analysis(
     report_interval = max(1, n_simulations // 40)
 
     # Pre-build per-component lookup tables to avoid repeated dict/list scans
-    # For each uncertain component, store:
-    #   - its base_params as a pre-allocated dict to mutate in-place
-    #   - list of (param_name, nominal_value) for shared specs
-    #   - list of (param_name, sample_array) for independent specs
+    # For each component (both uncertain and fixed), set up reusable info
     _comp_infos = []
-    for ci in uncertain_comp_indices:
-        comp = components[ci]
+    for ci, comp in enumerate(components):
         if comp.override_lambda is not None:
+            # Override components: lambda is fixed and in FIT units
             _comp_infos.append(("override", ci, comp.override_lambda * 1e-9,
                                 None, None, None, None))
-            continue
-        # Shared: list of (param_name, nominal_for_this_comp, shared_samples_array)
-        sh_list = []
-        for spec in shared_specs:
-            nom = spec.nominal_by_ref.get(comp.reference)
-            if nom is not None:
-                sh_list.append((spec.name, nom, shared_samples[spec.name]))
-        # Independent: list of (param_name, sample_array)
-        ind_list = []
-        for spec in indep_specs:
-            ref_samps = indep_samples.get(spec.name, {})
-            arr = ref_samps.get(comp.reference)
-            if arr is not None:
-                ind_list.append((spec.name, arr))
-        _comp_infos.append(("eval", ci, 0.0,
-                            comp.base_params, comp.component_type,
-                            sh_list, ind_list))
+        elif ci in uncertain_comp_indices:
+            # Uncertain components: will be re-evaluated each sample
+            # Shared: list of (param_name, nominal_for_this_comp, shared_samples_array)
+            sh_list = []
+            for spec in shared_specs:
+                nom = spec.nominal_by_ref.get(comp.reference)
+                if nom is not None:
+                    sh_list.append((spec.name, nom, shared_samples[spec.name]))
+            # Independent: list of (param_name, sample_array)
+            ind_list = []
+            for spec in indep_specs:
+                ref_samps = indep_samples.get(spec.name, {})
+                arr = ref_samps.get(comp.reference)
+                if arr is not None:
+                    ind_list.append((spec.name, arr))
+            _comp_infos.append(("eval", ci, 0.0,
+                                comp.base_params, comp.component_type,
+                                sh_list, ind_list))
 
     # Pre-allocate a reusable params dict per component (avoids dict() copy each iter)
     _param_buffers = []
@@ -636,19 +659,21 @@ def run_uncertainty_analysis(
                 entry["variance_fraction"] = 0.0
 
     # ---- Jensen's note ----
-    if mean_r < nominal_R - 1e-6:
+    # For f(λ) = exp(-λt), we have f''(λ) = t²*exp(-λt) > 0, so f is CONVEX.
+    # By Jensen's inequality for convex functions: E[f(λ)] >= f(E[λ])
+    # Therefore: E[R(t)] >= R(t; E[λ]), meaning the sample mean should be >= nominal.
+    if mean_r > nominal_R + 1e-6:
         jensen_note = (
-            f"Mean R(t) = {mean_r:.6f} is lower than the nominal point estimate "
-            f"R(t) = {nominal_R:.6f}. This is a mathematical property of Jensen's "
-            f"inequality: since R(t) = exp(-lambda*t) is a strictly convex function "
-            f"of lambda, E[R(t)] < R(t; E[lambda]) whenever lambda has positive "
-            f"variance. This is not an error -- it quantifies the reliability cost "
-            f"of parameter uncertainty."
+            f"Mean R(t) = {mean_r:.6f} is HIGHER than the nominal point estimate "
+            f"R(t) = {nominal_R:.6f}. This is Jensen's inequality: R(t) = exp(-λ·t) "
+            f"is a convex function of λ, so E[R(t)] ≥ R(t; E[λ]) when λ has positive variance. "
+            f"This means parameter uncertainty IMPROVES expected reliability compared to "
+            f"the nominal design. The nominal value is a conservative lower bound."
         )
     else:
         jensen_note = (
-            "Mean R(t) is consistent with the nominal estimate. Parameter "
-            "uncertainty has negligible impact on expected reliability."
+            f"Nominal R(t) = {nominal_R:.6f} is consistent with the mean sample "
+            f"R(t) = {mean_r:.6f}. Parameter uncertainty has negligible impact."
         )
 
     runtime = time.time() - t0
@@ -749,7 +774,7 @@ def build_component_inputs(
 # Helper: Build default ParameterSpec list from components
 # =====================================================================
 
-ORBIT_PARAMS = {"n_cycles", "delta_t", "tau_on"}
+ORBIT_PARAMS = {"delta_t", "tau_on"}
 
 
 def build_default_param_specs(

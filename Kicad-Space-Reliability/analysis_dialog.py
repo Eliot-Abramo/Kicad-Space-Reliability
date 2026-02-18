@@ -47,7 +47,7 @@ from .ecss_fields import (
 )
 from .budget_allocation import allocate_budget, BudgetAllocationResult
 from .derating_engine import compute_derating_guidance, DeratingResult
-from .component_swap import rank_all_swaps
+from .component_swap import rank_all_swaps, _get_swap_options
 from .growth_tracking import (
     create_snapshot, save_snapshot, load_snapshots,
     compare_revisions, build_growth_timeline,
@@ -713,6 +713,79 @@ class AnalysisDialog(wx.Dialog):
                 state = json.load(f)
         except Exception:
             return
+
+        if "mc" in state and state["mc"]:
+            try:
+                mc_dict = state["mc"]
+                self.mc_result = UncertaintyResult(
+                    nominal_lambda=mc_dict.get("nominal_lambda", 0),
+                    nominal_reliability=mc_dict.get("nominal_reliability", 1),
+                    nominal_mttf_hours=mc_dict.get("nominal_mttf_hours", float('inf')),
+                    mean_reliability=mc_dict.get("mean_reliability", 1),
+                    median_reliability=mc_dict.get("median_reliability", 1),
+                    std_reliability=mc_dict.get("std_reliability", 0),
+                    ci_lower=mc_dict.get("ci_lower", 1),
+                    ci_upper=mc_dict.get("ci_upper", 1),
+                    confidence_level=mc_dict.get("confidence_level", 0.9),
+                    mean_lambda_fit=mc_dict.get("mean_lambda_fit", 0),
+                    std_lambda_fit=mc_dict.get("std_lambda_fit", 0),
+                    ci_lower_lambda_fit=mc_dict.get("ci_lower_lambda_fit", 0),
+                    ci_upper_lambda_fit=mc_dict.get("ci_upper_lambda_fit", 0),
+                    mean_ci_halfwidth=mc_dict.get("mean_ci_halfwidth", 0),
+                    lambda_samples=np.array(mc_dict.get("lambda_samples_fit", [])) / 1e9,
+                    reliability_samples=np.array(mc_dict.get("samples", [])),
+                    parameter_importance=mc_dict.get("parameter_importance", []),
+                    convergence_history=mc_dict.get("convergence_history", []),
+                    n_simulations=mc_dict.get("n_simulations", 0),
+                    n_uncertain_params=mc_dict.get("n_uncertain_params", 0),
+                    n_shared_params=mc_dict.get("n_shared_params", 0),
+                    n_uncertain_components=mc_dict.get("n_uncertain_components", 0),
+                    n_total_components=mc_dict.get("n_total_components", 0),
+                    runtime_seconds=mc_dict.get("runtime_seconds", 0),
+                    jensen_note=mc_dict.get("jensen_note", ""),
+                )
+                # Display MC results in UI
+                mean_r = self.mc_result.mean_reliability
+                p5_r = np.percentile(self.mc_result.reliability_samples, 5) if len(self.mc_result.reliability_samples) > 0 else mean_r
+                p95_r = np.percentile(self.mc_result.reliability_samples, 95) if len(self.mc_result.reliability_samples) > 0 else mean_r
+                ci_pct = int(self.mc_result.confidence_level * 100)
+                self.mc_histogram.set_data(
+                    self.mc_result.reliability_samples.tolist() if len(self.mc_result.reliability_samples) > 0 else [],
+                    mean_r, p5_r, p95_r, 
+                    self.mc_result.ci_lower, self.mc_result.ci_upper,
+                    ci_label=f"{ci_pct}% CI", 
+                    nominal=self.mc_result.nominal_reliability,
+                    jensen_note=self.mc_result.jensen_note,
+                )
+                self.mc_convergence.set_data(self.mc_result.convergence_history)
+                
+                # Update stats text
+                stats_text = (
+                    f"R(t) Nominal: {self.mc_result.nominal_reliability:.6f}\n"
+                    f"R(t) Mean:    {mean_r:.6f} ± {self.mc_result.std_reliability:.6f}\n"
+                    f"R(t) CI:      [{self.mc_result.ci_lower:.6f}, {self.mc_result.ci_upper:.6f}]\n"
+                    f"λ (FIT):      {self.mc_result.mean_lambda_fit:.2f} ± {self.mc_result.std_lambda_fit:.2f}\n"
+                    f"N samples:    {self.mc_result.n_simulations}  "
+                    f"(N uncertain: {self.mc_result.n_uncertain_components}/{self.mc_result.n_total_components})\n"
+                    f"Runtime:      {self.mc_result.runtime_seconds:.1f} s"
+                )
+                self.mc_stats_text.SetLabel(stats_text)
+                self.jensen_label.SetLabel(self.mc_result.jensen_note)
+                
+                # Update importance chart
+                if self.mc_result.parameter_importance:
+                    top_imp = self.mc_result.parameter_importance[:10]
+                    self.mc_importance.set_data(
+                        [(x["name"], x["srrc_sq"]) for x in top_imp],
+                        x_label="SRRC²"
+                    )
+                
+                self.status.SetLabel(f"MC results restored: {self.mc_result.n_simulations} samples")
+            except Exception as e:
+                try:
+                    self.status.SetLabel(f"Note: MC results could not be restored ({type(e).__name__})")
+                except Exception:
+                    pass
 
         if "tornado" in state and state["tornado"]:
             try:
@@ -2178,9 +2251,13 @@ class AnalysisDialog(wx.Dialog):
         ref = self.wi_ref.GetString(ref_sel) if ref_sel >= 0 else ""
         param_sel = self.wi_param.GetSelection()
         param = self.wi_param.GetString(param_sel) if param_sel >= 0 else ""
-        val_str = self.wi_val.GetValue().strip() if isinstance(self.wi_val, wx.TextCtrl) else (
-            self.wi_val.GetString(self.wi_val.GetSelection())
-            if isinstance(self.wi_val, wx.Choice) and self.wi_val.GetSelection() >= 0 else "")
+        
+        # Get value from either TextCtrl or Choice
+        if isinstance(self.wi_val, wx.Choice):
+            val_str = self.wi_val.GetString(self.wi_val.GetSelection()) if self.wi_val.GetSelection() >= 0 else ""
+        else:
+            val_str = self.wi_val.GetValue().strip() if isinstance(self.wi_val, wx.TextCtrl) else ""
+        
         if not ref or not param or not val_str:
             wx.MessageBox("Fill in component reference, parameter name, and new value.",
                           "Missing Input", wx.OK | wx.ICON_WARNING)
@@ -2207,14 +2284,38 @@ class AnalysisDialog(wx.Dialog):
             self.wi_result.SetValue(f"Error: {e}")
             return
 
-        self.wi_result.SetValue(
-            f"Component {ref}: {param} = {result['old_value']} -> {new_val}\n"
-            f"  Component FIT: {result['comp_fit_before']:.2f} -> {result['comp_fit_after']:.2f} "
-            f"({result['comp_delta_fit']:+.2f})\n"
-            f"  System FIT:    {result['sys_fit_before']:.2f} -> {result['sys_fit_after']:.2f}\n"
-            f"  R(t):          {result['r_before']:.6f} -> {result['r_after']:.6f} "
-            f"({result['delta_r']:+.6f})"
+        # Format output nicely
+        old_val = result.get('old_value', '—')
+        comp_fit_before = result.get('comp_fit_before', 0)
+        comp_fit_after = result.get('comp_fit_after', 0)
+        comp_delta = result.get('comp_delta_fit', 0)
+        sys_fit_before = result.get('sys_fit_before', 0)
+        sys_fit_after = result.get('sys_fit_after', 0)
+        sys_delta = result.get('delta_lambda_fit', 0) * 1e9  # FIT adjustment
+        r_before = result.get('r_before', 0)
+        r_after = result.get('r_after', 0)
+        r_delta = result.get('delta_r', 0)
+        
+        comp_improvement = comp_delta < -0.01
+        sys_improvement = sys_delta < -0.01 if abs(sys_delta) > 0.01 else False
+        
+        output = (
+            f"┌─ What-If Analysis: {ref} ─────────────────────┐\n"
+            f"│ Parameter: {param}\n"
+            f"│ Change: {old_val} → {new_val}\n"
+            f"├──────────────────────────────────────────────────┤\n"
+            f"│ Component Reliability:\n"
+            f"│   FIT:  {comp_fit_before:8.2f} → {comp_fit_after:8.2f}  "
+            f"({comp_delta:+7.2f})  {'✓ improved' if comp_improvement else ''}\n"
+            f"├──────────────────────────────────────────────────┤\n"
+            f"│ System Reliability:\n"
+            f"│   FIT:  {sys_fit_before:8.2f} → {sys_fit_after:8.2f}  "
+            f"({sys_delta:+7.2f})  {'✓ improved' if sys_improvement else ''}\n"
+            f"│   R(t): {r_before:.6f} → {r_after:.6f}  ({r_delta:+.6f})\n"
+            f"│   ΔMTTF: {1/sys_fit_after*1e9 if sys_fit_after>0 else float('inf'):.0f} hrs\n"
+            f"└──────────────────────────────────────────────────┘"
         )
+        self.wi_result.SetValue(output)
 
     # -- History --
 
@@ -2526,7 +2627,53 @@ class AnalysisDialog(wx.Dialog):
 
     def _on_wi_param_changed(self, event):
         """Update value control when parameter selection changes."""
-        pass
+        ref_sel = self.wi_ref.GetSelection()
+        param_sel = self.wi_param.GetSelection()
+        if ref_sel < 0 or param_sel < 0:
+            return
+        ref = self.wi_ref.GetString(ref_sel)
+        param = self.wi_param.GetString(param_sel)
+        
+        # Find component
+        comp = None
+        for c in self._all_components():
+            if c.get("ref", "") == ref:
+                comp = c
+                break
+        if not comp:
+            return
+        
+        # Get current value
+        current_val = comp.get("params", {}).get(param)
+        comp_type = comp.get("class", "Unknown")
+        
+        # Get available options for this parameter
+        try:
+            swap_opts = _get_swap_options(comp_type, comp.get("params", {}))
+        except Exception:
+            swap_opts = {}
+        
+        # Remove old value control from sizer
+        if isinstance(self.wi_val, (wx.TextCtrl, wx.Choice)):
+            self._wi_val_sizer.Remove(self._wi_val_sizer.GetItemCount() - 3)  # Remove val control (before Evaluate button)
+            self.wi_val.Destroy()
+        
+        # Create new value control (dropdown or textctrl)
+        if param in swap_opts and swap_opts[param]:
+            # Create dropdown for categorical parameters
+            self.wi_val = wx.Choice(self._wi_val_panel, choices=swap_opts[param], size=(120, -1))
+            if current_val and str(current_val) in swap_opts[param]:
+                self.wi_val.SetStringSelection(str(current_val))
+            elif swap_opts[param]:
+                self.wi_val.SetSelection(0)
+        else:
+            # Create textctrl for numeric parameters
+            self.wi_val = wx.TextCtrl(self._wi_val_panel, size=(120, -1))
+            if current_val is not None:
+                self.wi_val.SetValue(str(current_val))
+        
+        self._wi_val_sizer.Insert(self._wi_val_sizer.GetItemCount() - 1, self.wi_val, 0, wx.ALL, 6)
+        self._wi_val_panel.Layout()
 
     # =================================================================
     # Type filter handler
