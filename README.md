@@ -20,10 +20,6 @@
   <img alt="License MIT" src="https://img.shields.io/badge/license-MIT-16a34a" />
 </p>
 
-**Version:** 3.3.0  
-**Author:** Eliot Abramo  
-**Standard:** IEC TR 62380:2004
-
 Reliability Calculator is a KiCad plugin that turns a schematic and block diagram into a reliability model. It estimates failure rate at the component level with IEC TR 62380, rolls those results up to the system level, and then gives you a practical way to inspect uncertainty, sensitivity, dominant contributors, and likely improvement paths.
 
 The point is not to produce a mysterious single number. The point is to help you answer, with one tool, what the current design is expected to do, how much that answer depends on your assumptions, and what you should change first if the margin is not good enough.
