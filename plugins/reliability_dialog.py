@@ -31,7 +31,8 @@ from .component_editor import (
     ComponentEditorDialog,
     BatchComponentEditorDialog,
     ComponentData,
-    classify_component,
+    classify_component_info,
+    classification_to_fields,
 )
 from .schematic_parser import SchematicParser, Component, Sheet, create_test_data
 from .project_manager import ProjectManager
@@ -40,8 +41,13 @@ from .mission_profile import MissionProfile
 
 try:
     from .ui.panels import Colors, SheetPanel, SettingsPanel, ComponentPanel
+    from .ui.theme import style_panel, style_text_like
 except ImportError:
-    from ui.panels import Colors, SheetPanel, SettingsPanel, ComponentPanel
+    from import_compat import ensure_plugin_paths
+
+    ensure_plugin_paths()
+    from panels import Colors, SheetPanel, SettingsPanel, ComponentPanel
+    from theme import style_panel, style_text_like
 
 
 class ReliabilityMainDialog(wx.Dialog):
@@ -86,7 +92,7 @@ class ReliabilityMainDialog(wx.Dialog):
 
         # Header
         header = wx.Panel(self)
-        header.SetBackgroundColour(Colors.HEADER_BG)
+        style_panel(header, Colors.HEADER_BG)
         header_sizer = wx.BoxSizer(wx.HORIZONTAL)
         title = wx.StaticText(header, label="[Z] Reliability Calculator")
         title.SetFont(
@@ -95,7 +101,7 @@ class ReliabilityMainDialog(wx.Dialog):
         title.SetForegroundColour(Colors.HEADER_FG)
         header_sizer.Add(title, 1, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 12)
         self.project_badge = wx.StaticText(header, label="(no project)")
-        self.project_badge.SetForegroundColour(wx.Colour(176, 190, 197))
+        self.project_badge.SetForegroundColour(Colors.TEXT_SECONDARY)
         header_sizer.Add(self.project_badge, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 12)
         header.SetSizer(header_sizer)
         root.Add(header, 0, wx.EXPAND)
@@ -110,7 +116,7 @@ class ReliabilityMainDialog(wx.Dialog):
 
         # Left panel
         left = wx.Panel(splitter)
-        left.SetBackgroundColour(Colors.PANEL_BG)
+        style_panel(left, Colors.PANEL_BG)
         left_sizer = wx.BoxSizer(wx.VERTICAL)
         self.sheet_panel = SheetPanel(left)
         left_sizer.Add(self.sheet_panel, 1, wx.EXPAND | wx.BOTTOM, 8)
@@ -124,7 +130,7 @@ class ReliabilityMainDialog(wx.Dialog):
 
         # Editor panel
         editor_panel = wx.Panel(right)
-        editor_panel.SetBackgroundColour(Colors.PANEL_BG)
+        style_panel(editor_panel, Colors.PANEL_BG)
         editor_sizer = wx.BoxSizer(wx.VERTICAL)
         editor_lbl = wx.StaticText(editor_panel, label="System Block Diagram")
         editor_lbl.SetFont(editor_lbl.GetFont().Bold())
@@ -140,7 +146,7 @@ class ReliabilityMainDialog(wx.Dialog):
         self.comp_panel = ComponentPanel(bottom)
 
         results_panel = wx.Panel(bottom)
-        results_panel.SetBackgroundColour(Colors.PANEL_BG)
+        style_panel(results_panel, Colors.PANEL_BG)
         results_sizer = wx.BoxSizer(wx.VERTICAL)
         results_lbl = wx.StaticText(results_panel, label="System Results")
         results_lbl.SetFont(results_lbl.GetFont().Bold())
@@ -153,7 +159,7 @@ class ReliabilityMainDialog(wx.Dialog):
                 9, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL
             )
         )
-        self.results.SetBackgroundColour(wx.Colour(250, 250, 250))
+        style_text_like(self.results, read_only=True)
         results_sizer.Add(self.results, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
         btn_calc = wx.Button(results_panel, label="Recalculate")
         btn_calc.Bind(wx.EVT_BUTTON, self._on_calculate)
@@ -180,7 +186,7 @@ class ReliabilityMainDialog(wx.Dialog):
 
     def _create_toolbar(self) -> wx.Panel:
         panel = wx.Panel(self)
-        panel.SetBackgroundColour(Colors.PANEL_BG)
+        style_panel(panel, Colors.PANEL_BG)
         sizer = wx.BoxSizer(wx.HORIZONTAL)
 
         sizer.Add(
@@ -190,6 +196,7 @@ class ReliabilityMainDialog(wx.Dialog):
             5,
         )
         self.txt_project = wx.TextCtrl(panel, value="(none)", style=wx.TE_READONLY)
+        style_text_like(self.txt_project, read_only=True)
         sizer.Add(self.txt_project, 1, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 10)
 
         btn_open = wx.Button(panel, label="Open...", size=(80, -1))
@@ -476,9 +483,9 @@ class ReliabilityMainDialog(wx.Dialog):
                 if path not in self.component_edits:
                     self.component_edits[path] = {}
                 if c.reference not in self.component_edits[path]:
+                    result = classify_component_info(c.reference, c.value, c.fields)
                     self.component_edits[path][c.reference] = {
-                        "_component_type": classify_component(
-                            c.reference, c.value, c.fields),
+                        **classification_to_fields(result),
                     }
 
     def _save_reliability_data(self):
@@ -570,6 +577,10 @@ class ReliabilityMainDialog(wx.Dialog):
                     "lambda": lam,
                     "r": r,
                     "params": params,
+                    "classification_confidence": edited.get("_classification_confidence", "manual"),
+                    "classification_reason": edited.get("_classification_reason", "Imported or manually assigned"),
+                    "classification_source": edited.get("_classification_source", "manual"),
+                    "classification_review_required": bool(edited.get("_classification_review_required")),
                 }
                 if has_override:
                     comp_entry["override_lambda"] = ovr
@@ -634,7 +645,15 @@ class ReliabilityMainDialog(wx.Dialog):
                 ct = (edited.get("_component_type")
                       if edited else None)
                 if not ct:
-                    ct = classify_component(c.reference, c.value, c.fields)
+                    info = classify_component_info(c.reference, c.value, c.fields)
+                    ct = info.component_type
+                    if path not in self.component_edits:
+                        self.component_edits[path] = {}
+                    self.component_edits[path][c.reference] = {
+                        **edited,
+                        **classification_to_fields(info),
+                    }
+                    edited = self.component_edits[path][c.reference]
 
                 ovr = edited.get("override_lambda") if edited else None
                 has_override = ovr is not None
@@ -659,6 +678,10 @@ class ReliabilityMainDialog(wx.Dialog):
                     "lambda": lam,
                     "r": r,
                     "params": params,
+                    "classification_confidence": edited.get("_classification_confidence", "manual") if edited else "manual",
+                    "classification_reason": edited.get("_classification_reason", "Imported or manually assigned") if edited else "Imported or manually assigned",
+                    "classification_source": edited.get("_classification_source", "manual") if edited else "manual",
+                    "classification_review_required": bool(edited.get("_classification_review_required")) if edited else False,
                 }
                 if has_override:
                     comp_entry["override_lambda"] = ovr
@@ -755,9 +778,14 @@ class ReliabilityMainDialog(wx.Dialog):
             comp_list = []
             for c in components:
                 edited = self.component_edits.get(sheet_path, {}).get(c.reference, {})
-                ct = edited.get("_component_type",
-                                classify_component(c.reference, c.value, c.fields))
-                fields = dict(edited) if edited else dict(c.fields)
+                if edited:
+                    ct = edited.get("_component_type", "Miscellaneous")
+                    fields = dict(edited)
+                else:
+                    info = classify_component_info(c.reference, c.value, c.fields)
+                    ct = info.component_type
+                    fields = dict(c.fields)
+                    fields.update(classification_to_fields(info))
                 comp_list.append(ComponentData(c.reference, c.value, ct, fields))
         else:
             comps = self.sheet_data[sheet_path]["components"]
@@ -834,8 +862,10 @@ class ReliabilityMainDialog(wx.Dialog):
             ct = edited.get("_component_type", "Resistor")
             fields = dict(edited)
         else:
-            ct = classify_component(comp.reference, comp.value, {})
-            fields = {}
+            info = classify_component_info(comp.reference, comp.value, comp.fields)
+            ct = info.component_type
+            fields = dict(comp.fields)
+            fields.update(classification_to_fields(info))
 
         comp_data = ComponentData(ref, comp.value, ct, fields)
         dlg = ComponentEditorDialog(self, comp_data, self.settings_panel.get_hours())
@@ -868,8 +898,10 @@ class ReliabilityMainDialog(wx.Dialog):
                     ct = edited.get("_component_type", "Resistor")
                     fields = dict(edited)
                 else:
-                    ct = classify_component(c.reference, c.value, {})
-                    fields = {}
+                    info = classify_component_info(c.reference, c.value, c.fields)
+                    ct = info.component_type
+                    fields = dict(c.fields)
+                    fields.update(classification_to_fields(info))
                 all_comps.append(ComponentData(c.reference, c.value, ct, fields))
 
         if not all_comps:
@@ -1042,6 +1074,9 @@ class ReliabilityMainDialog(wx.Dialog):
         generator = ReportGenerator(logo_path=str(logo_path) if logo_path else None)
 
         # Build report data
+        all_components = [
+            comp for data in self.sheet_data.values() for comp in data.get("components", [])
+        ]
         report_data = ReportData(
             project_name=(
                 Path(self.project_path).name
@@ -1057,6 +1092,13 @@ class ReliabilityMainDialog(wx.Dialog):
             system_mttf_hours=1 / sys_lam if sys_lam > 0 else float("inf"),
             sheets=self.sheet_data,
             blocks=[],
+            classification_summary={
+                "total": len(all_components),
+                "review_required": sum(1 for c in all_components if c.get("classification_review_required")),
+                "high_confidence": sum(1 for c in all_components if c.get("classification_confidence") == "high"),
+                "explicit": sum(1 for c in all_components if c.get("classification_source") == "explicit field"),
+                "manual": sum(1 for c in all_components if c.get("classification_source") == "manual"),
+            },
         )
 
         return generator.generate_html(report_data)

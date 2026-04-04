@@ -12,24 +12,38 @@ import wx.lib.scrolledpanel as scrolled
 try:
     from ..mission_profile import MissionPhase, MissionProfile, MISSION_TEMPLATES
     from ..component_editor import QuickReferenceDialog
+    from .theme import PALETTE, style_list_ctrl, style_panel, style_text_like
 except ImportError:
+    import sys
+    from pathlib import Path
+
+    base = Path(__file__).resolve().parents[1]
+    for path in (base, base / "ui"):
+        text = str(path)
+        if text not in sys.path:
+            sys.path.insert(0, text)
     from mission_profile import MissionPhase, MissionProfile, MISSION_TEMPLATES
     from component_editor import QuickReferenceDialog
+    from theme import PALETTE, style_list_ctrl, style_panel, style_text_like
 
 
 class Colors:
     """Design system colors."""
-    BACKGROUND = wx.Colour(245, 246, 247)
-    PANEL_BG = wx.Colour(255, 255, 255)
-    HEADER_BG = wx.Colour(38, 50, 56)
-    HEADER_FG = wx.Colour(255, 255, 255)
-    ACCENT = wx.Colour(30, 136, 229)
-    BORDER = wx.Colour(218, 220, 224)
-    TEXT_PRIMARY = wx.Colour(32, 33, 36)
-    TEXT_SECONDARY = wx.Colour(95, 99, 104)
-    SUCCESS = wx.Colour(67, 160, 71)
-    WARNING = wx.Colour(251, 140, 0)
-    ERROR = wx.Colour(229, 57, 53)
+    BACKGROUND = PALETTE.background
+    PANEL_BG = PALETTE.panel_bg
+    CARD_BG = PALETTE.card_bg
+    FIELD_BG = PALETTE.field_bg
+    HEADER_BG = PALETTE.header_bg
+    HEADER_FG = PALETTE.header_fg
+    ACCENT = PALETTE.primary
+    BORDER = PALETTE.border
+    TEXT_PRIMARY = PALETTE.text
+    TEXT_SECONDARY = PALETTE.text_muted
+    TEXT_TERTIARY = PALETTE.text_soft
+    SUCCESS = PALETTE.success
+    WARNING = PALETTE.warning
+    ERROR = PALETTE.danger
+    INFO_BG = PALETTE.info_bg
 
 
 class SheetPanel(wx.Panel):
@@ -37,7 +51,7 @@ class SheetPanel(wx.Panel):
 
     def __init__(self, parent):
         super().__init__(parent)
-        self.SetBackgroundColour(Colors.PANEL_BG)
+        style_panel(self, Colors.PANEL_BG)
         self.sheets = []
         self.on_add = None
         self.on_edit = None
@@ -48,6 +62,8 @@ class SheetPanel(wx.Panel):
         main.Add(lbl, 0, wx.ALL, 10)
 
         self.list = wx.ListBox(self, style=wx.LB_EXTENDED)
+        self.list.SetBackgroundColour(Colors.CARD_BG)
+        self.list.SetForegroundColour(Colors.TEXT_PRIMARY)
         self.list.Bind(wx.EVT_LISTBOX_DCLICK, self._on_dclick)
         main.Add(self.list, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
 
@@ -97,7 +113,7 @@ class MissionPhaseDialog(wx.Dialog):
     def __init__(self, parent, phase: MissionPhase = None, title="Edit Mission Phase"):
         super().__init__(parent, title=title, size=(380, 320),
                          style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
-        self.SetBackgroundColour(Colors.PANEL_BG)
+        style_panel(self, Colors.PANEL_BG)
 
         sizer = wx.BoxSizer(wx.VERTICAL)
         form = wx.FlexGridSizer(7, 2, 8, 10)
@@ -164,7 +180,7 @@ class SettingsPanel(wx.Panel):
 
     def __init__(self, parent):
         super().__init__(parent)
-        self.SetBackgroundColour(Colors.PANEL_BG)
+        style_panel(self, Colors.PANEL_BG)
         self.on_change = None
         self._mission_profile = None
 
@@ -220,6 +236,7 @@ class SettingsPanel(wx.Panel):
         main.Add(self.phase_label, 0, wx.LEFT | wx.RIGHT, 10)
 
         self.phase_list = wx.ListCtrl(self, style=wx.LC_REPORT | wx.LC_SINGLE_SEL | wx.BORDER_SIMPLE, size=(-1, 90))
+        style_list_ctrl(self.phase_list)
         self.phase_list.InsertColumn(0, "Phase", width=80)
         self.phase_list.InsertColumn(1, "Dur%", width=45)
         self.phase_list.InsertColumn(2, "T_amb", width=45)

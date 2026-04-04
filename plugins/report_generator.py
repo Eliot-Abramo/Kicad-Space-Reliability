@@ -49,6 +49,7 @@ class ReportData:
     swap_analysis: Optional[Dict] = None
     growth_timeline: Optional[Dict] = None
     correlated_mc: Optional[Dict] = None
+    classification_summary: Optional[Dict] = None
 
     generated_at: str = None
 
@@ -386,7 +387,7 @@ def _svg_budget_utilization(components: list, width: int = 700, height: int = 40
     for i, comp in enumerate(components[:n]):
         y = mt + sp + i * (bh + sp)
         util = comp.get("utilization_pct", 0)
-        ref = comp.get("ref", "?")[:10]
+        ref = str(comp.get("reference", comp.get("ref", "?")))[:10]
         passed = comp.get("passed", True)
 
         # Background bar (budget = 100%)
@@ -518,6 +519,8 @@ class ReportGenerator:
 
 {self._toc(data)}
 
+{self._intro_section(data)}
+
 <div class="card"><h2 id="sec-summary">System Summary</h2>
 <div class="grid">
 <div class="metric {sc}"><div class="v">{data.system_reliability:.6f}</div><div class="l">System Reliability</div></div>
@@ -576,6 +579,7 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
     def _toc(self, data: ReportData) -> str:
         """Generate a sticky Table of Contents with anchor links."""
         entries = [
+            ("sec-intro", "What This Report Means"),
             ("sec-summary", "System Summary"),
             ("sec-executive", "Executive Summary"),
             ("sec-methodology", "Methodology"),
@@ -609,6 +613,26 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
             f'<strong>Contents:</strong> {links}'
             '</div>\n'
         )
+
+    def _intro_section(self, data: ReportData) -> str:
+        classification = data.classification_summary or {}
+        total = classification.get("total", 0)
+        review = classification.get("review_required", 0)
+        high = classification.get("high_confidence", 0)
+        explicit = classification.get("explicit", 0)
+        manual = classification.get("manual", 0)
+        note = (
+            f"Component classification provenance: {high} high-confidence auto-classified, "
+            f"{explicit} explicit from fields, {manual} manually reviewed, {review} flagged for review."
+            if total else
+            "Component classification provenance was not available in this report build."
+        )
+        return f"""<div class="card"><h2 id="sec-intro">What This Tool Does And What This Report Communicates</h2>
+<p>This plugin estimates component and system failure rates using the IEC TR 62380 reliability model, then layers on design-facing analysis to show uncertainty, dominant contributors, and the design parameters most worth tightening.</p>
+<p>This report is meant to answer four practical questions: what the current mission reliability estimate is, how wide the uncertainty band is, which parts or parameters dominate the result, and where engineering effort is most likely to improve the design.</p>
+<p>Read the report as a decision-support document rather than a certification artifact. The summary sections describe the present estimate, the analysis sections explain why the estimate moves, and the action sections show where design work is likely to close the remaining reliability gap. For methodology, assumptions, and interpretation limits, see <span class="mono">docs/METHODOLOGY.md</span>.</p>
+<p style="margin-top:12px;color:var(--text2)">{note}</p></div>
+"""
 
     def _glossary(self) -> str:
         """Generate a glossary section with definitions."""
@@ -1013,57 +1037,67 @@ mean sampled failure rate.</p>
         return html
 
     def _budget_section(self, budget: Dict) -> str:
-        """Reliability budget allocation section."""
-        sheets = budget.get("sheet_budgets", [])
+        """Reliability target-closure section."""
+        sheets = budget.get("sheet_budgets") or budget.get("sheets", [])
         strategy = budget.get("strategy", "proportional")
         target_fit = budget.get("target_fit", 0)
         actual_fit = budget.get("actual_fit", 0)
-        margin_fit = budget.get("margin_fit", 0)
+        effective_fit = budget.get("effective_budget_fit", target_fit)
+        gap_fit = budget.get("fit_gap_to_close", max(0, actual_fit - effective_fit))
+        margin_fit = budget.get("system_margin_fit", 0)
         target_r = budget.get("target_reliability", 0)
         design_margin = budget.get("design_margin_pct", 10)
         n_over = budget.get("components_over_budget", 0)
-        n_total = budget.get("total_components", 0)
+        top_offenders = budget.get("top_offenders", [])
 
-        status_cls = "ok" if n_over == 0 else "bad"
-        status_txt = "All Within Budget" if n_over == 0 else f"{n_over} Over Budget"
+        status_cls = "ok" if gap_fit <= 0 else "bad"
+        status_txt = "Within Planning Budget" if gap_fit <= 0 else f"{gap_fit:.1f} FIT To Close"
 
-        html = f"""<div class="card"><h2 id="sec-budget">Reliability Budget Allocation</h2>
+        html = f"""<div class="card"><h2 id="sec-budget">Reliability Target Closure Planning</h2>
 <div class="grid">
 <div class="metric"><div class="v">{target_r:.4f}</div><div class="l">Target R(t)</div></div>
-<div class="metric"><div class="v">{target_fit:.1f}</div><div class="l">Max Allowable (FIT)</div></div>
+<div class="metric"><div class="v">{target_fit:.1f}</div><div class="l">Raw Target (FIT)</div></div>
+<div class="metric"><div class="v">{effective_fit:.1f}</div><div class="l">Effective Budget (FIT)</div></div>
 <div class="metric"><div class="v">{actual_fit:.2f}</div><div class="l">Actual System (FIT)</div></div>
 <div class="metric {status_cls}"><div class="v">{status_txt}</div><div class="l">Budget Status</div></div>
 </div>
 <p style="margin-top:12px;color:var(--text2)">Strategy: <strong>{strategy.title()}</strong> | Design Margin: {design_margin:.0f}% | System Margin: {margin_fit:.2f} FIT</p>
+<p style="color:var(--text2)">This section is intended to show how much FIT must still be removed, which sheets are carrying the pressure, and which components deserve attention first.</p>
 """
-        # Component budget table
-        all_comps = []
+
+        html += """<h3>Sheet Pressure</h3>
+<table><thead><tr><th>Sheet</th><th>Actual (FIT)</th><th>Budget (FIT)</th><th>Gap To Close</th><th>Utilization</th><th>Over Budget</th></tr></thead><tbody>
+"""
         for sb in sheets:
-            for cb in sb.get("component_budgets", []):
-                all_comps.append(cb)
-        if all_comps:
-            # Sort by utilization descending
-            all_comps.sort(key=lambda c: c.get("utilization_pct", 0), reverse=True)
-            html += """<table><thead><tr><th>Reference</th><th>Type</th><th>Actual (FIT)</th>
-<th>Budget (FIT)</th><th>Margin (FIT)</th><th>Utilization</th><th>Status</th></tr></thead><tbody>
+            html += f"<tr><td><strong>{sb.get('sheet_name','')}</strong></td>"
+            html += f"<td class='mono'>{sb.get('actual_fit',0):.2f}</td>"
+            html += f"<td class='mono'>{sb.get('budget_fit',0):.2f}</td>"
+            html += f"<td class='mono'>{sb.get('required_savings_fit',0):.2f}</td>"
+            html += f"<td class='mono'>{sb.get('utilization_pct', sb.get('utilization',0)*100):.1f}%</td>"
+            html += f"<td class='mono'>{sb.get('n_over_budget',0)}</td></tr>\n"
+        html += "</tbody></table>\n"
+
+        if top_offenders:
+            html += """<h3>Component Actions</h3>
+<table><thead><tr><th>Reference</th><th>Type</th><th>Actual (FIT)</th>
+<th>Budget (FIT)</th><th>Save Needed</th><th>Utilization</th><th>Status</th></tr></thead><tbody>
 """
-            for cb in all_comps[:30]:
+            for cb in top_offenders[:30]:
                 util = cb.get("utilization_pct", 0)
                 passed = cb.get("passed", True)
                 badge = "badge-ok" if passed else "badge-bad"
-                status = "PASS" if passed else "FAIL"
-                html += f'<tr><td><strong>{cb.get("ref","?")}</strong></td>'
+                status = "PASS" if passed else "OVER"
+                html += f'<tr><td><strong>{cb.get("reference", cb.get("ref","?"))}</strong></td>'
                 html += f'<td>{cb.get("component_type","")}</td>'
                 html += f'<td class="mono">{cb.get("actual_fit",0):.3f}</td>'
                 html += f'<td class="mono">{cb.get("budget_fit",0):.3f}</td>'
-                html += f'<td class="mono">{cb.get("margin_fit",0):+.3f}</td>'
+                html += f'<td class="mono">{cb.get("required_savings_fit",0):.3f}</td>'
                 html += f'<td class="mono">{util:.1f}%</td>'
                 html += f'<td><span class="badge {badge}">{status}</span></td></tr>\n'
             html += '</tbody></table>\n'
 
-            # Budget utilization chart
             html += '<div class="chart-single">'
-            html += _svg_budget_utilization(all_comps[:15])
+            html += _svg_budget_utilization(top_offenders[:15])
             html += '</div>'
 
         # Recommendations
@@ -1352,6 +1386,18 @@ mean sampled failure rate.</p>
 **Generated:** {datetime.fromisoformat(data.generated_at).strftime('%Y-%m-%d %H:%M')}
 **Standard:** IEC TR 62380:2004
 
+## What This Report Means
+
+This plugin estimates component and system failure rates using IEC TR 62380, then adds uncertainty, sensitivity, and design-action views so you can understand both the current reliability estimate and the best places to improve it.
+
+Use this report to answer:
+- what the current system FIT and mission reliability estimate are
+- how wide the uncertainty band is
+- which parts or parameters dominate the result
+- what work is most likely to close the remaining reliability gap
+
+For methodology, assumptions, and interpretation limits, see `docs/METHODOLOGY.md`.
+
 ## System Summary
 
 | Metric | Value |
@@ -1399,13 +1445,19 @@ mean sampled failure rate.</p>
 
         if data.budget:
             b = data.budget
-            md += f"## Reliability Budget Allocation\n\n"
-            md += f"Strategy: **{b.get('strategy','').title()}** | Target R: {b.get('target_reliability',0):.4f} | Max FIT: {b.get('target_fit',0):.1f} | Actual: {b.get('actual_fit',0):.2f} FIT\n\n"
-            md += "| Ref | Type | Actual (FIT) | Budget (FIT) | Utilization | Status |\n|---|---|---|---|---|---|\n"
-            for sb in b.get("sheet_budgets", []):
-                for cb in sb.get("component_budgets", []):
-                    st = "PASS" if cb.get("passed", True) else "FAIL"
-                    md += f"| {cb.get('ref','')} | {cb.get('component_type','')} | {cb.get('actual_fit',0):.3f} | {cb.get('budget_fit',0):.3f} | {cb.get('utilization_pct',0):.1f}% | {st} |\n"
+            md += f"## Reliability Target Closure Planning\n\n"
+            md += (
+                f"Strategy: **{b.get('strategy','').title()}** | "
+                f"Target R: {b.get('target_reliability',0):.4f} | "
+                f"Raw Target: {b.get('target_fit',0):.1f} FIT | "
+                f"Effective Budget: {b.get('effective_budget_fit', b.get('target_fit',0)):.1f} FIT | "
+                f"Actual: {b.get('actual_fit',0):.2f} FIT | "
+                f"Gap To Close: {b.get('fit_gap_to_close',0):.2f} FIT\n\n"
+            )
+            md += "| Ref | Type | Actual (FIT) | Budget (FIT) | Save Needed | Utilization | Status |\n|---|---|---|---|---|---|---|\n"
+            for cb in b.get("top_offenders", []):
+                st = cb.get("status", "PASS")
+                md += f"| {cb.get('reference', cb.get('ref',''))} | {cb.get('component_type','')} | {cb.get('actual_fit',0):.3f} | {cb.get('budget_fit',0):.3f} | {cb.get('required_savings_fit',0):.3f} | {cb.get('utilization_pct',0):.1f}% | {st} |\n"
             md += "\n"
 
         if data.derating:
@@ -1480,6 +1532,8 @@ mean sampled failure rate.</p>
             output["mission_profile"] = data.mission_profile
         if data.budget:
             output["budget"] = data.budget
+        if data.classification_summary:
+            output["classification_summary"] = data.classification_summary
         if data.derating:
             output["derating"] = data.derating
         if data.swap_analysis:

@@ -6,6 +6,15 @@
 
 Reliability Calculator is a KiCad plugin for estimating component and system failure rates, exploring design sensitivity, and exporting review-ready reliability reports. It is designed as an engineering decision-support tool: it helps compare design choices, surface dominant contributors, and communicate assumptions clearly.
 
+From the first run, the plugin is meant to answer four practical questions:
+
+- What is the predicted system FIT and mission reliability for this design?
+- How uncertain is that estimate if key inputs vary within plausible bounds?
+- Which sheets, components, and parameters are driving the result?
+- What should the team change first if the design needs a better reliability margin?
+
+The exported report is built around those same questions. It explains the current reliability estimate, shows the uncertainty and sensitivity context around that estimate, and highlights the most actionable contributors and target-closure work. For the detailed math, interpretation limits, and validation notes, see [Methodology and Validation](./docs/METHODOLOGY.md).
+
 ## What Ships Today
 
 - IEC TR 62380-based component failure-rate calculations

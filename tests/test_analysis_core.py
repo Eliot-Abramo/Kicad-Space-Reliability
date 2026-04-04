@@ -15,6 +15,8 @@ if str(PLUGIN_ROOT) not in sys.path:
 import monte_carlo
 import reliability_math
 import sensitivity_analysis
+import budget_allocation
+import classification
 
 
 def _exp_reliability(lam, hours):
@@ -22,6 +24,28 @@ def _exp_reliability(lam, hours):
 
 
 class AnalysisCoreTests(unittest.TestCase):
+    def test_autoclassify_uses_explicit_field_and_flags_ambiguous_parts(self):
+        explicit = classification.classify_component_info(
+            "U1",
+            "STM32F4",
+            {"Reliability_Class": "Integrated Circuit"},
+        )
+        self.assertEqual(explicit.component_type, "Integrated Circuit")
+        self.assertEqual(explicit.source, "explicit field")
+        self.assertFalse(explicit.review_required)
+
+        ambiguous = classification.classify_component_info(
+            "X1",
+            "",
+            {"Footprint": "PinHeader_1x04"},
+        )
+        self.assertEqual(ambiguous.component_type, "Connector")
+        self.assertFalse(ambiguous.review_required)
+
+        unknown = classification.classify_component_info("TP1", "", {})
+        self.assertEqual(unknown.component_type, "Miscellaneous")
+        self.assertTrue(unknown.review_required)
+
     def test_tornado_ranks_larger_local_fit_swing_first(self):
         def fake_calc(_ctype, params):
             stress = float(params.get("stress", 0.0))
@@ -242,6 +266,38 @@ class AnalysisCoreTests(unittest.TestCase):
 
         self.assertEqual(result.n_simulations, 10)
         self.assertEqual(len(result.reliability_samples), 10)
+
+    def test_budget_allocation_reports_gap_and_top_offenders(self):
+        sheet_data = {
+            "/power": {
+                "lambda": 25e-9,
+                "components": [
+                    {"ref": "U1", "class": "Integrated Circuit", "lambda": 15e-9, "params": {}},
+                    {"ref": "C1", "class": "Capacitor", "lambda": 10e-9, "params": {}},
+                ],
+            },
+            "/logic": {
+                "lambda": 10e-9,
+                "components": [
+                    {"ref": "U2", "class": "Integrated Circuit", "lambda": 10e-9, "params": {}},
+                ],
+            },
+        }
+
+        result = budget_allocation.allocate_budget(
+            sheet_data,
+            mission_hours=1000.0,
+            target_reliability=0.99999,
+            strategy="proportional",
+            margin_percent=10.0,
+        )
+
+        self.assertGreater(result.effective_budget_fit, 0)
+        self.assertGreaterEqual(result.fit_gap_to_close, 0)
+        self.assertTrue(result.top_offenders)
+        first = result.top_offenders[0]
+        self.assertIn("required_savings_fit", first)
+        self.assertIn("utilization_pct", first)
 
 
 if __name__ == "__main__":

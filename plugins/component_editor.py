@@ -23,6 +23,30 @@ from .reliability_math import (
     CONNECTOR_PARAMS, PCB_SOLDER_PARAMS, DISCRETE_PACKAGE_TABLE,
     analyze_component_criticality,
 )
+try:
+    from .classification import (
+        ClassificationResult,
+        classify_component,
+        classify_component_info,
+        classification_to_fields,
+    )
+except ImportError:
+    from import_compat import ensure_plugin_paths
+
+    ensure_plugin_paths()
+    from classification import (
+        ClassificationResult,
+        classify_component,
+        classify_component_info,
+        classification_to_fields,
+    )
+try:
+    from .ui.theme import PALETTE, style_list_ctrl, style_panel, style_text_like
+except ImportError:
+    from import_compat import ensure_plugin_paths
+
+    ensure_plugin_paths()
+    from theme import PALETTE, style_list_ctrl, style_panel, style_text_like
 
 @dataclass
 class ComponentData:
@@ -30,67 +54,6 @@ class ComponentData:
     value: str
     component_type: str
     fields: Dict[str, Any]
-
-
-def classify_component(reference: str, value: str, existing_fields: Dict[str, str] = None) -> str:
-    """Classify component from reference designator.
-
-    Mapping follows IEC TR 62380 component categories:
-        R*  -> Resistor          (Section 12)
-        C*  -> Capacitor         (Section 11)
-        L*  -> Inductor          (Section 13)
-        D*  -> Diode             (Section 9)
-        Q*, T* -> Transistor     (Section 10)
-        U*, IC* -> IC            (Section 8)
-        K*  -> Relay             (Section 14)
-        J*, P* -> Connector      (Section 15)
-        Y*, X* -> Crystal/Osc    (Appendix)
-
-    Args:
-        reference:       Component reference designator (e.g. 'R1', 'U3').
-        value:           Component value string (e.g. '10k', 'STM32F4').
-        existing_fields: Optional dict with pre-assigned Reliability_Class.
-
-    Returns:
-        Component type string matching get_component_types() output.
-    """
-    ref = reference.upper()
-    val = (value or "").lower()
-
-    # Check user-assigned class first
-    if existing_fields and existing_fields.get("Reliability_Class"):
-        rc = existing_fields["Reliability_Class"].lower()
-        if "ic" in rc or "integrated" in rc: return "Integrated Circuit"
-        if "diode" in rc: return "Diode"
-        if "transistor" in rc or "mosfet" in rc: return "Transistor"
-        if "optocoupler" in rc or "opto" in rc: return "Optocoupler"
-        if "thyristor" in rc or "triac" in rc or "scr" in rc: return "Thyristor/TRIAC"
-        if "capacitor" in rc: return "Capacitor"
-        if "resistor" in rc: return "Resistor"
-        if "inductor" in rc or "transformer" in rc: return "Inductor/Transformer"
-        if "relay" in rc: return "Relay"
-        if "connector" in rc: return "Connector"
-        if "pcb" in rc or "solder" in rc: return "PCB/Solder"
-
-    # Value-based detection for ambiguous cases
-    if "opto" in val or "optocoupler" in val:
-        return "Optocoupler"
-    if "triac" in val or "thyristor" in val or "scr" in val:
-        return "Thyristor/TRIAC"
-    if "relay" in val:
-        return "Relay"
-
-    # Reference designator mapping
-    if ref.startswith('R'): return "Resistor"
-    elif ref.startswith('C'): return "Capacitor"
-    elif ref.startswith('L'): return "Inductor/Transformer"
-    elif ref.startswith('D'): return "Diode"
-    elif ref.startswith('Q') or ref.startswith('T'): return "Transistor"
-    elif ref.startswith('U') or ref.startswith('IC'): return "Integrated Circuit"
-    elif ref.startswith('K'): return "Relay"
-    elif ref.startswith('J') or ref.startswith('P'): return "Connector"
-    elif ref.startswith('Y') or ref.startswith('X'): return "Miscellaneous"
-    return "Miscellaneous"
 
 
 class FieldEditorPanel(scrolled.ScrolledPanel):
@@ -102,6 +65,7 @@ class FieldEditorPanel(scrolled.ScrolledPanel):
         self.component_type = component_type
         self.field_controls = {}
         self.on_change = on_change
+        style_panel(self, PALETTE.card_bg)
         self._create_ui(initial_values or {})
         self.SetupScrolling(scroll_x=False)
     
@@ -145,7 +109,7 @@ class FieldEditorPanel(scrolled.ScrolledPanel):
         help_text = defn.get("help", "")
         if help_text:
             help_lbl = wx.StaticText(self, label=help_text)
-            help_lbl.SetForegroundColour(wx.Colour(100, 100, 100))
+            help_lbl.SetForegroundColour(PALETTE.text_muted)
             font = help_lbl.GetFont()
             font.SetPointSize(font.GetPointSize() - 1)
             help_lbl.SetFont(font)
@@ -216,12 +180,14 @@ class ComponentEditorDialog(wx.Dialog):
         self.component = component
         self.mission_hours = mission_hours
         self.result_fields = None
+        style_panel(self, PALETTE.panel_bg)
         self._create_ui()
         self._update_preview()
         self.Centre()
     
     def _create_ui(self):
         panel = wx.Panel(self)
+        style_panel(panel, PALETTE.panel_bg)
         main = wx.BoxSizer(wx.VERTICAL)
         
         # Header
@@ -270,7 +236,7 @@ class ComponentEditorDialog(wx.Dialog):
         ovr_val_row.Add(self.override_val, 0, wx.ALL, 4)
         ovr_val_row.Add(wx.StaticText(panel, label="FIT"), 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 4)
         ovr_help = wx.StaticText(panel, label="(1 FIT = 1 failure per 10^9 hours)")
-        ovr_help.SetForegroundColour(wx.Colour(100, 100, 100))
+        ovr_help.SetForegroundColour(PALETTE.text_muted)
         ovr_val_row.Add(ovr_help, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 4)
         ovr_sizer.Add(ovr_val_row, 0, wx.EXPAND)
         main.Add(ovr_sizer, 0, wx.EXPAND | wx.ALL, 5)
@@ -284,7 +250,7 @@ class ComponentEditorDialog(wx.Dialog):
         preview_box = wx.StaticBox(panel, label="Calculated Results")
         preview_sizer = wx.StaticBoxSizer(preview_box, wx.VERTICAL)
         self.preview = wx.TextCtrl(panel, style=wx.TE_MULTILINE | wx.TE_READONLY, size=(-1, 80))
-        self.preview.SetBackgroundColour(wx.Colour(245, 245, 245))
+        style_text_like(self.preview, read_only=True)
         preview_sizer.Add(self.preview, 1, wx.EXPAND | wx.ALL, 5)
         main.Add(preview_sizer, 0, wx.EXPAND | wx.ALL, 5)
         
@@ -349,6 +315,10 @@ class ComponentEditorDialog(wx.Dialog):
     def _on_ok(self, event):
         self.result_fields = self.field_panel.get_values()
         self.result_fields["_component_type"] = self.type_combo.GetValue()
+        self.result_fields["_classification_source"] = "manual"
+        self.result_fields["_classification_reason"] = "User reviewed or edited this component."
+        self.result_fields["_classification_confidence"] = "manual"
+        self.result_fields["_classification_review_required"] = False
         if self.override_cb.GetValue():
             self.result_fields["override_lambda"] = self.override_val.GetValue()
         else:
@@ -368,40 +338,39 @@ class BatchComponentEditorDialog(wx.Dialog):
         self.components = components
         self.mission_hours = mission_hours
         self.results = {}
+        style_panel(self, PALETTE.panel_bg)
         self._create_ui()
         self.Centre()
     
     def _create_ui(self):
         panel = wx.Panel(self)
+        style_panel(panel, PALETTE.panel_bg)
         main = wx.BoxSizer(wx.HORIZONTAL)
         
         # Left: component list
         left = wx.Panel(panel)
+        style_panel(left, PALETTE.card_bg)
         left_sizer = wx.BoxSizer(wx.VERTICAL)
         left_sizer.Add(wx.StaticText(left, label="Components:"), 0, wx.ALL, 5)
-        
+
+        self.classification_summary = wx.StaticText(
+            left,
+            label="Auto-classification will review obvious parts and flag ambiguous ones.",
+        )
+        self.classification_summary.SetForegroundColour(PALETTE.text_muted)
+        left_sizer.Add(self.classification_summary, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
+
         self.list = wx.ListCtrl(left, style=wx.LC_REPORT | wx.LC_SINGLE_SEL)
+        style_list_ctrl(self.list)
         self.list.InsertColumn(0, "Ref", width=60)
         self.list.InsertColumn(1, "Value", width=80)
         self.list.InsertColumn(2, "Type", width=120)
         self.list.InsertColumn(3, "Lambda (FIT)", width=80)
-        self.list.InsertColumn(4, "Source", width=60)
-        
+        self.list.InsertColumn(4, "Status", width=100)
+        self.list.InsertColumn(5, "Why", width=230)
+
         for i, comp in enumerate(self.components):
-            self.list.InsertItem(i, comp.reference)
-            self.list.SetItem(i, 1, comp.value or "")
-            self.list.SetItem(i, 2, comp.component_type)
-            ovr = comp.fields.get("override_lambda")
-            if ovr is not None:
-                self.list.SetItem(i, 3, f"{ovr:.1f}")
-                self.list.SetItem(i, 4, "OVR")
-            else:
-                try:
-                    result = calculate_component_lambda(comp.component_type, comp.fields)
-                    self.list.SetItem(i, 3, f"{result.get('fit_total', 0):.1f}")
-                except:
-                    self.list.SetItem(i, 3, "?")
-                self.list.SetItem(i, 4, "Calc")
+            self._refresh_row(i, comp)
         
         self.list.Bind(wx.EVT_LIST_ITEM_SELECTED, self._on_select)
         self.list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self._on_edit)
@@ -414,6 +383,9 @@ class BatchComponentEditorDialog(wx.Dialog):
         auto_btn = wx.Button(left, label="Auto-Classify All")
         auto_btn.Bind(wx.EVT_BUTTON, self._on_auto)
         btn_row.Add(auto_btn, 1, wx.ALL, 3)
+        review_btn = wx.Button(left, label="Next Flagged")
+        review_btn.Bind(wx.EVT_BUTTON, self._on_next_flagged)
+        btn_row.Add(review_btn, 1, wx.ALL, 3)
         left_sizer.Add(btn_row, 0, wx.EXPAND)
         
         left.SetSizer(left_sizer)
@@ -421,6 +393,7 @@ class BatchComponentEditorDialog(wx.Dialog):
         
         # Right: quick edit panel
         right = wx.Panel(panel)
+        style_panel(right, PALETTE.card_bg)
         right_sizer = wx.BoxSizer(wx.VERTICAL)
         right_sizer.Add(wx.StaticText(right, label="Quick Edit:"), 0, wx.ALL, 5)
         
@@ -452,6 +425,14 @@ class BatchComponentEditorDialog(wx.Dialog):
         
         self.field_panel = FieldEditorPanel(right, "Resistor", {}, None)
         right_sizer.Add(self.field_panel, 1, wx.EXPAND | wx.ALL, 5)
+
+        self.quick_classification = wx.StaticText(
+            right,
+            label="Select a component to see why it was classified this way.",
+        )
+        self.quick_classification.SetForegroundColour(PALETTE.text_muted)
+        self.quick_classification.Wrap(360)
+        right_sizer.Add(self.quick_classification, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
         
         apply_btn = wx.Button(right, label="Apply to Selected")
         apply_btn.Bind(wx.EVT_BUTTON, self._on_apply_quick)
@@ -477,7 +458,62 @@ class BatchComponentEditorDialog(wx.Dialog):
         if self.components:
             self.list.Select(0)
             self._load_component(0)
-    
+        self._update_summary()
+
+    def _classification_status(self, fields: Dict[str, Any]) -> tuple[str, wx.Colour]:
+        if fields.get("_classification_review_required"):
+            return "Review", PALETTE.warning
+        confidence = str(fields.get("_classification_confidence", "manual")).lower()
+        mapping = {
+            "high": ("High", PALETTE.success),
+            "medium": ("Medium", PALETTE.primary),
+            "low": ("Low", PALETTE.warning),
+            "manual": ("Manual", PALETTE.text_muted),
+        }
+        return mapping.get(confidence, ("Manual", PALETTE.text_muted))
+
+    def _row_fields(self, comp: ComponentData) -> Dict[str, Any]:
+        return self.results.get(comp.reference, comp.fields)
+
+    def _refresh_row(self, idx: int, comp: ComponentData):
+        fields = self._row_fields(comp)
+        calc_fields = {k: v for k, v in fields.items() if not str(k).startswith("_")}
+        if idx >= self.list.GetItemCount():
+            self.list.InsertItem(idx, comp.reference)
+        self.list.SetItem(idx, 0, comp.reference)
+        self.list.SetItem(idx, 1, comp.value or "")
+        self.list.SetItem(idx, 2, fields.get("_component_type", comp.component_type))
+        ovr = fields.get("override_lambda")
+        if ovr is not None:
+            self.list.SetItem(idx, 3, f"{ovr:.1f}")
+        else:
+            try:
+                result = calculate_component_lambda(fields.get("_component_type", comp.component_type), calc_fields)
+                self.list.SetItem(idx, 3, f"{result.get('fit_total', 0):.1f}")
+            except Exception:
+                self.list.SetItem(idx, 3, "?")
+        status, color = self._classification_status(fields)
+        self.list.SetItem(idx, 4, status)
+        self.list.SetItem(idx, 5, str(fields.get("_classification_reason", "User-set values")))
+        self.list.SetItemTextColour(idx, color)
+
+    def _update_summary(self):
+        review = 0
+        high = 0
+        manual = 0
+        for comp in self.components:
+            fields = self._row_fields(comp)
+            if fields.get("_classification_review_required"):
+                review += 1
+            elif fields.get("_classification_confidence") == "high":
+                high += 1
+            elif fields.get("_classification_source") == "manual":
+                manual += 1
+        total = len(self.components)
+        self.classification_summary.SetLabel(
+            f"Auto-classify status: {high}/{total} high-confidence, {review} need review, {manual} manual."
+        )
+
     def _on_select(self, event):
         self._load_component(event.GetIndex())
     
@@ -488,6 +524,11 @@ class BatchComponentEditorDialog(wx.Dialog):
             ct = fields.get("_component_type", comp.component_type)
             self.type_combo.SetValue(ct)
             self.field_panel.set_component_type(ct, fields)
+            self.quick_classification.SetLabel(
+                f"Status: {self._classification_status(fields)[0]}  |  "
+                f"Source: {fields.get('_classification_source', 'manual')}  |  "
+                f"{fields.get('_classification_reason', 'User-set classification')}"
+            )
             # Populate override controls
             ovr = fields.get("override_lambda")
             if ovr is not None:
@@ -523,18 +564,12 @@ class BatchComponentEditorDialog(wx.Dialog):
         self.results[comp.reference] = fields
         comp.component_type = self.type_combo.GetValue()
         comp.fields = fields
-        self.list.SetItem(idx, 2, comp.component_type)
-        ovr = fields.get("override_lambda")
-        if ovr is not None:
-            self.list.SetItem(idx, 3, f"{ovr:.1f}")
-            self.list.SetItem(idx, 4, "OVR")
-        else:
-            try:
-                result = calculate_component_lambda(comp.component_type, fields)
-                self.list.SetItem(idx, 3, f"{result.get('fit_total', 0):.1f}")
-            except:
-                self.list.SetItem(idx, 3, "?")
-            self.list.SetItem(idx, 4, "Calc")
+        fields["_classification_source"] = "manual"
+        fields["_classification_reason"] = "User reviewed or edited this component."
+        fields["_classification_confidence"] = "manual"
+        fields["_classification_review_required"] = False
+        self._refresh_row(idx, comp)
+        self._update_summary()
     
     def _on_edit(self, event):
         idx = self.list.GetFirstSelected()
@@ -553,32 +588,44 @@ class BatchComponentEditorDialog(wx.Dialog):
                 self.results[comp.reference] = result
                 comp.component_type = result.get("_component_type", comp.component_type)
                 comp.fields = result
-                self.list.SetItem(idx, 2, comp.component_type)
-                ovr = result.get("override_lambda")
-                if ovr is not None:
-                    self.list.SetItem(idx, 3, f"{ovr:.1f}")
-                    self.list.SetItem(idx, 4, "OVR")
-                else:
-                    try:
-                        calc = calculate_component_lambda(comp.component_type, result)
-                        self.list.SetItem(idx, 3, f"{calc.get('fit_total', 0):.1f}")
-                    except:
-                        self.list.SetItem(idx, 3, "?")
-                    self.list.SetItem(idx, 4, "Calc")
+                result["_classification_source"] = "manual"
+                result["_classification_reason"] = "User reviewed or edited this component."
+                result["_classification_confidence"] = "manual"
+                result["_classification_review_required"] = False
+                self._refresh_row(idx, comp)
+                self._update_summary()
                 self._load_component(idx)
         dlg.Destroy()
-    
+
     def _on_auto(self, event):
         for i, comp in enumerate(self.components):
-            if comp.reference not in self.results:
-                new_type = classify_component(comp.reference, comp.value, comp.fields)
-                comp.component_type = new_type
-                self.list.SetItem(i, 2, new_type)
-                try:
-                    result = calculate_component_lambda(new_type, comp.fields)
-                    self.list.SetItem(i, 3, f"{result.get('fit_total', 0):.1f}")
-                except:
-                    self.list.SetItem(i, 3, "?")
+            result = classify_component_info(comp.reference, comp.value, comp.fields)
+            comp.component_type = result.component_type
+            comp.fields.update(classification_to_fields(result))
+            self.results[comp.reference] = dict(comp.fields)
+            self._refresh_row(i, comp)
+        self._update_summary()
+
+    def _on_next_flagged(self, event):
+        start = self.list.GetFirstSelected()
+        start = start + 1 if start >= 0 else 0
+        for idx in range(start, len(self.components)):
+            if self._row_fields(self.components[idx]).get("_classification_review_required"):
+                self.list.Select(idx)
+                self.list.Focus(idx)
+                self._load_component(idx)
+                return
+        for idx in range(0, start):
+            if self._row_fields(self.components[idx]).get("_classification_review_required"):
+                self.list.Select(idx)
+                self.list.Focus(idx)
+                self._load_component(idx)
+                return
+        wx.MessageBox(
+            "No flagged components remain. Auto-classification looks fully reviewed.",
+            "Review Complete",
+            wx.OK | wx.ICON_INFORMATION,
+        )
     
     def _on_ok(self, event):
         # Auto-apply the currently visible quick-edit panel state for the
@@ -592,6 +639,10 @@ class BatchComponentEditorDialog(wx.Dialog):
                 fields["override_lambda"] = self.quick_override_val.GetValue()
             else:
                 fields["override_lambda"] = None
+            fields["_classification_source"] = "manual"
+            fields["_classification_reason"] = "User reviewed or edited this component."
+            fields["_classification_confidence"] = "manual"
+            fields["_classification_review_required"] = False
             self.results[comp.reference] = fields
 
         # For components never explicitly edited, preserve their current fields

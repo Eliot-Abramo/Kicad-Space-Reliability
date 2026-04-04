@@ -53,6 +53,13 @@ from .growth_tracking import (
     compare_revisions, build_growth_timeline,
     delete_snapshot, ReliabilitySnapshot,
 )
+try:
+    from .ui.theme import PALETTE, style_text_like, style_list_ctrl
+except ImportError:
+    from import_compat import ensure_plugin_paths
+
+    ensure_plugin_paths()
+    from theme import PALETTE, style_text_like, style_list_ctrl
 
 
 # =====================================================================
@@ -60,22 +67,22 @@ from .growth_tracking import (
 # =====================================================================
 class C:
     """Compact colour palette."""
-    BG       = wx.Colour(242, 246, 250)
-    WHITE    = wx.Colour(255, 255, 255)
-    HEADER   = wx.Colour(24, 48, 84)
-    TXT      = wx.Colour(28, 37, 54)
-    TXT_M    = wx.Colour(94, 109, 132)
-    TXT_L    = wx.Colour(134, 148, 170)
-    PRI      = wx.Colour(36, 99, 190)
-    ACCENT   = wx.Colour(16, 126, 103)
-    OK       = wx.Colour(24, 136, 96)
-    WARN     = wx.Colour(183, 129, 33)
-    FAIL     = wx.Colour(187, 64, 69)
-    BORDER   = wx.Colour(214, 223, 235)
-    GRID     = wx.Colour(229, 236, 244)
-    ROW_ALT  = wx.Colour(247, 250, 252)
-    FIELD_BG = wx.Colour(248, 250, 252)
-    INFO_BG  = wx.Colour(231, 239, 251)
+    BG       = PALETTE.background
+    WHITE    = PALETTE.card_bg
+    HEADER   = PALETTE.header_bg
+    TXT      = PALETTE.text
+    TXT_M    = PALETTE.text_muted
+    TXT_L    = PALETTE.text_soft
+    PRI      = PALETTE.primary
+    ACCENT   = PALETTE.accent
+    OK       = PALETTE.success
+    WARN     = PALETTE.warning
+    FAIL     = PALETTE.danger
+    BORDER   = PALETTE.border
+    GRID     = PALETTE.grid
+    ROW_ALT  = PALETTE.row_alt
+    FIELD_BG = PALETTE.field_bg
+    INFO_BG  = PALETTE.info_bg
     BAR = [wx.Colour(59, 130, 246), wx.Colour(14, 165, 142), wx.Colour(245, 158, 11),
            wx.Colour(239, 68, 68), wx.Colour(99, 102, 241), wx.Colour(20, 184, 166),
            wx.Colour(168, 85, 247), wx.Colour(249, 115, 22)]
@@ -490,7 +497,7 @@ class _SortableListCtrl(wx.ListCtrl):
 def _make_list(parent, columns, col_widths=None):
     lc = _SortableListCtrl(parent,
                             style=wx.LC_REPORT | wx.BORDER_SIMPLE)
-    lc.SetBackgroundColour(C.WHITE)
+    style_list_ctrl(lc)
     lc.SetFont(wx.Font(9, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
     for i, name in enumerate(columns):
         w = col_widths[i] if col_widths and i < len(col_widths) else 120
@@ -890,7 +897,7 @@ class AnalysisDialog(wx.Dialog):
         self.swap_results = []
 
         for table in (self.tornado_table, self.crit_table, self.whatif_table,
-                      self.budget_list, self.improve_list, self.smart_list):
+                      self.budget_sheet_list, self.budget_list, self.improve_list, self.smart_list):
             table.DeleteAllItems()
 
         self.mc_histogram.samples = None
@@ -901,9 +908,25 @@ class AnalysisDialog(wx.Dialog):
         self.mc_importance.data = []
         self.mc_importance.Refresh()
         self.jensen_label.SetLabel("")
+        self.analysis_summary.SetLabel(
+            "No analyses have been run yet. Start with Uncertainty Analysis to put a confidence band around the current FIT estimate."
+        )
+        self.mc_interpretation.SetLabel(
+            "Interpretation: Monte Carlo shows the spread in mission reliability when your uncertain inputs vary within the bounds you entered."
+        )
+        self.tornado_interpretation.SetLabel(
+            "Interpretation: larger swing means that parameter is a stronger local design lever at the current operating point."
+        )
+        self.crit_interpretation.SetLabel(
+            "Interpretation: higher elasticity means a small proportional parameter change creates a larger proportional change in component failure rate."
+        )
         self.tornado_chart.data = []
         self.tornado_chart.Refresh()
         self.budget_info.SetLabel("Set target and run budget allocation.")
+        if hasattr(self, "budget_cards"):
+            self.budget_cards["target"].SetLabel("--")
+            self.budget_cards["actual"].SetLabel("--")
+            self.budget_cards["gap"].SetLabel("--")
         self.wi_result.SetValue("")
         self.smart_detail.SetLabel("")
 
@@ -1107,6 +1130,23 @@ class AnalysisDialog(wx.Dialog):
         panel.SetBackgroundColour(C.BG)
         main = wx.BoxSizer(wx.VERTICAL)
 
+        hero = wx.Panel(panel)
+        hero.SetBackgroundColour(C.INFO_BG)
+        hs = wx.BoxSizer(wx.VERTICAL)
+        title = wx.StaticText(hero, label="Design Overview")
+        title.SetFont(wx.Font(12, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        title.SetForegroundColour(C.HEADER)
+        hs.Add(title, 0, wx.ALL, 10)
+        self.overview_message = wx.StaticText(
+            hero,
+            label="This page highlights current reliability risk, the biggest contributors, and the next analysis to run.",
+        )
+        self.overview_message.SetForegroundColour(C.TXT_M)
+        self.overview_message.Wrap(1200)
+        hs.Add(self.overview_message, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+        hero.SetSizer(hs)
+        main.Add(hero, 0, wx.EXPAND | wx.ALL, 6)
+
         # Component type filter
         fp = wx.Panel(panel)
         fp.SetBackgroundColour(C.WHITE)
@@ -1125,6 +1165,29 @@ class AnalysisDialog(wx.Dialog):
         fs.Add(tr, 0, wx.LEFT, 10)
         fp.SetSizer(fs)
         main.Add(fp, 0, wx.EXPAND | wx.ALL, 6)
+
+        stats = wx.BoxSizer(wx.HORIZONTAL)
+        self.summary_cards = {}
+        for key, label in [
+            ("fit", "System FIT"),
+            ("reliability", "Mission R(t)"),
+            ("mttf", "MTTF"),
+            ("components", "Components"),
+            ("classification", "Classification Review"),
+        ]:
+            card, value = self._overview_card(panel, label)
+            self.summary_cards[key] = value
+            stats.Add(card, 1, wx.EXPAND | wx.ALL, 4)
+        main.Add(stats, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+
+        action_row = wx.BoxSizer(wx.HORIZONTAL)
+        next_card, next_label = self._overview_card(panel, "Next Best Action", wide=True)
+        signal_card, signal_label = self._overview_card(panel, "What This Means", wide=True)
+        self.next_action_label = next_label
+        self.signal_label = signal_label
+        action_row.Add(next_card, 1, wx.EXPAND | wx.RIGHT, 6)
+        action_row.Add(signal_card, 1, wx.EXPAND)
+        main.Add(action_row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
 
         # Charts row
         charts = wx.BoxSizer(wx.HORIZONTAL)
@@ -1153,6 +1216,23 @@ class AnalysisDialog(wx.Dialog):
         panel.SetSizer(main)
         self._refresh_overview()
         return panel
+
+    def _overview_card(self, parent, label, wide=False):
+        card = wx.Panel(parent)
+        card.SetBackgroundColour(C.WHITE)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        title = wx.StaticText(card, label=label)
+        title.SetForegroundColour(C.TXT_M)
+        title.SetFont(wx.Font(9, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        value = wx.StaticText(card, label="--")
+        value.SetForegroundColour(C.TXT)
+        value.SetFont(wx.Font(11 if wide else 13, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        if wide:
+            value.Wrap(300)
+        sizer.Add(title, 0, wx.ALL, 10)
+        sizer.Add(value, 1, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+        card.SetSizer(sizer)
+        return card, value
 
     def _refresh_overview(self):
         filtered = self._filtered()
@@ -1183,12 +1263,55 @@ class AnalysisDialog(wx.Dialog):
         r = reliability_from_lambda(total_lam, self.mission_hours)
         mttf = 1.0 / total_lam if total_lam > 0 else float('inf')
         mttf_yr = mttf / 8760
+        review_count = sum(
+            1
+            for data in filtered.values()
+            for comp in data.get("components", [])
+            if comp.get("classification_review_required")
+        )
+        high_conf = sum(
+            1
+            for data in filtered.values()
+            for comp in data.get("components", [])
+            if comp.get("classification_confidence") == "high"
+        )
+        total_comps = len(comps)
+        if total_comps == 0:
+            next_action = "Import components and build the system model first."
+            signal = "No active analysis data yet."
+        elif review_count:
+            next_action = f"Review {review_count} flagged component classifications before publishing a report."
+            signal = "The estimate is usable, but some component categories are still heuristic and should be confirmed."
+        elif not self.mc_result:
+            next_action = "Run Uncertainty Analysis next to quantify the confidence band around the current estimate."
+            signal = "You have a deterministic estimate and contributor ranking, but no uncertainty range yet."
+        elif not self.tornado_result:
+            next_action = "Run Tornado Sensitivity next to identify the highest-leverage design parameters."
+            signal = "The uncertainty band is known; the next step is finding which parameters move FIT the most."
+        elif not self.criticality_results:
+            next_action = "Run Component Criticality next to find which part parameters are worth tightening."
+            signal = "You know the system levers; now identify which specific components deserve design effort."
+        else:
+            next_action = "Open Design Actions to turn the current analyses into targeted improvement work."
+            signal = "The current dataset is decision-ready: you have contributors, uncertainty, and ranked levers."
+
+        if hasattr(self, "summary_cards"):
+            self.summary_cards["fit"].SetLabel(f"{total_fit:.2f} FIT")
+            self.summary_cards["reliability"].SetLabel(f"{r:.6f}")
+            self.summary_cards["mttf"].SetLabel(f"{mttf_yr:.1f} years")
+            self.summary_cards["components"].SetLabel(f"{total_comps} across {len(filtered)} sheets")
+            self.summary_cards["classification"].SetLabel(
+                f"{high_conf} high-confidence, {review_count} flagged"
+            )
+            self.next_action_label.SetLabel(next_action)
+            self.signal_label.SetLabel(signal)
+
         lines = [
             f"System \u03BB:    {total_fit:.2f} FIT",
             f"R(t):         {r:.6f}",
             f"MTTF:         {mttf_yr:.1f} years",
             f"Mission:      {self.mission_hours/8760:.1f} years",
-            f"Components:   {len(comps)}",
+            f"Components:   {len(comps)} ({review_count} flagged for review)",
             f"Sheets:       {len(filtered)}",
         ]
         self.dash_summary.SetLabel("\n".join(lines))
@@ -1205,16 +1328,23 @@ class AnalysisDialog(wx.Dialog):
 
         # Workflow hint
         hint_panel = wx.Panel(panel)
-        hint_panel.SetBackgroundColour(wx.Colour(230, 240, 255))
+        hint_panel.SetBackgroundColour(C.INFO_BG)
         hs = wx.BoxSizer(wx.VERTICAL)
         hint = wx.StaticText(hint_panel,
-            label="Workflow: 1) Run Uncertainty Analysis to quantify confidence bounds  "
-                  "2) Run Tornado to find highest-leverage parameters  "
-                  "3) Run Criticality to identify which component specs to tighten")
+            label="Sensitivity workflow: 1) quantify uncertainty around the current estimate, "
+                  "2) identify which parameters move system FIT the most, "
+                  "3) find which component parameters are worth tightening in the design.")
         hint.SetFont(wx.Font(9, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_ITALIC, wx.FONTWEIGHT_NORMAL))
-        hint.SetForegroundColour(C.HEADER)
+        hint.SetForegroundColour(C.TXT)
         hint.Wrap(1300)
         hs.Add(hint, 0, wx.ALL, 10)
+        self.analysis_summary = wx.StaticText(
+            hint_panel,
+            label="No analyses have been run yet. Start with Uncertainty Analysis to put a confidence band around the current FIT estimate.",
+        )
+        self.analysis_summary.SetForegroundColour(C.TXT_M)
+        self.analysis_summary.Wrap(1300)
+        hs.Add(self.analysis_summary, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
         hint_panel.SetSizer(hs)
         main.Add(hint_panel, 0, wx.EXPAND | wx.ALL, 6)
 
@@ -1314,6 +1444,13 @@ class AnalysisDialog(wx.Dialog):
         self.jensen_label.SetForegroundColour(C.TXT_M)
         self.jensen_label.SetFont(wx.Font(8, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_ITALIC, wx.FONTWEIGHT_NORMAL))
         main.Add(self.jensen_label, 0, wx.LEFT | wx.BOTTOM, 8)
+        self.mc_interpretation = wx.StaticText(
+            panel,
+            label="Interpretation: Monte Carlo shows the spread in mission reliability when your uncertain inputs vary within the bounds you entered.",
+        )
+        self.mc_interpretation.SetForegroundColour(C.TXT_M)
+        self.mc_interpretation.Wrap(1200)
+        main.Add(self.mc_interpretation, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
         # --- Section 2: Tornado Sensitivity ---
         main.Add(self._section_label(panel, "Step 2: Tornado Sensitivity (OAT)"), 0, wx.EXPAND | wx.ALL, 6)
@@ -1352,6 +1489,13 @@ class AnalysisDialog(wx.Dialog):
             [220, 110, 110, 110, 110, 220])
         self.tornado_table.SetMinSize((-1, 160))
         main.Add(self.tornado_table, 0, wx.EXPAND | wx.ALL, 6)
+        self.tornado_interpretation = wx.StaticText(
+            panel,
+            label="Interpretation: larger swing means that parameter is a stronger local design lever at the current operating point.",
+        )
+        self.tornado_interpretation.SetForegroundColour(C.TXT_M)
+        self.tornado_interpretation.Wrap(1200)
+        main.Add(self.tornado_interpretation, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
         # --- Section 3: Component Criticality ---
         main.Add(self._section_label(panel, "Step 3: Component Criticality (Elasticity)"), 0, wx.EXPAND | wx.ALL, 6)
@@ -1387,6 +1531,13 @@ class AnalysisDialog(wx.Dialog):
             [130, 200, 110, 220, 110, 110])
         self.crit_table.SetMinSize((-1, 240))
         main.Add(self.crit_table, 0, wx.EXPAND | wx.ALL, 6)
+        self.crit_interpretation = wx.StaticText(
+            panel,
+            label="Interpretation: higher elasticity means a small proportional parameter change creates a larger proportional change in component failure rate.",
+        )
+        self.crit_interpretation.SetForegroundColour(C.TXT_M)
+        self.crit_interpretation.Wrap(1200)
+        main.Add(self.crit_interpretation, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
         # Bind param table editing
         self.param_list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self._on_edit_param)
@@ -1655,6 +1806,13 @@ class AnalysisDialog(wx.Dialog):
             f"Uncertain comps:  {r.n_uncertain_components}/{r.n_total_components}",
         ]
         self.mc_stats_text.SetLabel("\n".join(lines))
+        self.analysis_summary.SetLabel(
+            f"Uncertainty complete: {r.n_simulations:,} samples give a {ci_label} reliability band of "
+            f"[{r.ci_lower:.6f}, {r.ci_upper:.6f}] around a nominal value of {r.nominal_reliability:.6f}."
+        )
+        self.mc_interpretation.SetLabel(
+            "Interpretation: if this interval is wide, your result is being driven by uncertain inputs rather than only by the nominal design point."
+        )
 
         if r.parameter_importance:
             # Show top 12 parameters by SRRC^2 -- no minimum threshold
@@ -1709,6 +1867,14 @@ class AnalysisDialog(wx.Dialog):
                     f"{e.high_value:.2f}", f"{e.swing:.2f}", e.perturbation_desc,
                 ])
             _autosize_columns(self.tornado_table)
+            if result.entries:
+                top = result.entries[0]
+                self.analysis_summary.SetLabel(
+                    f"Tornado complete: '{top.name}' is currently the strongest local sensitivity lever with a {top.swing:.2f} FIT swing."
+                )
+                self.tornado_interpretation.SetLabel(
+                    f"Interpretation: prioritize work on '{top.name}' first; it changes system FIT more than the other currently tested perturbations."
+                )
             self.status.SetLabel(f"Tornado: {len(result.entries)} parameters analyzed")
 
         self._start_analysis(work, on_done,
@@ -1749,6 +1915,14 @@ class AnalysisDialog(wx.Dialog):
                     f"{top_field.get('impact_pct', 0):.1f}%",
                 ])
             _autosize_columns(self.crit_table)
+            if results and results[0].fields:
+                top_field = results[0].fields[0]
+                self.analysis_summary.SetLabel(
+                    f"Criticality complete: {results[0].reference} is the highest-leverage component, driven most by '{top_field.get('name', '-')}'."
+                )
+                self.crit_interpretation.SetLabel(
+                    f"Interpretation: start with {results[0].reference} and the parameter '{top_field.get('name', '-')}' if you need to tighten the design efficiently."
+                )
             self.status.SetLabel(
                 f"Criticality: {len(results)} components analyzed")
 
@@ -1851,7 +2025,7 @@ class AnalysisDialog(wx.Dialog):
         main.Add(self.whatif_table, 0, wx.EXPAND | wx.ALL, 6)
 
         # --- Section 2: Budget allocation ---
-        main.Add(self._section_label(panel, "2. Reliability Target & Budget Allocation"), 0, wx.EXPAND | wx.ALL, 6)
+        main.Add(self._section_label(panel, "2. Reliability Target Closure Planning"), 0, wx.EXPAND | wx.ALL, 6)
 
         tp = wx.Panel(panel)
         tp.SetBackgroundColour(C.WHITE)
@@ -1863,7 +2037,7 @@ class AnalysisDialog(wx.Dialog):
         ts.Add(wx.StaticText(tp, label="Strategy:"), 0,
                wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
         self.opt_strategy = wx.Choice(tp,
-            choices=["Proportional", "Equal", "Complexity", "Criticality"])
+            choices=["Proportional (Recommended)", "Equal", "Complexity", "Criticality"])
         self.opt_strategy.SetSelection(0)
         ts.Add(self.opt_strategy, 0, wx.ALL, 6)
         ts.Add(wx.StaticText(tp, label="Margin %:"), 0,
@@ -1879,13 +2053,11 @@ class AnalysisDialog(wx.Dialog):
         main.Add(tp, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 6)
 
         budget_help = wx.StaticText(panel,
-            label="How it works: Converts your target R to a total FIT budget "
-                  "(\u03BB = -ln(R)/hours), distributes it across components using the "
-                  "chosen strategy, and flags components that exceed their allocation.\n"
-                  "Strategies: Proportional = budget proportional to current FIT share | "
-                  "Equal = same budget per component | "
-                  "Complexity = weighted by parameter count | "
-                  "Criticality = weighted by elasticity results")
+            label="How it works: Converts your target R into a total FIT ceiling, applies the requested design margin, "
+                  "and then shows the remaining gap to close. The strategy changes how the allowable FIT is apportioned, "
+                  "but the main outputs are always the same: total gap, pressured sheets, and the components that must save the most FIT.\n"
+                  "Strategy note: Proportional preserves the current design balance and is the recommended baseline. "
+                  "Equal, Complexity, and Criticality are alternate lenses for planning conversations.")
         budget_help.SetForegroundColour(C.TXT_L)
         budget_help.SetFont(wx.Font(8, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_ITALIC,
                                      wx.FONTWEIGHT_NORMAL))
@@ -1897,9 +2069,27 @@ class AnalysisDialog(wx.Dialog):
         self.budget_info.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         main.Add(self.budget_info, 0, wx.ALL, 10)
 
+        budget_cards = wx.BoxSizer(wx.HORIZONTAL)
+        self.budget_cards = {}
+        for key, label in [
+            ("target", "Effective Budget"),
+            ("actual", "Actual FIT"),
+            ("gap", "Gap To Close"),
+        ]:
+            card, value = self._overview_card(panel, label)
+            self.budget_cards[key] = value
+            budget_cards.Add(card, 1, wx.EXPAND | wx.ALL, 4)
+        main.Add(budget_cards, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+
+        self.budget_sheet_list = _make_list(panel,
+            ["Sheet", "Actual FIT", "Budget FIT", "Gap To Close", "Util %", "Hotspots"],
+            [180, 110, 110, 120, 100, 120])
+        self.budget_sheet_list.SetMinSize((-1, 140))
+        main.Add(self.budget_sheet_list, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+
         self.budget_list = _make_list(panel,
-            ["Reference", "Type", "Actual FIT", "Budget FIT", "Margin", "Util %", "Status"],
-            [130, 200, 110, 110, 100, 100, 90])
+            ["Reference", "Type", "Actual FIT", "Budget FIT", "Save Needed", "Util %", "Status", "Why"],
+            [120, 180, 100, 100, 110, 90, 80, 240])
         self.budget_list.SetMinSize((-1, 260))
         main.Add(self.budget_list, 0, wx.EXPAND | wx.ALL, 6)
 
@@ -1913,7 +2103,7 @@ class AnalysisDialog(wx.Dialog):
         _style_button(self.btn_improve, "success")
         self.btn_improve.Bind(wx.EVT_BUTTON, self._on_run_improvements)
         rps.Add(self.btn_improve, 0, wx.ALL, 6)
-        self.improve_info = wx.StaticText(rp, label="Run budget first, then generate improvements.")
+        self.improve_info = wx.StaticText(rp, label="Run target-closure planning first, then generate improvements against the active gap.")
         self.improve_info.SetForegroundColour(C.TXT_M)
         rps.Add(self.improve_info, 1, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 12)
         rp.SetSizer(rps)
@@ -1967,7 +2157,7 @@ class AnalysisDialog(wx.Dialog):
 
         self.wi_result = wx.TextCtrl(panel, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.BORDER_SIMPLE)
         self.wi_result.SetFont(wx.Font(9, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
-        self.wi_result.SetBackgroundColour(C.FIELD_BG)
+        style_text_like(self.wi_result, read_only=True)
         self.wi_result.SetMinSize((-1, 120))
         self.wi_result.SetMaxSize((-1, 160))
         main.Add(self.wi_result, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
@@ -2016,7 +2206,7 @@ class AnalysisDialog(wx.Dialog):
             panel, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.BORDER_SIMPLE
         )
         self.history_detail.SetFont(wx.Font(9, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
-        self.history_detail.SetBackgroundColour(C.FIELD_BG)
+        style_text_like(self.history_detail, read_only=True)
         self.history_detail.SetMinSize((-1, 150))
         main.Add(self.history_detail, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
@@ -2182,23 +2372,53 @@ class AnalysisDialog(wx.Dialog):
 
         def on_done(result):
             self.budget_result = result
+            self.budget_sheet_list.DeleteAllItems()
             self.budget_list.DeleteAllItems()
             for sb in result.sheet_budgets:
-                for cb in sb.component_budgets:
-                    color = C.OK if cb.within_budget else C.FAIL
-                    _add_row(self.budget_list, [
-                        cb.reference, cb.component_type,
-                        f"{cb.actual_fit:.2f}", f"{cb.budget_fit:.2f}",
-                        f"{cb.margin_fit:+.2f}", f"{cb.utilization*100:.0f}%",
-                        "PASS" if cb.within_budget else "OVER",
-                    ], color=color)
+                sheet_color = C.FAIL if sb.required_savings_fit > 0 else (C.WARN if sb.utilization > 0.9 else C.OK)
+                _add_row(self.budget_sheet_list, [
+                    sb.sheet_name,
+                    f"{sb.actual_fit:.2f}",
+                    f"{sb.budget_fit:.2f}",
+                    f"{sb.required_savings_fit:.2f}",
+                    f"{sb.utilization*100:.0f}%",
+                    str(sb.n_over_budget),
+                ], color=sheet_color)
+            for cb in result.top_offenders:
+                color = C.OK if cb.get("within_budget") else C.FAIL
+                why = "Within budget" if cb.get("within_budget") else (
+                    f"Needs {cb.get('required_savings_fit', 0):.2f} FIT reduction to hit allocation"
+                )
+                _add_row(self.budget_list, [
+                    cb.get("reference", "?"), cb.get("component_type", "?"),
+                    f"{cb.get('actual_fit', 0):.2f}", f"{cb.get('budget_fit', 0):.2f}",
+                    f"{cb.get('required_savings_fit', 0):.2f}", f"{cb.get('utilization_pct', 0):.0f}%",
+                    cb.get("status", "PASS"), why,
+                ], color=color)
+            _autosize_columns(self.budget_sheet_list)
             _autosize_columns(self.budget_list)
+            self.budget_cards["target"].SetLabel(
+                f"{result.effective_budget_fit:.1f} FIT ({result.design_margin_pct:.0f}% margin)"
+            )
+            self.budget_cards["actual"].SetLabel(f"{result.actual_fit:.1f} FIT")
+            self.budget_cards["gap"].SetLabel(
+                "Within budget" if result.fit_gap_to_close <= 0 else f"{result.fit_gap_to_close:.1f} FIT"
+            )
+            strategy_note = {
+                "proportional": "recommended baseline for existing designs",
+                "equal": "useful for simple equal-share target discussions",
+                "complexity": "weights heavier sheets more strongly",
+                "criticality": "tightens high-leverage components more aggressively",
+            }.get(result.strategy, "allocation lens")
             icon = "\u2705" if result.system_within_budget else "\u274C"
             self.budget_info.SetLabel(
-                f"{icon}  Target R={target_r} => {result.target_fit:.1f} FIT, "
-                f"Actual {result.actual_fit:.1f} FIT, "
-                f"Margin {result.system_margin_fit:+.1f} FIT. "
-                f"{result.components_over_budget}/{result.total_components} over budget.")
+                f"{icon}  Target R={target_r} gives {result.target_fit:.1f} FIT before margin and "
+                f"{result.effective_budget_fit:.1f} FIT after margin. "
+                f"Actual = {result.actual_fit:.1f} FIT. "
+                + ("No closure work is required. " if result.fit_gap_to_close <= 0 else
+                   f"Close {result.fit_gap_to_close:.1f} FIT to meet the planning budget. ")
+                + f"Strategy: {result.strategy.title()} ({strategy_note})."
+            )
             self.budget_info.SetForegroundColour(
                 C.OK if result.system_within_budget else C.FAIL)
             self.status.SetLabel(f"Budget: {result.total_components} components allocated")
@@ -2217,7 +2437,7 @@ class AnalysisDialog(wx.Dialog):
 
         active = list(filtered.keys())
         mh = self.mission_hours
-        target_fit = self.budget_result.target_fit if self.budget_result else (
+        target_fit = self.budget_result.effective_budget_fit if self.budget_result else (
             lambda_from_reliability(0.999, mh) * 1e9)
         all_comps = self._all_components()
         sys_fit = sum(_safe_float(c.get("lambda", 0)) for c in all_comps) * 1e9
@@ -2270,10 +2490,12 @@ class AnalysisDialog(wx.Dialog):
             _autosize_columns(self.improve_list)
 
             gap = (sf - tf) if sf > tf else 0
+            shortlist = len(self.budget_result.top_offenders) if self.budget_result else 0
             self.improve_info.SetLabel(
                 f"{len(merged)} recommendations. "
                 f"Total potential savings: {total_saved:.1f} FIT"
                 + (f" (covers {total_saved/gap*100:.0f}% of gap)" if gap > 0 else "")
+                + (f" | budget shortlist: top {shortlist} offenders" if shortlist else "")
             )
             self.status.SetLabel(f"Improvements: {len(merged)} recommendations generated")
 
@@ -2544,7 +2766,7 @@ class AnalysisDialog(wx.Dialog):
             preview_card, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.BORDER_SIMPLE)
         self.report_preview.SetFont(
             wx.Font(9, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
-        self.report_preview.SetBackgroundColour(wx.Colour(250, 250, 250))
+        style_text_like(self.report_preview, read_only=True)
         pcs.Add(self.report_preview, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
         preview_card.SetSizer(pcs)
         main.Add(preview_card, 1, wx.EXPAND | wx.ALL, 6)
@@ -2568,6 +2790,9 @@ class AnalysisDialog(wx.Dialog):
             "=" * 50,
             "  RELIABILITY ANALYSIS REPORT PREVIEW",
             "=" * 50,
+            "",
+            "  Includes a plain-language introduction explaining what the tool computes",
+            "  and how to interpret the report before the technical sections begin.",
             "",
             f"  System R(t):     {r:.6f}",
             f"  System FIT:      {fit:.2f}",
@@ -2606,9 +2831,9 @@ class AnalysisDialog(wx.Dialog):
             lines.append(f"    [ ] Component Criticality (not run)")
 
         if self.budget_result:
-            lines.append(f"    [x] Budget Allocation")
+            lines.append(f"    [x] Target Closure Planning")
         else:
-            lines.append(f"    [ ] Budget Allocation (not run)")
+            lines.append(f"    [ ] Target Closure Planning (not run)")
 
         if self.derating_result:
             lines.append(f"    [x] Derating Guidance")
@@ -2627,6 +2852,16 @@ class AnalysisDialog(wx.Dialog):
         filtered = self._filtered()
         r = reliability_from_lambda(self.system_lambda, self.mission_hours)
         years = self.mission_hours / 8760
+        all_components = [
+            comp for sheet in filtered.values() for comp in sheet.get("components", [])
+        ]
+        classification_summary = {
+            "total": len(all_components),
+            "review_required": sum(1 for c in all_components if c.get("classification_review_required")),
+            "high_confidence": sum(1 for c in all_components if c.get("classification_confidence") == "high"),
+            "explicit": sum(1 for c in all_components if c.get("classification_source") == "explicit field"),
+            "manual": sum(1 for c in all_components if c.get("classification_source") == "manual"),
+        }
 
         mc_dict = self.mc_result.to_dict() if self.mc_result else None
         tornado_dict = self.tornado_result.to_dict() if self.tornado_result else None
@@ -2674,6 +2909,7 @@ class AnalysisDialog(wx.Dialog):
             budget=budget_dict,
             derating=derating_dict,
             swap_analysis=swap_dict,
+            classification_summary=classification_summary,
         )
 
     def _on_gen_html(self, event):

@@ -51,9 +51,12 @@ class ComponentBudget:
     margin_percent: float     # margin_fit / budget_fit * 100
     within_budget: bool       # True if actual <= budget
     utilization: float        # actual / budget (0.0 to inf)
+    required_savings_fit: float  # max(0, actual - budget)
+    review_priority: float    # sorting score for actionability
 
     def to_dict(self) -> Dict[str, Any]:
         return {
+            "ref": self.reference,
             "reference": self.reference,
             "component_type": self.component_type,
             "sheet_path": self.sheet_path,
@@ -63,6 +66,11 @@ class ComponentBudget:
             "margin_percent": self.margin_percent,
             "within_budget": self.within_budget,
             "utilization": self.utilization,
+            "utilization_pct": self.utilization * 100 if math.isfinite(self.utilization) else float("inf"),
+            "required_savings_fit": self.required_savings_fit,
+            "review_priority": self.review_priority,
+            "passed": self.within_budget,
+            "status": "PASS" if self.within_budget else "OVER",
         }
 
 
@@ -84,6 +92,7 @@ class SheetBudget:
 
     n_components: int
     n_over_budget: int
+    required_savings_fit: float
     component_budgets: List[ComponentBudget] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -96,8 +105,11 @@ class SheetBudget:
             "margin_percent": self.margin_percent,
             "within_budget": self.within_budget,
             "utilization": self.utilization,
+            "utilization_pct": self.utilization * 100 if math.isfinite(self.utilization) else float("inf"),
             "n_components": self.n_components,
             "n_over_budget": self.n_over_budget,
+            "required_savings_fit": self.required_savings_fit,
+            "component_budgets": [c.to_dict() for c in self.component_budgets],
             "components": [c.to_dict() for c in self.component_budgets],
         }
 
@@ -112,6 +124,8 @@ class BudgetAllocationResult:
     target_fit: float             # FIT
     mission_hours: float
     strategy: str
+    design_margin_pct: float
+    effective_budget_fit: float
 
     # System actual
     actual_reliability: float
@@ -122,12 +136,14 @@ class BudgetAllocationResult:
     system_within_budget: bool
     system_margin_fit: float
     system_margin_percent: float
+    fit_gap_to_close: float
 
     # Detailed breakdown
     sheet_budgets: List[SheetBudget] = field(default_factory=list)
     total_components: int = 0
     components_over_budget: int = 0
     sheets_over_budget: int = 0
+    top_offenders: List[Dict[str, Any]] = field(default_factory=list)
 
     # Recommendations
     recommendations: List[str] = field(default_factory=list)
@@ -138,15 +154,20 @@ class BudgetAllocationResult:
             "target_fit": self.target_fit,
             "mission_hours": self.mission_hours,
             "strategy": self.strategy,
+            "design_margin_pct": self.design_margin_pct,
+            "effective_budget_fit": self.effective_budget_fit,
             "actual_reliability": self.actual_reliability,
             "actual_fit": self.actual_fit,
             "system_within_budget": self.system_within_budget,
             "system_margin_fit": self.system_margin_fit,
             "system_margin_percent": self.system_margin_percent,
+            "fit_gap_to_close": self.fit_gap_to_close,
             "total_components": self.total_components,
             "components_over_budget": self.components_over_budget,
             "sheets_over_budget": self.sheets_over_budget,
+            "sheet_budgets": [s.to_dict() for s in self.sheet_budgets],
             "sheets": [s.to_dict() for s in self.sheet_budgets],
+            "top_offenders": self.top_offenders,
             "recommendations": self.recommendations,
         }
 
@@ -242,13 +263,20 @@ def allocate_budget(
     n_over = sum(1 for sb in sheet_budgets for cb in sb.component_budgets if not cb.within_budget)
     sheets_over = sum(1 for sb in sheet_budgets if not sb.within_budget)
 
-    system_within = actual_fit <= target_fit
-    system_margin_fit = target_fit - actual_fit
-    system_margin_pct = (system_margin_fit / target_fit * 100) if target_fit > 0 else 0
+    system_within = actual_fit <= available_fit
+    system_margin_fit = available_fit - actual_fit
+    system_margin_pct = (system_margin_fit / available_fit * 100) if available_fit > 0 else 0
+    fit_gap_to_close = max(0.0, actual_fit - available_fit)
 
     # Generate recommendations
     recs = _generate_recommendations(
-        sheet_budgets, system_within, system_margin_fit, target_fit, actual_fit)
+        sheet_budgets, system_within, system_margin_fit, available_fit, actual_fit)
+
+    offenders = []
+    for sb in sheet_budgets:
+        for cb in sb.component_budgets:
+            offenders.append(cb)
+    offenders.sort(key=lambda item: (-item.required_savings_fit, -item.utilization))
 
     return BudgetAllocationResult(
         target_reliability=target_reliability,
@@ -256,16 +284,20 @@ def allocate_budget(
         target_fit=target_fit,
         mission_hours=mission_hours,
         strategy=strategy,
+        design_margin_pct=margin_percent,
+        effective_budget_fit=available_fit,
         actual_reliability=actual_r,
         actual_lambda=actual_lambda,
         actual_fit=actual_fit,
         system_within_budget=system_within,
         system_margin_fit=system_margin_fit,
         system_margin_percent=system_margin_pct,
+        fit_gap_to_close=fit_gap_to_close,
         sheet_budgets=sheet_budgets,
         total_components=n_total,
         components_over_budget=n_over,
         sheets_over_budget=sheets_over,
+        top_offenders=[c.to_dict() for c in offenders[:12]],
         recommendations=recs,
     )
 
@@ -393,6 +425,8 @@ def _build_sheet_budgets(filtered, default_comp_lambda, default_comp_fit,
             margin_pct = (margin_fit / budg_fit * 100) if budg_fit > 0 else 0
             within = comp_fit <= budg_fit
             utilization = comp_fit / budg_fit if budg_fit > 0 else float('inf')
+            required_savings_fit = max(0.0, comp_fit - budg_fit)
+            review_priority = required_savings_fit * (utilization if math.isfinite(utilization) else 2.0)
 
             comp_budgets.append(ComponentBudget(
                 reference=comp.get("ref", "?"),
@@ -406,6 +440,8 @@ def _build_sheet_budgets(filtered, default_comp_lambda, default_comp_fit,
                 margin_percent=margin_pct,
                 within_budget=within,
                 utilization=utilization,
+                required_savings_fit=required_savings_fit,
+                review_priority=review_priority,
             ))
 
         sheet_budget_fit = sheet_budget_lambda * 1e9
@@ -414,6 +450,7 @@ def _build_sheet_budgets(filtered, default_comp_lambda, default_comp_fit,
         s_within = sheet_actual_fit <= sheet_budget_fit
         s_util = sheet_actual_fit / sheet_budget_fit if sheet_budget_fit > 0 else float('inf')
         n_over = sum(1 for cb in comp_budgets if not cb.within_budget)
+        required_savings_fit = max(0.0, sheet_actual_fit - sheet_budget_fit)
 
         name = path.rstrip("/").split("/")[-1] or "Root"
         sheet_budgets.append(SheetBudget(
@@ -429,6 +466,7 @@ def _build_sheet_budgets(filtered, default_comp_lambda, default_comp_fit,
             utilization=s_util,
             n_components=n_comps,
             n_over_budget=n_over,
+            required_savings_fit=required_savings_fit,
             component_budgets=comp_budgets,
         ))
 
@@ -439,7 +477,7 @@ def _generate_recommendations(
     sheet_budgets: List[SheetBudget],
     system_within: bool,
     system_margin_fit: float,
-    target_fit: float,
+    effective_budget_fit: float,
     actual_fit: float,
 ) -> List[str]:
     """Generate actionable recommendations from budget analysis."""
@@ -448,13 +486,13 @@ def _generate_recommendations(
     if system_within:
         recs.append(
             f"System meets reliability target with {system_margin_fit:.1f} FIT margin "
-            f"({system_margin_fit/target_fit*100:.1f}% headroom)."
+            f"({system_margin_fit/effective_budget_fit*100:.1f}% headroom after design margin)."
         )
     else:
-        excess = actual_fit - target_fit
+        excess = actual_fit - effective_budget_fit
         recs.append(
             f"SYSTEM EXCEEDS BUDGET by {excess:.1f} FIT "
-            f"({excess/target_fit*100:.1f}% over target). Action required."
+            f"({excess/effective_budget_fit*100:.1f}% over effective budget). Action required."
         )
 
     # Find worst offenders
@@ -471,7 +509,7 @@ def _generate_recommendations(
         recs.append(
             f"{i+1}. {cb.reference} ({cb.component_type}): "
             f"exceeds budget by {excess:.2f} FIT "
-            f"(actual={cb.actual_fit:.2f}, budget={cb.budget_fit:.2f}). "
+            f"(actual={cb.actual_fit:.2f}, budget={cb.budget_fit:.2f}, save {cb.required_savings_fit:.2f} FIT). "
             f"Consider derating, package change, or component upgrade."
         )
 

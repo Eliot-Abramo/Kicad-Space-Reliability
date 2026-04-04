@@ -85,6 +85,42 @@ class ReportGeneratorTests(unittest.TestCase):
                 "base_lambda_fit": 12.0,
                 "fields": [{"name": "operating_power", "value": 0.2, "elasticity": 1.5, "impact_pct": 9.0}],
             }],
+            budget={
+                "strategy": "proportional",
+                "target_reliability": 0.999,
+                "target_fit": 10.0,
+                "effective_budget_fit": 9.0,
+                "actual_fit": 12.0,
+                "fit_gap_to_close": 3.0,
+                "design_margin_pct": 10.0,
+                "system_margin_fit": -3.0,
+                "components_over_budget": 1,
+                "sheet_budgets": [{
+                    "sheet_name": "main",
+                    "actual_fit": 12.0,
+                    "budget_fit": 9.0,
+                    "required_savings_fit": 3.0,
+                    "utilization_pct": 133.3,
+                    "n_over_budget": 1,
+                }],
+                "top_offenders": [{
+                    "reference": "R1",
+                    "component_type": "Resistor",
+                    "actual_fit": 12.0,
+                    "budget_fit": 9.0,
+                    "required_savings_fit": 3.0,
+                    "utilization_pct": 133.3,
+                    "status": "OVER",
+                    "passed": False,
+                }],
+            },
+            classification_summary={
+                "total": 1,
+                "review_required": 0,
+                "high_confidence": 1,
+                "explicit": 0,
+                "manual": 1,
+            },
         )
 
     def test_generate_all_text_exports(self):
@@ -97,8 +133,12 @@ class ReportGeneratorTests(unittest.TestCase):
         json_data = generator.generate_json(data)
 
         self.assertIn("Reliability Analysis Report", html)
+        self.assertIn("What This Tool Does And What This Report Communicates", html)
+        self.assertIn("Component classification provenance", html)
         self.assertIn("Methodology", html)
         self.assertIn("Tornado Sensitivity", markdown)
+        self.assertIn("What This Report Means", markdown)
+        self.assertIn("Gap To Close", markdown)
         self.assertIn("Sheet,Reference,Value,Type", csv_data)
         self.assertIn('"project": "Smoke"', json_data)
 
