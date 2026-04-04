@@ -1,7 +1,5 @@
-# KiCad Reliability Calculator
-
 <p align="center">
-  <img src="plugins/icon.png" alt="KiCad Reliability Calculator logo" width="120" />
+  <img src="plugins/icon.png" alt="KiCad Reliability Calculator logo" width="400" />
 </p>
 
 <p align="center">
