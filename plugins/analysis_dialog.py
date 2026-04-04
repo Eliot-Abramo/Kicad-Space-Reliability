@@ -664,7 +664,11 @@ class AnalysisDialog(wx.Dialog):
         self._build_ui()
         self._load_persisted_state()
         self._on_load_history(None)
+        self.Bind(wx.EVT_SHOW, self._on_dialog_show)
         self.Centre()
+        wx.CallAfter(self._refresh_dialog_layout)
+        wx.CallLater(120, self._refresh_dialog_layout)
+        wx.CallLater(320, self._refresh_dialog_layout)
 
     # =================================================================
     # Persistence: save/load analysis state
@@ -1095,6 +1099,12 @@ class AnalysisDialog(wx.Dialog):
         btn_clear.SetToolTip("Clear all analysis results and reset tables")
         hs.Add(btn_clear, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 8)
 
+        self.btn_fullscreen = wx.Button(hdr, label="Full Screen")
+        _style_button(self.btn_fullscreen, "accent")
+        self.btn_fullscreen.Bind(wx.EVT_BUTTON, self._on_toggle_maximize)
+        self.btn_fullscreen.SetToolTip("Maximize or restore this window")
+        hs.Add(self.btn_fullscreen, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 8)
+
         self.btn_cancel = wx.Button(hdr, label="Cancel")
         _style_button(self.btn_cancel, "danger")
         self.btn_cancel.Bind(wx.EVT_BUTTON, lambda e: self._cancel_analysis())
@@ -1108,6 +1118,7 @@ class AnalysisDialog(wx.Dialog):
         self.nb = wx.Notebook(self)
         self.nb.SetBackgroundColour(C.BG)
         self.nb.SetPadding(wx.Size(20, 8))
+        self.nb.Bind(wx.EVT_NOTEBOOK_PAGE_CHANGED, self._on_notebook_page_changed)
         self.nb.AddPage(self._tab_overview(), "Overview")
         self.nb.AddPage(self._tab_analysis(), "Analysis")
         self.nb.AddPage(self._tab_design_actions(), "Design Actions")
@@ -1120,6 +1131,53 @@ class AnalysisDialog(wx.Dialog):
         sizer.Add(self.status, 0, wx.EXPAND | wx.LEFT | wx.BOTTOM, 12)
 
         self.SetSizer(sizer)
+
+    def _on_dialog_show(self, event):
+        if event.IsShown():
+            wx.CallAfter(self._refresh_dialog_layout)
+            wx.CallLater(120, self._refresh_dialog_layout)
+            wx.CallLater(320, self._refresh_dialog_layout)
+        event.Skip()
+
+    def _on_notebook_page_changed(self, event):
+        wx.CallAfter(self._refresh_dialog_layout)
+        event.Skip()
+
+    def _on_toggle_maximize(self, event):
+        self.Maximize(not self.IsMaximized())
+        self.btn_fullscreen.SetLabel("Windowed" if self.IsMaximized() else "Full Screen")
+        wx.CallAfter(self._refresh_dialog_layout)
+
+    def _refresh_dialog_layout(self):
+        try:
+            self.Layout()
+            if hasattr(self, "nb"):
+                self.nb.Layout()
+                for page_index in range(self.nb.GetPageCount()):
+                    page = self.nb.GetPage(page_index)
+                    if not page:
+                        continue
+                    page.Layout()
+                    if isinstance(page, scrolled.ScrolledPanel):
+                        page.SetupScrolling(scroll_x=False, scrollToTop=False)
+                        page.FitInside()
+                    page.SendSizeEvent()
+                    for child in page.GetChildren():
+                        child.SendSizeEvent()
+                        child.Refresh()
+                    page.Refresh()
+            for widget_name in (
+                "contrib_chart", "mc_histogram", "mc_convergence", "mc_importance", "tornado_chart"
+            ):
+                widget = getattr(self, widget_name, None)
+                if widget:
+                    widget.SendSizeEvent()
+                    widget.Refresh()
+            self.SendSizeEvent()
+            self.Refresh()
+            self.Update()
+        except Exception:
+            pass
 
     # =================================================================
     # Tab 1: Overview (was Dashboard)

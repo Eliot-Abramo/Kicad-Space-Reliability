@@ -4,7 +4,9 @@
 **Author:** Eliot Abramo
 **Standard:** IEC TR 62380:2004
 
-Reliability Calculator is a KiCad plugin for estimating component and system failure rates, exploring design sensitivity, and exporting review-ready reliability reports. It is designed as an engineering decision-support tool: it helps compare design choices, surface dominant contributors, and communicate assumptions clearly.
+Reliability Calculator is a KiCad plugin that turns a schematic and block diagram into a reliability model. It estimates failure rate at the component level with IEC TR 62380, rolls those results up to the system level, and then gives you a practical way to inspect uncertainty, sensitivity, dominant contributors, and likely improvement paths.
+
+The point is not to produce a mysterious single number. The point is to help you answer, with one tool, what the current design is expected to do, how much that answer depends on your assumptions, and what you should change first if the margin is not good enough.
 
 From the first run, the plugin is meant to answer four practical questions:
 

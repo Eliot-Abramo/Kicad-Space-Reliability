@@ -16,8 +16,8 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install lint tooling
-        run: python -m pip install --upgrade pip ruff
+      - name: Install test and lint dependencies
+        run: python -m pip install --upgrade pip numpy ruff
 
       - name: Compile sources
         run: python -m compileall plugins tests

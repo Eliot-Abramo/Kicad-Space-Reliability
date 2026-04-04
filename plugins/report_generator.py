@@ -17,6 +17,7 @@ from pathlib import Path
 import base64
 
 PLUGIN_VERSION = "3.3.0"
+REPORT_PREPARED_BY = "Eliot Abramo"
 
 
 @dataclass
@@ -512,6 +513,7 @@ class ReportGenerator:
 <div class="header"><div>
 <h1>Reliability Analysis Report</h1>
 <div class="sub">Project: <strong>{data.project_name}</strong> | {datetime.fromisoformat(data.generated_at).strftime('%Y-%m-%d %H:%M')} | IEC TR 62380:2004</div>
+<div class="sub" style="margin-top:4px">Prepared by <strong>{REPORT_PREPARED_BY}</strong></div>
 </div>"""
         if self.logo_base64:
             html += f'<img src="data:{self.logo_mime};base64,{self.logo_base64}" alt="Logo" class="header-logo">'
@@ -628,9 +630,9 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
             "Component classification provenance was not available in this report build."
         )
         return f"""<div class="card"><h2 id="sec-intro">What This Tool Does And What This Report Communicates</h2>
-<p>This plugin estimates component and system failure rates using the IEC TR 62380 reliability model, then layers on design-facing analysis to show uncertainty, dominant contributors, and the design parameters most worth tightening.</p>
-<p>This report is meant to answer four practical questions: what the current mission reliability estimate is, how wide the uncertainty band is, which parts or parameters dominate the result, and where engineering effort is most likely to improve the design.</p>
-<p>Read the report as a decision-support document rather than a certification artifact. The summary sections describe the present estimate, the analysis sections explain why the estimate moves, and the action sections show where design work is likely to close the remaining reliability gap. For methodology, assumptions, and interpretation limits, see <span class="mono">docs/METHODOLOGY.md</span>.</p>
+<p>This plugin turns your KiCad design into a reliability model. It reads the component set, applies the IEC TR 62380 failure-rate model to each part, combines those part-level rates into a system result, and then adds uncertainty and sensitivity views so you can see what is solid, what is assumption-driven, and what is worth fixing first.</p>
+<p>In plain terms, this report tells you four things. First, the current estimate: system FIT, mission reliability, and MTTF. Second, how much that estimate moves when uncertain inputs such as temperature, duty, or cycling are allowed to vary. Third, which sheets, components, and parameters are doing most of the damage. Fourth, where design effort is most likely to buy back margin if the result is not where you want it yet.</p>
+<p>It is best used as a design-review document. The summary gives the headline result, the analysis pages explain what is driving it, and the action pages help you decide what to change next. For the math, assumptions, and interpretation limits behind the numbers, see <span class="mono">docs/METHODOLOGY.md</span>.</p>
 <p style="margin-top:12px;color:var(--text2)">{note}</p></div>
 """
 
@@ -706,13 +708,15 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
     def _methodology_section(self) -> str:
         """Generate a concise methodology section aligned with shipped features."""
         return """<div class="card"><h2 id="sec-methodology">Methodology &amp; Mathematical Foundations</h2>
-<p>This tool implements the <strong>IEC TR 62380:2004</strong> standard for reliability prediction
-of electronic components. The analysis features exposed in the plugin combine deterministic
-sensitivity screening with Monte Carlo uncertainty propagation.</p>
+<p>The calculation flow in this tool is straightforward: estimate each component failure rate with
+<strong>IEC TR 62380:2004</strong>, combine those rates into a system result that matches the modelled
+architecture, then run focused analysis views to show uncertainty, leverage points, and likely paths
+to improvement. The goal is not to hide the math. It is to make the assumptions visible enough that an
+engineering team can challenge them, defend them, and act on them.</p>
 
-<h3>Core Reliability Model</h3>
-<p>Each component's failure rate &lambda;<sub>i</sub> is computed via the IEC TR 62380 formula,
-which models failure rate as a sum of contributions from the die, package, and overstress mechanisms:</p>
+<h3>1. Core Reliability Model</h3>
+<p>Each component's failure rate &lambda;<sub>i</sub> is computed with the IEC TR 62380 formulation,
+which captures die-level stress, package-related effects, and overstress terms:</p>
 <pre style="background:#f8f9fa;padding:12px;border-radius:4px;font-size:0.9em">
   &lambda;<sub>i</sub> = &pi;<sub>die</sub> &middot; &lambda;<sub>base</sub> + &pi;<sub>pkg</sub> &middot; &lambda;<sub>therm</sub> + &pi;<sub>EOS</sub> &middot; &lambda;<sub>overstress</sub>
 </pre>
@@ -721,14 +725,14 @@ which models failure rate as a sum of contributions from the die, package, and o
 <strong>Coffin&ndash;Manson thermal cycling fatigue</strong> (power-law dependence on &Delta;T and
 N<sub>cycles</sub>), and &pi;<sub>EOS</sub> models electrical overstress contributions.</p>
 
-<p>The system failure rate is the sum of all component failure rates
-(series reliability model):</p>
+<p>The system failure rate comes from the assembled block model. For a simple series path it reduces to
+the sum of all contributing component failure rates:</p>
 <pre style="background:#f8f9fa;padding:12px;border-radius:4px;font-size:0.9em">
   &lambda;<sub>sys</sub> = &Sigma; &lambda;<sub>i</sub>     R(t) = exp(&minus;&lambda;<sub>sys</sub> &middot; t)
 </pre>
 
-<h3>Tornado Sensitivity (OAT)</h3>
-<p>The <strong>One-At-a-Time (OAT)</strong> method perturbs each parameter by a user-specified
+<h3>2. Tornado Sensitivity (OAT)</h3>
+<p>The <strong>One-At-a-Time (OAT)</strong> view perturbs each parameter by a user-specified
 amount while holding all other parameters at their nominal values. For each perturbation
 &Delta;x of parameter x:</p>
 <pre style="background:#f8f9fa;padding:12px;border-radius:4px;font-size:0.9em">
@@ -739,7 +743,7 @@ moves when one parameter is perturbed around the current design point and the fu
 are re-evaluated. It is useful for design prioritisation, but it should not be interpreted as a
 global Sobol analysis.</p>
 
-<h3>Component Criticality (Elasticity)</h3>
+<h3>3. Component Criticality (Elasticity)</h3>
 <p>The <strong>normalized elasticity</strong> (log-log derivative) measures the proportional
 sensitivity of &lambda;<sub>i</sub> to each parameter &theta;:</p>
 <pre style="background:#f8f9fa;padding:12px;border-radius:4px;font-size:0.9em">
@@ -748,8 +752,10 @@ sensitivity of &lambda;<sub>i</sub> to each parameter &theta;:</p>
 <p>This central finite-difference approximation is second-order accurate: error is O(h&sup2;).
 <em>Reference: Borgonovo &amp; Plischke (2016) &ldquo;Sensitivity analysis: A review of recent advances.&rdquo;</em></p>
 
-<h3>Monte Carlo Uncertainty Analysis</h3>
-<p>Propagates parameter uncertainty through repeated random sampling. For each simulation:</p>
+<h3>4. Monte Carlo Uncertainty Analysis</h3>
+<p>The uncertainty analysis pushes plausible input variation through the full model. For each simulation,
+the tool samples the uncertain inputs, rebuilds the component failure rates, and records the resulting
+system FIT and mission reliability.</p>
 <ol>
 <li>Draw shared parameters once (environmental) and independent parameters per component</li>
 <li>Recompute &lambda;<sub>i</sub> through the full IEC TR 62380 formula</li>
@@ -760,17 +766,21 @@ directly from empirical quantiles of the sample distribution.</p>
 <p><strong>PERT distribution</strong> (Beta-PERT) with &gamma;=4 is used for expert-elicited bounds.
 <em>Reference: Vose (2008) &ldquo;Risk Analysis: A Quantitative Guide.&rdquo;</em></p>
 
-<h3>SRRC (Parameter Importance)</h3>
+<h3>5. SRRC (Parameter Importance)</h3>
 <p><strong>Standardized Rank Regression Coefficients</strong> provide a Monte Carlo-based importance
 ranking for monotonic input-output relationships. In this plugin, SRRC and SRRC&sup2; are used as
 relative screening metrics rather than as a formal substitute for a validated Sobol workflow.
 <em>Reference: Helton &amp; Davis (2003) &ldquo;Latin Hypercube Sampling and Propagation of Uncertainty.&rdquo;</em></p>
 
-<h3>Jensen's Inequality Diagnostic</h3>
+<h3>6. Jensen's Inequality Diagnostic</h3>
 <p>Since R(t) = exp(&minus;&lambda;t) is <strong>convex</strong> in &lambda;, Jensen's inequality gives:
 E[R(t)] &ge; R(E[&lambda;],t). The report uses this relationship as a consistency check on the
 Monte Carlo output by comparing the sample mean reliability with the reliability evaluated at the
 mean sampled failure rate.</p>
+
+<p style="margin-top:12px;color:var(--text2)">Practical reading guide: use the System Summary and
+Executive Summary for the headline answer, the Monte Carlo and tornado sections to understand how stable
+that answer is, and the design-action sections if you need to close a gap against a target.</p>
 </div>
 """
 
@@ -779,6 +789,8 @@ mean sampled failure rate.</p>
         """Generate an executive summary with key findings and recommendations."""
         findings = []
         recommendations = []
+        action_focus = []
+        classification = data.classification_summary or {}
 
         # Overall assessment
         if sc == "ok":
@@ -795,9 +807,13 @@ mean sampled failure rate.</p>
             mc = data.monte_carlo
             ci_lo = mc.get("ci_lower", 0)
             ci_hi = mc.get("ci_upper", 1)
+            ci_span = max(0.0, ci_hi - ci_lo)
             findings.append(f"Monte Carlo analysis ({mc.get('n_simulations', 0):,} samples) "
                             f"gives {mc.get('confidence_level', 0.90)*100:.0f}% CI: "
                             f"[{ci_lo:.6f}, {ci_hi:.6f}].")
+            findings.append(
+                f"That uncertainty window spans {ci_span:.6f} reliability points across the current assumptions."
+            )
             jn = mc.get("jensen_note", "")
             if "warning" in jn.lower():
                 findings.append("Jensen diagnostic warning: the Monte Carlo summary should be reviewed "
@@ -814,24 +830,65 @@ mean sampled failure rate.</p>
                     recommendations.append(
                         f"Focus design effort on the top 3 parameters: "
                         f"{entries[0]['name']}, {entries[1]['name']}, {entries[2]['name']}.")
+                action_focus.append(
+                    f"The fastest sensitivity lever right now is {top['name']}."
+                )
 
         # Budget findings
         if data.budget:
             over = data.budget.get("components_over_budget", 0)
+            gap = data.budget.get("fit_gap_to_close", 0)
             if over > 0:
                 recommendations.append(
                     f"{over} component(s) exceed their FIT budget -- "
                     "consider derating or higher-reliability parts.")
+                action_focus.append(
+                    f"The current design is {gap:.2f} FIT over the effective target budget."
+                )
+
+        if classification:
+            flagged = classification.get("review_required", 0)
+            total = classification.get("total", 0)
+            if total:
+                findings.append(
+                    f"Classification status: {classification.get('manual', 0)} manually reviewed, "
+                    f"{classification.get('high_confidence', 0)} high-confidence auto-classified, "
+                    f"{flagged} flagged for review."
+                )
+                if flagged:
+                    recommendations.append(
+                        f"Review the {flagged} flagged component classification(s) before signing off the report."
+                    )
 
         if not recommendations and sc != "ok":
             recommendations.append("Run tornado and criticality analyses to identify "
                                    "improvement opportunities.")
 
         html = '<div class="card"><h2 id="sec-executive">Executive Summary</h2>'
+        html += (
+            '<p style="margin-bottom:14px">This is the short version for a design review: '
+            'how the design is performing now, how stable that answer looks, and what the next '
+            'useful engineering actions are.</p>'
+        )
+        html += '<div class="grid">'
+        html += f'<div class="metric {sc}"><div class="v">{data.system_reliability:.6f}</div><div class="l">Mission Reliability</div></div>'
+        html += f'<div class="metric"><div class="v">{fit:.1f}</div><div class="l">System FIT</div></div>'
+        html += f'<div class="metric"><div class="v">{mttf_years:.1f}</div><div class="l">MTTF (years)</div></div>'
+        if data.budget:
+            html += (
+                f'<div class="metric"><div class="v">{data.budget.get("fit_gap_to_close", 0):.2f}</div>'
+                '<div class="l">FIT Gap To Close</div></div>'
+            )
+        html += '</div>'
         html += '<h3 style="margin-top:0">Key Findings</h3><ul>'
         for f in findings:
             html += f'<li>{f}</li>'
         html += '</ul>'
+        if action_focus:
+            html += '<h3>What Deserves Attention First</h3><ul>'
+            for item in action_focus[:3]:
+                html += f'<li>{item}</li>'
+            html += '</ul>'
         if recommendations:
             html += '<h3>Recommendations</h3><ol>'
             for r in recommendations:
@@ -1383,12 +1440,13 @@ mean sampled failure rate.</p>
         md = f"""# Reliability Analysis Report
 
 **Project:** {data.project_name}
+**Prepared by:** {REPORT_PREPARED_BY}
 **Generated:** {datetime.fromisoformat(data.generated_at).strftime('%Y-%m-%d %H:%M')}
 **Standard:** IEC TR 62380:2004
 
 ## What This Report Means
 
-This plugin estimates component and system failure rates using IEC TR 62380, then adds uncertainty, sensitivity, and design-action views so you can understand both the current reliability estimate and the best places to improve it.
+This plugin turns a KiCad design into a reliability model. It estimates component and system failure rates with IEC TR 62380, then adds uncertainty, sensitivity, and design-action views so you can see the current result, what is driving it, and what is most worth changing.
 
 Use this report to answer:
 - what the current system FIT and mission reliability estimate are
@@ -1408,6 +1466,27 @@ For methodology, assumptions, and interpretation limits, see `docs/METHODOLOGY.m
 | Mission | {data.mission_years:.1f} years |
 
 """
+        md += "## Executive Summary\n\n"
+        md += (
+            f"The current prediction is **{fit:.2f} FIT** and **{data.system_reliability:.6f}** mission reliability "
+            f"over **{data.mission_years:.1f} years**. Use the uncertainty sections to judge how stable that answer is, "
+            "and use the action sections to decide what to fix first if more margin is needed.\n\n"
+        )
+        if data.classification_summary:
+            cls = data.classification_summary
+            md += (
+                f"Classification status: {cls.get('manual', 0)} manually reviewed, "
+                f"{cls.get('high_confidence', 0)} high-confidence auto-classified, "
+                f"{cls.get('review_required', 0)} flagged for review.\n\n"
+            )
+        md += "## Methodology\n\n"
+        md += (
+            "The report is built in three layers: component failure rates are calculated with IEC TR 62380, "
+            "those rates are combined into a system result using the block model, and then the tool runs local "
+            "sensitivity and Monte Carlo uncertainty analysis to show what is driving the answer. Tornado results "
+            "are local one-at-a-time screening, component criticality uses elasticity, and SRRC is used as a "
+            "Monte Carlo importance ranking for monotonic screening rather than a claimed Sobol replacement.\n\n"
+        )
         if data.monte_carlo:
             mc = data.monte_carlo
             cl = mc.get('confidence_level', 0.90) * 100
