@@ -1,8 +1,8 @@
 {
     "$schema": "https://go.kicad.org/pcm/schemas/v1",
     "name": "Reliability Calculator",
-    "description": "IEC TR 62380 compliant reliability analysis for KiCad projects. Calculate component failure rates, build system block diagrams with series/parallel/k-of-n configurations, perform Monte Carlo and sensitivity analysis, and generate professional reports.",
-    "description_full": "The Reliability Calculator plugin provides comprehensive reliability analysis for electronic systems designed in KiCad.\n\nKey Features:\n- Component-level failure rate calculations (lambda) for ICs, discretes, passives, connectors\n- Visual block diagram editor for defining system topology\n- Series, parallel, and k-of-n redundancy configurations\n- Configurable EOS (Electrical OverStress) parameters\n- Working time ratio (tau_on) for duty-cycled operation\n- Thermal expansion mismatch calculations\n- Monte Carlo uncertainty analysis\n- Sobol sensitivity analysis\n- Professional reports in HTML, Markdown, CSV, JSON formats\n\nBased on IEC TR 62380:2004 standard.",
+    "description": "IEC TR 62380 reliability analysis for KiCad projects with block modeling, Monte Carlo uncertainty, tornado sensitivity, and report export.",
+    "description_full": "The Reliability Calculator plugin provides reliability analysis for electronic systems designed in KiCad.\n\nShipped capabilities:\n- Component-level failure-rate calculations for IEC TR 62380 classes\n- Visual block diagram editor for series, parallel, and k-of-n configurations\n- Monte Carlo uncertainty analysis with shared and independent parameter sampling\n- Tornado sensitivity, component criticality, and design-margin scenario analysis\n- HTML, PDF, Markdown, CSV, and JSON report export\n\nNotes:\n- PDF export requires an optional dependency such as weasyprint or reportlab\n- Experimental or internal analysis helpers are not advertised as production features\n\nBased on IEC TR 62380:2004.",
     "identifier": "com-github-eliot-abramo-kicad-space-reliability",
     "type": "plugin",
     "author": {
@@ -23,7 +23,7 @@
     },
     "versions": [
         {
-            "version": "2.0.0",
+            "version": "3.3.0",
             "status": "stable",
             "kicad_version": "8.0",
             "download_url": "https://github.com/Eliot-Abramo/Kicad-Space-Reliability/blob/c707155ed49f8c5118fd557947fd473a046bea35/kicad-space-reliability.zip",

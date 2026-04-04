@@ -2,7 +2,8 @@
 Unified Sensitivity & Uncertainty Analysis Engine
 ==================================================
 Monte Carlo, Sobol (parameter & component-level), and user-defined what-if.
-Uses block structure (series/parallel/K-of-N). All formulas mathematically rigorous.
+Uses block structure (series/parallel/K-of-N). This module contains
+production utilities plus exploratory global-sensitivity helpers.
 """
 
 import math
@@ -316,11 +317,13 @@ def run_monte_carlo(
     ci_hi = float(np.percentile(R_samples, (1 - alpha) * 100))
 
     jensen = ""
-    if mean_R < nominal_R - 1e-6:
+    mean_lam = float(np.mean(lam_samples))
+    r_at_mean_lambda = float(np.exp(-mean_lam * mission_hours))
+    if mean_R + 1e-6 < r_at_mean_lambda:
         jensen = (
-            f"E[R(t)] = {mean_R:.6f} < R(nominal) = {nominal_R:.6f}. "
-            "Jensen's inequality: R = exp(-λt) is convex in λ, so parameter "
-            "uncertainty reduces expected reliability."
+            f"Jensen diagnostic warning: E[R(t)] = {mean_R:.6f} is below "
+            f"R(E[λ]) = {r_at_mean_lambda:.6f}. This suggests sampling noise, "
+            "numerical error, or inconsistent baseline handling."
         )
 
     return UncertaintyResult(

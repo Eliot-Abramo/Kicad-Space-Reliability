@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from pathlib import Path
 import base64
 
+PLUGIN_VERSION = "3.3.0"
+
 
 @dataclass
 class ReportData:
@@ -40,7 +42,7 @@ class ReportData:
     tornado: Optional[Dict] = None
     design_margin: Optional[Dict] = None
 
-    # v3.1.0 co-design fields
+    # Co-design fields
     mission_profile: Optional[Dict] = None
     budget: Optional[Dict] = None
     derating: Optional[Dict] = None
@@ -543,7 +545,7 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
         if data.criticality:
             html += self._criticality_section(data.criticality)
 
-        # v3.1.0 co-design sections
+        # Co-design sections
         if data.mission_profile:
             html += self._mission_profile_section(data.mission_profile)
         if data.budget:
@@ -564,9 +566,9 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
 
         html += self._glossary()
 
-        html += """
+        html += f"""
 <div class="footer">
-<p>Designed and developed by Eliot Abramo | KiCad Reliability Plugin v3.3.0 | IEC TR 62380:2004</p>
+<p>Designed and developed by Eliot Abramo | KiCad Reliability Plugin v{PLUGIN_VERSION} | IEC TR 62380:2004</p>
 <p>This report is for engineering reference. Verify critical calculations independently.</p>
 </div></div></body></html>"""
         return html
@@ -641,8 +643,8 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
              "perturbation, ordered by impact magnitude."),
             ("SRRC", "Standardized Rank Regression Coefficient",
              "Sensitivity measure from Monte Carlo: the standardized regression coefficient "
-             "of the rank-transformed output on rank-transformed inputs. SRRC&sup2; is the "
-             "variance fraction explained by each parameter."),
+             "of the rank-transformed output on rank-transformed inputs. SRRC and SRRC&sup2; "
+             "are used here as relative importance indicators for monotonic screening."),
             ("Elasticity", "Normalized Sensitivity",
              "Dimensionless measure: (dY/Y) / (dX/X). An elasticity of 0.5 means a 1% change "
              "in parameter X causes a 0.5% change in output Y."),
@@ -656,10 +658,10 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
             ("Derating", "Electrical Derating",
              "Operating components below their rated limits (voltage, power, current) to reduce "
              "stress and improve reliability. A standard practice in high-reliability design."),
-            ("Jensen's Inequality", "Jensen's Inequality Effect",
-             "For convex functions like exp(&minus;&lambda;t), the expected value under uncertainty "
-             "is lower than the nominal value: E[R(t)] &le; R(E[&lambda;],t). "
-             "This means parameter uncertainty always degrades expected reliability."),
+            ("Jensen's Inequality", "Jensen Diagnostic",
+             "For the convex function R(t) = exp(&minus;&lambda;t), Jensen's inequality gives "
+             "E[R(t)] &ge; R(E[&lambda;],t). The report uses this as a consistency check against "
+             "the Monte Carlo sample mean, not as a claim about the nominal design point."),
         ]
 
         rows = ""
@@ -678,11 +680,11 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
         )
 
     def _methodology_section(self) -> str:
-        """Generate a methodology and mathematical foundations section."""
+        """Generate a concise methodology section aligned with shipped features."""
         return """<div class="card"><h2 id="sec-methodology">Methodology &amp; Mathematical Foundations</h2>
 <p>This tool implements the <strong>IEC TR 62380:2004</strong> standard for reliability prediction
-of electronic components. The sensitivity analysis extensions use established techniques from
-global sensitivity analysis to identify design leverage points.</p>
+of electronic components. The analysis features exposed in the plugin combine deterministic
+sensitivity screening with Monte Carlo uncertainty propagation.</p>
 
 <h3>Core Reliability Model</h3>
 <p>Each component's failure rate &lambda;<sub>i</sub> is computed via the IEC TR 62380 formula,
@@ -708,11 +710,10 @@ amount while holding all other parameters at their nominal values. For each pert
 <pre style="background:#f8f9fa;padding:12px;border-radius:4px;font-size:0.9em">
   FIT<sub>swing</sub> = |&lambda;<sub>sys</sub>(x + &Delta;x) &minus; &lambda;<sub>sys</sub>(x &minus; &Delta;x)| &times; 10<sup>9</sup>
 </pre>
-<p><strong>Justification:</strong> For an additive model &lambda;<sub>sys</sub> = &Sigma;&lambda;<sub>i</sub>,
-OAT captures all first-order effects exactly. Cross-component interactions are zero by construction.
-Within-component interactions (e.g., T<sub>j</sub> affecting both Arrhenius and Coffin&ndash;Manson)
-are second-order and captured via re-evaluation of the full IEC formula.
-<em>Reference: Saltelli et al. (2008) &ldquo;Global Sensitivity Analysis: The Primer&rdquo;, Section 2.1.</em></p>
+<p>This is a <strong>local deterministic ranking tool</strong>. Each bar shows how much system FIT
+moves when one parameter is perturbed around the current design point and the full IEC formulas
+are re-evaluated. It is useful for design prioritisation, but it should not be interpreted as a
+global Sobol analysis.</p>
 
 <h3>Component Criticality (Elasticity)</h3>
 <p>The <strong>normalized elasticity</strong> (log-log derivative) measures the proportional
@@ -736,15 +737,16 @@ directly from empirical quantiles of the sample distribution.</p>
 <em>Reference: Vose (2008) &ldquo;Risk Analysis: A Quantitative Guide.&rdquo;</em></p>
 
 <h3>SRRC (Parameter Importance)</h3>
-<p><strong>Standardized Rank Regression Coefficients</strong> rank parameters by their contribution
-to output variance. The rank transformation makes SRRC robust to non-linear (but monotonic)
-input-output relationships. SRRC&sup2; represents the fraction of output variance explained.
+<p><strong>Standardized Rank Regression Coefficients</strong> provide a Monte Carlo-based importance
+ranking for monotonic input-output relationships. In this plugin, SRRC and SRRC&sup2; are used as
+relative screening metrics rather than as a formal substitute for a validated Sobol workflow.
 <em>Reference: Helton &amp; Davis (2003) &ldquo;Latin Hypercube Sampling and Propagation of Uncertainty.&rdquo;</em></p>
 
 <h3>Jensen's Inequality Diagnostic</h3>
 <p>Since R(t) = exp(&minus;&lambda;t) is <strong>convex</strong> in &lambda;, Jensen's inequality gives:
-E[R(t)] &le; R(E[&lambda;],t). This means parameter uncertainty always degrades expected reliability.
-The diagnostic flag alerts when this effect is significant.</p>
+E[R(t)] &ge; R(E[&lambda;],t). The report uses this relationship as a consistency check on the
+Monte Carlo output by comparing the sample mean reliability with the reliability evaluated at the
+mean sampled failure rate.</p>
 </div>
 """
 
@@ -773,9 +775,9 @@ The diagnostic flag alerts when this effect is significant.</p>
                             f"gives {mc.get('confidence_level', 0.90)*100:.0f}% CI: "
                             f"[{ci_lo:.6f}, {ci_hi:.6f}].")
             jn = mc.get("jensen_note", "")
-            if "lower than" in jn:
-                findings.append("Jensen's inequality effect detected: mean R(t) is lower "
-                                "than nominal due to parameter uncertainty.")
+            if "warning" in jn.lower():
+                findings.append("Jensen diagnostic warning: the Monte Carlo summary should be reviewed "
+                                "before the result is used in a release report.")
 
         # Tornado findings
         if data.tornado:
@@ -931,7 +933,7 @@ The diagnostic flag alerts when this effect is significant.</p>
         if not params:
             return ""
         ranked = sorted(zip(params, s_first, s_total), key=lambda x: -x[2])
-        html = """<div class="card"><h2>Sobol Sensitivity Indices</h2>
+        html = """<div class="card"><h2>Sensitivity Indices</h2>
 <table><thead><tr><th>Parameter</th><th>S (First)</th><th>S (Total)</th><th>Interaction</th><th>Influence</th></tr></thead><tbody>
 """
         for name, sf, st_val in ranked[:15]:
@@ -972,7 +974,7 @@ The diagnostic flag alerts when this effect is significant.</p>
         html += '</div>\n'
         return html
 
-    # === v3.1.0 Co-Design Report Sections ===
+    # === Co-Design Report Sections ===
 
     def _mission_profile_section(self, mp: Dict) -> str:
         """Mission profile phasing section."""
@@ -1386,7 +1388,7 @@ The diagnostic flag alerts when this effect is significant.</p>
                 md += f"| {s['name']} | {s['lambda_fit']:.2f} | {s['delta_lambda_pct']:+.1f}% |\n"
             md += "\n"
 
-        # v3.1.0 co-design sections
+        # Co-design sections
         if data.mission_profile:
             mp = data.mission_profile
             md += f"## Mission Profile: {mp.get('name','Custom')}\n\n"
@@ -1444,7 +1446,7 @@ The diagnostic flag alerts when this effect is significant.</p>
             for c in sd.get('components',[])[:20]:
                 md += f"| {c.get('ref','?')} | {c.get('value','')} | {c.get('class','')} | {c.get('lambda',0)*1e9:.2f} | {c.get('r',1):.6f} |\n"
             md += "\n"
-        md += "\n---\n*Designed and developed by Eliot Abramo | KiCad Reliability Plugin v3.1.0*\n"
+        md += f"\n---\n*Designed and developed by Eliot Abramo | KiCad Reliability Plugin v{PLUGIN_VERSION}*\n"
         return md
 
     def generate_csv(self, data: ReportData) -> str:
@@ -1473,7 +1475,7 @@ The diagnostic flag alerts when this effect is significant.</p>
             output["design_margin"] = data.design_margin
         if data.criticality:
             output["criticality"] = data.criticality
-        # v3.1.0 co-design data
+        # Co-design data
         if data.mission_profile:
             output["mission_profile"] = data.mission_profile
         if data.budget:
@@ -1498,11 +1500,11 @@ The diagnostic flag alerts when this effect is significant.</p>
 
     @staticmethod
     def html_to_pdf(html_content: str, output_path: str):
-        """Convert HTML report to PDF using reportlab.
+        """Convert HTML report to PDF using optional third-party libraries.
 
         Falls back through multiple strategies:
         1. weasyprint (best quality, may not be installed)
-        2. reportlab with manual layout (always available)
+        2. reportlab with manual layout
         """
         # Strategy 1: Try weasyprint for high-fidelity HTML->PDF
         try:
@@ -1513,15 +1515,21 @@ The diagnostic flag alerts when this effect is significant.</p>
             pass
 
         # Strategy 2: reportlab PDF generation from structured data
-        from reportlab.lib.pagesizes import A4
-        from reportlab.lib.units import mm
-        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-        from reportlab.lib.colors import HexColor
-        from reportlab.platypus import (
-            SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-            PageBreak, HRFlowable
-        )
-        from reportlab.lib.enums import TA_CENTER, TA_LEFT
+        try:
+            from reportlab.lib.pagesizes import A4
+            from reportlab.lib.units import mm
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            from reportlab.lib.colors import HexColor
+            from reportlab.platypus import (
+                SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
+                PageBreak, HRFlowable
+            )
+            from reportlab.lib.enums import TA_CENTER, TA_LEFT
+        except ImportError as exc:
+            raise RuntimeError(
+                "PDF export requires an optional dependency. Install either "
+                "'weasyprint' or 'reportlab' to enable PDF generation."
+            ) from exc
 
         doc = SimpleDocTemplate(
             output_path, pagesize=A4,
@@ -1652,7 +1660,7 @@ The diagnostic flag alerts when this effect is significant.</p>
         story.append(Spacer(1, 10*mm))
         story.append(HRFlowable(width="100%", color=HexColor('#e2e8f0')))
         story.append(Paragraph(
-            "Designed and developed by Eliot Abramo | KiCad Reliability Plugin v3.1.0 | IEC TR 62380:2004",
+            f"Designed and developed by Eliot Abramo | KiCad Reliability Plugin v{PLUGIN_VERSION} | IEC TR 62380:2004",
             styles['FooterStyle']
         ))
         story.append(Paragraph(

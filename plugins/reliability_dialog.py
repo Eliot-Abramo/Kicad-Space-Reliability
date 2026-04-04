@@ -202,7 +202,7 @@ class ReliabilityMainDialog(wx.Dialog):
         sizer.Add(btn_save, 0, wx.RIGHT, 15)
 
         btn_mc = wx.Button(panel, label="Analysis Suite", size=(110, -1))
-        btn_mc.SetToolTip("Monte Carlo uncertainty and Sobol sensitivity analysis")
+        btn_mc.SetToolTip("Monte Carlo uncertainty, tornado sensitivity, and design-analysis tools")
         btn_mc.Bind(wx.EVT_BUTTON, self._on_monte_carlo)
         sizer.Add(btn_mc, 0, wx.RIGHT, 5)
 
@@ -952,7 +952,7 @@ class ReliabilityMainDialog(wx.Dialog):
         self.status.SetLabel("Saved to Reliability/reliability_data.json")
 
     def _on_monte_carlo(self, event):
-        """Open comprehensive analysis dialog with Monte Carlo and Sobol sensitivity."""
+        """Open the analysis dialog for uncertainty, sensitivity, and design actions."""
         try:
             from .analysis_dialog import AnalysisDialog
 

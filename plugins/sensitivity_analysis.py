@@ -20,42 +20,26 @@ Three complementary methods, each answering a distinct engineering question:
    Per-component OAT elasticity ranking.
 
 
-Mathematical Foundation
------------------------
+Interpretation Notes
+--------------------
 
-**Theorem (OAT sufficiency for additive models).**
-Let the system failure rate be the additive model:
+The tornado chart in this module is a **local deterministic sensitivity**
+tool. It answers: "if I perturb one parameter around the current design
+point, how much does the system FIT move?"
 
-    lambda_sys(theta) = SUM_{i=1}^{N} lambda_i(theta_i)
-
-where theta_i is the parameter vector of component i and the sets
-{theta_i} are disjoint.  Then every Sobol interaction index S_{ij} = 0
-for i != j (cross-component), and OAT perturbation captures 100% of
-first-order variance.
-
-*Proof.*  By the Hoeffding decomposition (Sobol 1993), the variance of
-lambda_sys decomposes into first-order and higher-order terms.  Since
-lambda_i depends only on theta_i, and the theta_i are independent inputs,
-the ANOVA decomposition is:
-
-    Var(lambda_sys) = SUM_i Var(lambda_i) + 0   (all cross-terms vanish)
-
-Hence S_i = Var(lambda_i) / Var(lambda_sys) and SUM S_i = 1, i.e., there
-are no interaction effects between components.  The OAT derivative
-d(lambda_sys)/d(theta_k) for any scalar parameter theta_k equals
-d(lambda_j)/d(theta_k) where j is the unique component containing
-theta_k, making OAT exact for linear-in-lambda models.  QED.
-
-*Ref:* Saltelli, Ratto, Andres, et al. (2008) "Global Sensitivity
-Analysis: The Primer", Wiley, Theorem 4.1 and Section 2.1.3.
+This is not the same as a full global variance-based method. The additive
+series model does remove cross-component coupling in lambda-space, but the
+results reported here are still local finite-difference swings around the
+chosen operating point. They should be interpreted as engineering leverage
+indicators, not as Sobol indices or a proof that global rankings are
+identical under all input distributions.
 
 **Note on within-component interactions.**  Within a single component,
 parameters can interact (e.g., T_junction affects both Arrhenius die
-acceleration and Coffin-Manson package stress).  OAT measures the total
-derivative at the operating point, which includes these cross-terms at
-first order.  The error from neglecting the second-order cross-partial
-is O(h^2) where h is the perturbation step (see finite difference
-bound below).
+acceleration and Coffin-Manson package stress). OAT measures the local
+effect of perturbing one parameter while re-evaluating the full component
+formula, so those coupled terms are reflected in the recalculated lambda,
+but the result remains a local first-order screening measure.
 
 **Finite difference error bound.**  The tornado uses central finite
 differences to approximate partial derivatives:
@@ -66,9 +50,10 @@ By Taylor's theorem with Lagrange remainder, the error is:
 
     |f'(x) - [f(x+h) - f(x-h)]/(2h)| <= (h^2 / 6) * max |f'''(xi)|
 
-This is second-order accurate in the perturbation step h.  For physical
-perturbations (e.g., +/-10 degC on a 50 degC operating point), h/x is
-typically 0.2, giving a relative truncation error below 1%.
+This is second-order accurate in the perturbation step h for smooth
+functions. The practical accuracy still depends on perturbation size,
+parameter scaling, and whether the response stays in a locally smooth
+region of the IEC model.
 
 *Ref:* Burden & Faires (2011) "Numerical Analysis", 9th ed., Theorem 4.1.
 
@@ -755,8 +740,7 @@ class SmartAction:
         score = w_tornado * S_tornado + w_srrc * S_srrc + w_crit * S_criticality
 
     where weights are proportional to available evidence.  This is the
-    Fisher-weighted combination of independent sensitivity measures
-    (Saltelli et al. 2008, Section 1.2.2).
+    heuristic combination of independent sensitivity measures.
     """
     parameter: str
     component_refs: List[str]
@@ -787,10 +771,9 @@ def identify_smart_actions(
        explained by each parameter (from Monte Carlo rank regression).
     3. From Criticality: max elasticity per parameter normalised to [0, 1].
 
-    These are combined with equal weights (or proportional to the number
-    of available measures) into a composite score.  For additive models
-    (IEC TR 62380), OAT and SRRC are theoretically equivalent (Saltelli
-    2008, Theorem 4.1), so concordance validates the results.
+    These are combined into a composite score for prioritisation. The
+    result is intended as an engineering ranking aid, not a formal
+    statistical estimator.
 
     Parameters
     ----------

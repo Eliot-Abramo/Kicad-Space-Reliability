@@ -3,7 +3,7 @@ KiCad Reliability Calculator Plugin
 ====================================
 IEC TR 62380 Reliability Analysis for KiCad
 
-Version: 3.2.0
+Version: 3.3.0
 
 Features:
 - 12 component classes with full IEC TR 62380 stress models
@@ -67,7 +67,7 @@ from .sensitivity_analysis import (
     analyze_board_criticality,
 )
 
-# v3.1.0 Co-Design modules
+# Co-Design modules
 from .mission_profile import (
     MissionPhase,
     MissionProfile,

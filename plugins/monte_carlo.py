@@ -30,16 +30,17 @@ Mathematical Foundation
 4. Importance (SRRC):
    Standardised Rank Regression Coefficients.  After the MC run,
    rank-transform all inputs and the output, fit OLS on ranks,
-   and the standardised coefficients approximate first-order
-   sensitivity indices for monotonic models.
+   and use the standardised coefficients as a monotonic importance
+   proxy for screening and ranking uncertain parameters.
    Reference: NUREG/CR-6241, Saltelli et al. (2008) ch. 5
 
 Key Properties
 --------------
-- E[R(t)] <= R(t; E[lambda])  by Jensen's inequality (exp is convex)
+- E[R(t)] >= R(t; E[lambda])  by Jensen's inequality (exp is convex)
 - Convergence rate: O(1/sqrt(N))  by the Central Limit Theorem
 - SRRC captures monotonic sensitivity: valid for all IEC acceleration
-  factors (Arrhenius, Coffin-Manson, power-law).
+  factors (Arrhenius, Coffin-Manson, power-law), but it is not a
+  substitute for a validated Sobol workflow.
 
 Limitations
 -----------
@@ -147,7 +148,7 @@ class UncertaintyResult:
     n_total_components: int
     runtime_seconds: float
 
-    # Jensen's inequality note
+    # Jensen diagnostic note
     jensen_note: str
 
     def to_dict(self) -> Dict:
@@ -649,7 +650,9 @@ def run_uncertainty_analysis(
         # Assign ranks
         for rank, entry in enumerate(importance, 1):
             entry["rank"] = rank
-        # Normalise srrc_sq to sum to <= 1 (R^2 decomposition)
+        # Normalise srrc_sq into a relative importance share so the UI/report
+        # can show a stable percentage-like ranking. This is a ranking aid,
+        # not a formal Sobol variance decomposition.
         total_sq = sum(x["srrc_sq"] for x in importance)
         if total_sq > 0:
             for entry in importance:
@@ -658,22 +661,27 @@ def run_uncertainty_analysis(
             for entry in importance:
                 entry["variance_fraction"] = 0.0
 
-    # ---- Jensen's note ----
+    # ---- Jensen diagnostic ----
     # For f(λ) = exp(-λt), we have f''(λ) = t²*exp(-λt) > 0, so f is CONVEX.
     # By Jensen's inequality for convex functions: E[f(λ)] >= f(E[λ])
-    # Therefore: E[R(t)] >= R(t; E[λ]), meaning the sample mean should be >= nominal.
-    if mean_r > nominal_R + 1e-6:
+    # The theorem applies to R(E[λ]), not necessarily to the nominal design-point
+    # reliability if the nominal parameters do not imply λ = E[λ].
+    mean_lambda = float(np.mean(sys_lambda_samples))
+    reliability_at_mean_lambda = float(np.exp(-mean_lambda * mission_hours))
+    if mean_r >= reliability_at_mean_lambda - 1e-6:
         jensen_note = (
-            f"Mean R(t) = {mean_r:.6f} is HIGHER than the nominal point estimate "
-            f"R(t) = {nominal_R:.6f}. This is Jensen's inequality: R(t) = exp(-λ·t) "
-            f"is a convex function of λ, so E[R(t)] ≥ R(t; E[λ]) when λ has positive variance. "
-            f"This means parameter uncertainty IMPROVES expected reliability compared to "
-            f"the nominal design. The nominal value is a conservative lower bound."
+            f"Jensen diagnostic: mean R(t) = {mean_r:.6f}, while R(E[λ]) = "
+            f"{reliability_at_mean_lambda:.6f}. Because R(t) = exp(-λ·t) is "
+            f"convex in λ, E[R(t)] should be greater than or equal to R(E[λ]). "
+            f"This checks the Monte Carlo samples against that theorem; it is "
+            f"not a bound statement about the nominal design point."
         )
     else:
         jensen_note = (
-            f"Nominal R(t) = {nominal_R:.6f} is consistent with the mean sample "
-            f"R(t) = {mean_r:.6f}. Parameter uncertainty has negligible impact."
+            f"Jensen diagnostic warning: mean R(t) = {mean_r:.6f} is below "
+            f"R(E[λ]) = {reliability_at_mean_lambda:.6f}. This suggests sampling "
+            f"noise, numerical error, or inconsistent baseline handling and should "
+            f"be reviewed before relying on the result."
         )
 
     runtime = time.time() - t0

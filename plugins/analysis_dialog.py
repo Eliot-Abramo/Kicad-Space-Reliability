@@ -2372,6 +2372,7 @@ class AnalysisDialog(wx.Dialog):
         self.btn_pdf.SetBackgroundColour(C.OK)
         self.btn_pdf.SetForegroundColour(wx.WHITE)
         self.btn_pdf.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        self.btn_pdf.SetToolTip("Requires optional dependency support: install weasyprint or reportlab.")
         self.btn_pdf.Bind(wx.EVT_BUTTON, self._on_gen_pdf)
         rs.Add(self.btn_pdf, 0, wx.ALL, 10)
         btn_preview = wx.Button(rp, label="Refresh Preview")
