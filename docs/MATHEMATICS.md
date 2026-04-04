@@ -1,7 +1,21 @@
 # Reliability Methodology And Math Notes
 
-This document explains the math implemented by the plugin, with the goal of
-making the numerical outputs easy to audit against the code.
+This document explains the mathematics implemented by the plugin with one main
+goal: making the numbers visible in the UI and reports easy to audit against
+the code.
+
+The plugin is unusual because it does not stop at component failure-rate
+calculation. The math stack spans:
+
+- component-level IEC TR 62380 stress models
+- mission-phase weighting
+- topology-aware system composition
+- uncertainty propagation and sensitivity ranking
+- target-closure tools such as budgeting and inverse derating
+
+If you want the interpretation rules and validation posture, start with
+[Methodology and Validation](./METHODOLOGY.md).
+If you want the module map, see [Architecture Overview](./ARCHITECTURE.md).
 
 The main implementation lives in:
 
@@ -37,8 +51,8 @@ At a high level the tool does this:
 component parameters
 -> component lambda_i
 -> sheet lambda
--> system reliability model
--> R(t), MTTF, uncertainty, sensitivity, and budget views
+-> block-topology composition
+-> R(t), MTTF, uncertainty, sensitivity, and closure views
 ```
 
 For a constant hazard rate, the core reliability identities are:
@@ -54,6 +68,13 @@ These are implemented by:
 - `reliability_from_lambda()`
 - `lambda_from_reliability()`
 - `mttf_from_lambda()`
+
+Two practical conventions matter throughout the code:
+
+- additive composition is used in lambda space only where the model is truly
+  series-like
+- once redundancy appears, the implementation switches to reliability-space
+  composition rather than trying to fake it with summed FIT values
 
 ## 2. Shared acceleration factors
 
@@ -686,7 +707,54 @@ For each midpoint:
 So the derating recommendations are not based on a linear approximation. They
 come from repeated evaluation of the full nonlinear model.
 
-## 10. Practical interpretation notes
+## 10. Component swap analysis
+
+Swap analysis in `component_swap.py` evaluates discrete design alternatives by
+cloning the component parameters, changing one design choice, and recomputing
+the full component lambda.
+
+For a candidate swap:
+
+```text
+delta_fit = FIT_after - FIT_before
+delta_percent = delta_fit / FIT_before * 100
+```
+
+If a system total is available, the tool also reports the first-order system
+effect as:
+
+```text
+system_fit_after = system_fit_before + delta_fit
+```
+
+This is intentionally simple and useful. It gives a direct ranking of
+candidate substitutions without pretending to solve a multi-variable redesign
+problem.
+
+## 11. Reliability growth attribution
+
+Growth tracking in `growth_tracking.py` stores snapshots of system state and
+compares revisions component by component.
+
+At the system level:
+
+```text
+system_delta_fit = FIT_after - FIT_before
+system_delta_percent = system_delta_fit / FIT_before * 100
+reliability_improvement = R_after - R_before
+```
+
+At the component level, each changed reference is tagged as added, removed, or
+modified and assigned:
+
+```text
+delta_fit_component = FIT_after_component - FIT_before_component
+```
+
+This lets the report identify which changes were responsible for improvement
+and which ones made the design worse.
+
+## 12. Practical interpretation notes
 
 The plugin is mathematically consistent with a constant-hazard reliability
 model plus IEC-style stress acceleration terms, but the outputs are still only
@@ -703,8 +771,11 @@ Important implications:
   outside the chosen model.
 - Tornado and elasticity are local sensitivity tools; they rank leverage near
   the current operating point.
+- Budgeting, derating, swaps, and growth tracking are all downstream decision
+  aids built on top of the same core model, so they inherit both its strengths
+  and its limits.
 
-## 11. Code map
+## 13. Code map
 
 If you want to trace a number in the UI back to the implementation, these are
 the main entry points:
@@ -717,4 +788,5 @@ the main entry points:
 - `tornado_analysis()` computes deterministic sensitivity swings
 - `allocate_budget()` turns a target reliability into FIT budgets
 - `_find_required_value()` in `derating_engine.py` solves inverse derating
-
+- `rank_all_swaps()` evaluates candidate substitutions
+- `compare_revisions()` attributes reliability changes across snapshots

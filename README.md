@@ -1,4 +1,4 @@
-# KiCad Reliability Calculator Plugin
+# KiCad Reliability Calculator
 
 **Version:** 3.3.0
 **Author:** Eliot Abramo
@@ -17,98 +17,90 @@ From the first run, the plugin is meant to answer four practical questions:
 
 The exported report is built around those same questions. It explains the current reliability estimate, shows the uncertainty and sensitivity context around that estimate, and highlights the most actionable contributors and target-closure work. For the detailed math, interpretation limits, and validation notes, see [Methodology and Validation](./docs/METHODOLOGY.md).
 
-## What Ships Today
+The project is deliberately opinionated about engineering communication. It tries to make the math auditable, the assumptions visible, and the improvement path actionable.
 
-- IEC TR 62380-based component failure-rate calculations
-- Block-diagram system modeling with series, parallel, and k-of-n redundancy
-- Monte Carlo uncertainty analysis with shared and independent parameter sampling
-- Tornado sensitivity analysis for local design-point screening
-- Component-level criticality based on elasticity
-- Design-margin and what-if scenario analysis
-- Reliability budget allocation, derating guidance, component swap analysis, and design history tracking
-- HTML, Markdown, CSV, and JSON report export
-- PDF export when an optional PDF backend is installed
+## Features
 
-## What This Tool Is For
+- **It models systems, not just parts.** Component lambdas are lifted into sheet totals and then composed through a user-defined block diagram, so redundancy and architecture are first-class inputs rather than afterthoughts.
+- **It distinguishes nominal results from uncertainty.** The plugin does Monte Carlo propagation with shared and independent parameter sampling, then reports distributions, confidence intervals, and ranking aids instead of pretending one deterministic run is the whole story.
+- **It supports design closure, not just diagnosis.** Tornado sensitivity, elasticity-based criticality, budget allocation, inverse derating guidance, component swap analysis, and growth tracking all exist to help teams move from "interesting number" to "next design action."
+- **It produces review-grade artifacts.** HTML reports include structured sections, tables, and inline SVG charts, with Markdown, CSV, JSON, and optional PDF export available for downstream workflows.
+- **IEC TR 62380 component modeling:** 12 component families with temperature, voltage, thermal cycling, package, and usage stress terms implemented in code.
+- **Mission-profile support:** single-phase and multi-phase mission definitions with per-phase temperature, duty-cycle, thermal cycling, and duration weighting.
+- **Topology-aware system reliability:** block modeling for series, parallel, and k-of-n structures evaluated in reliability space.
+- **Monte Carlo uncertainty propagation:** user-bounded sampling through the full component formulas, with shared-parameter support and SRRC-based ranking.
+- **Deterministic leverage analysis:** tornado sensitivity and component-level parameter criticality via elasticity.
+- **Target-closure tooling:** design-margin scenarios, reliability budget allocation, derating guidance, and component swap ranking.
+- **Reliability growth tracking:** saved snapshots, revision comparison, attribution of FIT deltas, and trend visualization across design history.
+- **Report export:** HTML, Markdown, CSV, JSON, and optional PDF when `weasyprint` or `reportlab` is installed.
 
-Use the plugin when you want to answer questions like:
+## What The Plugin Is Really Doing
 
-- What is the predicted system FIT and mission reliability for this design?
-- Which sheet, component, or parameter is driving the estimate?
-- How sensitive is the current design point to thermal, electrical, or usage assumptions?
-- How wide is the uncertainty band if key inputs vary within plausible bounds?
-- What design actions appear most promising before making a board spin?
+At a high level, the workflow looks like this:
 
-## What This Tool Does Not Claim
+```text
+KiCad schematic data
+-> component classification + IEC parameters
+-> component lambda_i
+-> sheet-level aggregation
+-> block-diagram composition
+-> mission reliability metrics
+-> uncertainty / sensitivity / closure analyses
+-> exportable engineering report
+```
 
-- It is not a substitute for qualification testing, field return analysis, or independent safety review.
-- It does not claim certification by itself.
-- The exposed sensitivity workflow is not a production Sobol workflow. The shipped analysis surfaces local OAT screening, elasticity, and Monte Carlo-based SRRC ranking.
-- PDF export is not guaranteed unless an optional dependency is installed.
+That matters because the tool is not just decorating a BOM with handbook values.
+It is coupling component stress modeling, mission assumptions, and explicit system topology in one place.
+
+## Typical Engineering Loop
+
+1. Import the schematic-derived component set into the plugin.
+2. Classify parts and fill in the IEC parameters that actually drive the physics.
+3. Define mission duration, duty cycle, thermal cycling, and temperature assumptions.
+4. Build the block diagram so the reliability model matches the intended architecture.
+5. Run the overview to locate dominant sheets and components.
+6. Run Monte Carlo to understand distribution, spread, and confidence interval.
+7. Run tornado and criticality analyses to rank the highest-leverage assumptions.
+8. Use scenario, budget, derating, and swap tools to plan how to close the gap.
+9. Save snapshots and compare revisions to track whether the design is actually improving.
+10. Export HTML, Markdown, JSON, CSV, or PDF artifacts for review.
+
+## Documentation Map
+
+- [Methodology and Validation](./docs/METHODOLOGY.md): what is shipped, how to interpret it, and where the limits are.
+- [Mathematics Reference](./docs/MATHEMATICS.md): equation-level notes tied directly to the implementation.
+- [Architecture Overview](./docs/ARCHITECTURE.md): module map, data flow, and why the design is structured the way it is.
 
 ## Installation
 
-1. Open the Kicad 'Plugin and Content Manager' and click on 'Install from File...' at the bottom. Take the ZIP from your desired release (in the 'Releases' folder) and apply changes.
-2. Open a KiCad project and launch **Reliability Calculator** from the PCB editor action plugins menu.
-3. If you need PDF export, install one of the optional backends:
+1. Open KiCad Plugin and Content Manager and click `Install from File...`.
+2. Choose the ZIP from the [`Releases`](./Releases) folder or a packaged release artifact.
+3. Open a KiCad project and launch **Reliability Calculator** from the action plugins menu.
+4. If you want PDF export, install one of the optional backends:
    - `weasyprint`
    - `reportlab`
 
-## Typical Workflow
-
-1. Open the project and import the schematic-derived component set.
-2. Classify parts and fill in the IEC parameters that matter for your design.
-3. Set mission duration, thermal cycling, delta-T, and duty-cycle assumptions.
-4. Build the system block diagram so the analysis matches the intended architecture.
-5. Run the overview to identify dominant FIT contributors.
-6. Run Monte Carlo to quantify uncertainty and inspect the confidence interval.
-7. Run tornado and criticality analysis to identify leverage points.
-8. Explore what-if scenarios, budgets, derating, and swap recommendations.
-9. Export a report for design review or downstream documentation.
-
 ## Report Outputs
 
-- **HTML:** best default output, includes styled tables and charts
-- **PDF:** available when `weasyprint` or `reportlab` is installed
-- **Markdown:** lightweight text export for engineering notes and repos
-- **CSV:** component table export
-- **JSON:** structured data export for pipelines or custom tooling
+- **HTML:** the best default output, with styled tables, charts, and full review narrative.
+- **PDF:** available when `weasyprint` or `reportlab` is installed.
+- **Markdown:** useful for design notebooks, issue trackers, and repositories.
+- **CSV:** tabular export of component-level results.
+- **JSON:** structured machine-readable output for automation and custom pipelines.
 
 ## Assumptions And Limits
 
-- The plugin assumes IEC TR 62380-style constant failure-rate modeling for the reported mission interval.
-- Monte Carlo results are only as credible as the parameter bounds and distributions you enter.
-- Tornado and criticality views are local sensitivity tools around the current design point.
-- SRRC is used as a monotonic importance ranking aid; it is not presented as a validated Sobol replacement.
-- Independent verification is still required for high-consequence release decisions.
+- The reported mission reliability is based on IEC TR 62380-style constant hazard-rate modeling over the stated interval.
+- Monte Carlo results are only as defensible as the parameter bounds, distributions, and component metadata entered by the user.
+- Tornado and criticality analyses are local leverage tools around the current design point.
+- SRRC is used as a monotonic ranking aid, not as a claim of full variance decomposition.
+- High-consequence release decisions still require independent engineering review.
 
-## Validation And Methodology
+## Why This Exists
 
-The user-facing README is intentionally concise. The mathematical notes, interpretation limits, and validation guidance live in:
+I first started building this tool at Spacelocker after seeing how reliability work on electronics in the space industry often turned into a documentation chore: read a huge standard, fill a spreadsheet, and learn almost nothing about what to change. The plugin is an attempt to turn that process into an actual design workflow.
 
-- [Methodology and Validation](./docs/METHODOLOGY.md)
-
-## Repository Quality Gates
-
-This repository includes lightweight publish-readiness checks:
-
-- automated unit and smoke tests for the core analysis modules
-- regression checks for public claims and version consistency
-- CI to run compile checks, tests, and linting on every push
-
-## Release Notes
-
-Version 3.3.0 focuses on publish-readiness hardening:
-
-- public claims aligned with currently shipped features
-- corrected Jensen-diagnostic language
-- clearer separation between OAT, elasticity, SRRC, and internal Sobol code
-- explicit PDF dependency messaging
-- added tests and CI for core analysis and report export paths
-
-## Special Thanks
-
-I first started developing this tool at Spacelocker after noticing that the process of calculating the reliability and standardizing PCBs often involved reading very long standards and was more of a validation process, less a design workflow. Also a special thanks to Louise Grangette for doing the first pass at some of the mathematics used in this tool.
+Special thanks to Louise Grangette for the first pass on some of the mathematics used in this tool.
 
 ## License
 
