@@ -54,13 +54,13 @@ from .growth_tracking import (
     delete_snapshot, ReliabilitySnapshot,
 )
 try:
-    from .ui.theme import PALETTE, style_text_like, style_list_ctrl
+    from .ui.theme import PALETTE, apply_compact_fonts, dip_px, dip_size, platform_point_size, style_text_like, style_list_ctrl
     from .ui.windowing import center_dialog, get_display_client_area
 except ImportError:
     from import_compat import ensure_plugin_paths
 
     ensure_plugin_paths()
-    from theme import PALETTE, style_text_like, style_list_ctrl
+    from theme import PALETTE, apply_compact_fonts, dip_px, dip_size, platform_point_size, style_text_like, style_list_ctrl
     from windowing import center_dialog, get_display_client_area
 
 
@@ -101,6 +101,7 @@ def _trunc(s, maxlen=22):
 def _adaptive_font(dc, base_size, w, h, min_size=8):
     scale = min(w / 600.0, h / 400.0)
     sz = max(min_size, int(base_size * max(0.7, min(1.3, scale))))
+    sz = platform_point_size(sz, minimum=min_size)
     return sz
 
 
@@ -500,10 +501,10 @@ def _make_list(parent, columns, col_widths=None):
     lc = _SortableListCtrl(parent,
                             style=wx.LC_REPORT | wx.BORDER_SIMPLE)
     style_list_ctrl(lc)
-    lc.SetFont(wx.Font(9, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+    lc.SetFont(wx.Font(platform_point_size(9), wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
     for i, name in enumerate(columns):
         w = col_widths[i] if col_widths and i < len(col_widths) else 120
-        lc.InsertColumn(i, name, width=w)
+        lc.InsertColumn(i, name, width=dip_px(parent, w))
     return lc
 
 
@@ -520,10 +521,11 @@ def _add_row(lc, values, color=None):
 
 def _autosize_columns(lc, min_width=90):
     """Auto-fit every column to its content, enforcing a minimum width."""
+    scaled_min_width = dip_px(lc, min_width)
     for col in range(lc.GetColumnCount()):
         lc.SetColumnWidth(col, wx.LIST_AUTOSIZE)
-        if lc.GetColumnWidth(col) < min_width:
-            lc.SetColumnWidth(col, min_width)
+        if lc.GetColumnWidth(col) < scaled_min_width:
+            lc.SetColumnWidth(col, scaled_min_width)
 
 
 def _safe_float(val, default=0.0):
@@ -544,8 +546,8 @@ def _style_button(btn, role="primary"):
     bg, fg = palette.get(role, (C.PRI, wx.WHITE))
     btn.SetBackgroundColour(bg)
     btn.SetForegroundColour(fg)
-    btn.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
-    btn.SetMinSize((-1, 32))
+    btn.SetFont(wx.Font(platform_point_size(10), wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+    btn.SetMinSize(wx.Size(-1, dip_px(btn, 36)))
 
 
 # =====================================================================
@@ -623,7 +625,7 @@ class AnalysisDialog(wx.Dialog):
         h = min(950, int(rect.Height * 0.90))
         super().__init__(parent, title=title, size=(w, h),
                          style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER | wx.MAXIMIZE_BOX)
-        self.SetMinSize((1000, 700))
+        self.SetMinSize(dip_size(self, 1000, 700))
         self.SetBackgroundColour(C.BG)
 
         self.system_lambda = system_lambda
@@ -664,6 +666,7 @@ class AnalysisDialog(wx.Dialog):
         self._positioned_on_show = False
 
         self._build_ui()
+        apply_compact_fonts(self)
         self._load_persisted_state()
         self._on_load_history(None)
         self.Bind(wx.EVT_SHOW, self._on_dialog_show)
@@ -1408,7 +1411,7 @@ class AnalysisDialog(wx.Dialog):
         qs = wx.BoxSizer(wx.HORIZONTAL)
         qs.Add(wx.StaticText(qp, label="Global \u00b1%:"), 0,
                wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 12)
-        self.unc_pct = wx.SpinCtrlDouble(qp, min=0, max=50, initial=0, inc=1, size=(70, -1))
+        self.unc_pct = wx.SpinCtrlDouble(qp, min=0, max=50, initial=0, inc=1, size=dip_size(qp, 82, -1))
         qs.Add(self.unc_pct, 0, wx.ALL, 6)
 
         qs.Add(wx.StaticText(qp, label="Dist:"), 0,
@@ -1425,7 +1428,7 @@ class AnalysisDialog(wx.Dialog):
 
         qs.Add(wx.StaticText(qp, label="Simulations:"), 0,
                wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 8)
-        self.unc_n = wx.SpinCtrl(qp, min=500, max=100000, initial=5000, size=(85, -1))
+        self.unc_n = wx.SpinCtrl(qp, min=500, max=100000, initial=5000, size=dip_size(qp, 96, -1))
         qs.Add(self.unc_n, 0, wx.ALL, 6)
 
         qs.Add(wx.StaticText(qp, label="CI:"), 0,
@@ -1568,7 +1571,7 @@ class AnalysisDialog(wx.Dialog):
         cp.SetBackgroundColour(C.WHITE)
         css = wx.BoxSizer(wx.HORIZONTAL)
         css.Add(wx.StaticText(cp, label="Top N (0 = all):"), 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 12)
-        self.crit_n = wx.SpinCtrl(cp, min=0, max=500, initial=0, size=(70, -1))
+        self.crit_n = wx.SpinCtrl(cp, min=0, max=500, initial=0, size=dip_size(cp, 82, -1))
         css.Add(self.crit_n, 0, wx.ALL, 6)
         self.btn_crit = wx.Button(cp, label="\u25B6  Run Criticality")
         _style_button(self.btn_crit, "primary")
@@ -1640,7 +1643,7 @@ class AnalysisDialog(wx.Dialog):
             return
         spec = self.param_specs[idx]
 
-        dlg = wx.Dialog(self, title=f"Edit: {spec.name}", size=(400, 300))
+        dlg = wx.Dialog(self, title=f"Edit: {spec.name}", size=dip_size(self, 400, 300))
         ds = wx.BoxSizer(wx.VERTICAL)
         ds.Add(wx.StaticText(dlg, label=f"Parameter: {spec.name} ({spec.n_components} components)"),
                0, wx.ALL, 12)
@@ -1723,7 +1726,7 @@ class AnalysisDialog(wx.Dialog):
         p = self._perturbations[idx]
 
         dlg = wx.Dialog(self, title=f"Edit Perturbation: {p.param_name}",
-                        size=(380, 240))
+                        size=dip_size(self, 380, 240))
         ds = wx.BoxSizer(wx.VERTICAL)
         gs = wx.FlexGridSizer(4, 2, 8, 12)
         gs.AddGrowableCol(1)
@@ -2042,18 +2045,18 @@ class AnalysisDialog(wx.Dialog):
         row2 = wx.BoxSizer(wx.HORIZONTAL)
         row2.Add(wx.StaticText(wp, label="Custom:"), 0,
                  wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 12)
-        self.custom_sc_name = wx.TextCtrl(wp, value="", size=(100, -1))
+        self.custom_sc_name = wx.TextCtrl(wp, value="", size=dip_size(wp, 120, -1))
         self.custom_sc_name.SetHint("Name")
         row2.Add(self.custom_sc_name, 0, wx.ALL, 4)
         all_params = self._collect_all_param_names()
-        self.custom_sc_param = wx.Choice(wp, choices=all_params, size=(130, -1))
+        self.custom_sc_param = wx.Choice(wp, choices=all_params, size=dip_size(wp, 156, -1))
         if all_params:
             self.custom_sc_param.SetSelection(0)
         row2.Add(self.custom_sc_param, 0, wx.ALL, 4)
         self.custom_sc_op = wx.Choice(wp, choices=["multiply", "add", "set to"])
         self.custom_sc_op.SetSelection(0)
         row2.Add(self.custom_sc_op, 0, wx.ALL, 4)
-        self.custom_sc_val = wx.TextCtrl(wp, value="", size=(70, -1))
+        self.custom_sc_val = wx.TextCtrl(wp, value="", size=dip_size(wp, 88, -1))
         self.custom_sc_val.SetHint("Value")
         row2.Add(self.custom_sc_val, 0, wx.ALL, 4)
         btn_add_sc = wx.Button(wp, label="+ Add")
@@ -2083,7 +2086,7 @@ class AnalysisDialog(wx.Dialog):
         ts = wx.BoxSizer(wx.HORIZONTAL)
         ts.Add(wx.StaticText(tp, label="R target:"), 0,
                wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 12)
-        self.opt_target = wx.TextCtrl(tp, value="0.999", size=(80, -1))
+        self.opt_target = wx.TextCtrl(tp, value="0.999", size=dip_size(tp, 96, -1))
         ts.Add(self.opt_target, 0, wx.ALL, 6)
         ts.Add(wx.StaticText(tp, label="Strategy:"), 0,
                wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
@@ -2094,7 +2097,7 @@ class AnalysisDialog(wx.Dialog):
         ts.Add(wx.StaticText(tp, label="Margin %:"), 0,
                wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
         self.opt_margin = wx.SpinCtrlDouble(tp, min=0, max=50, initial=10,
-                                             inc=1, size=(65, -1))
+                                             inc=1, size=dip_size(tp, 78, -1))
         ts.Add(self.opt_margin, 0, wx.ALL, 6)
         self.btn_budget = wx.Button(tp, label="\u25B6  Allocate Budget")
         _style_button(self.btn_budget, "primary")
@@ -2176,21 +2179,21 @@ class AnalysisDialog(wx.Dialog):
         bis.Add(wx.StaticText(bip, label="Component:"), 0,
                 wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 12)
         comp_refs = sorted(set(c.get("ref", "?") for c in self._all_components()))
-        self.wi_ref = wx.Choice(bip, choices=comp_refs, size=(90, -1))
+        self.wi_ref = wx.Choice(bip, choices=comp_refs, size=dip_size(bip, 110, -1))
         if comp_refs:
             self.wi_ref.SetSelection(0)
         self.wi_ref.Bind(wx.EVT_CHOICE, self._on_wi_ref_changed)
         bis.Add(self.wi_ref, 0, wx.ALL, 6)
         bis.Add(wx.StaticText(bip, label="Param:"), 0,
                 wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
-        self.wi_param = wx.Choice(bip, choices=[], size=(130, -1))
+        self.wi_param = wx.Choice(bip, choices=[], size=dip_size(bip, 160, -1))
         self.wi_param.Bind(wx.EVT_CHOICE, self._on_wi_param_changed)
         bis.Add(self.wi_param, 0, wx.ALL, 6)
         bis.Add(wx.StaticText(bip, label="New value:"), 0,
                 wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
         self._wi_val_panel = bip
         self._wi_val_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.wi_val = wx.TextCtrl(bip, size=(140, -1))
+        self.wi_val = wx.TextCtrl(bip, size=dip_size(bip, 164, -1))
         self._wi_val_sizer.Add(self.wi_val, 0, wx.ALL, 0)
         bis.Add(self._wi_val_sizer, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 6)
         self.btn_wi = wx.Button(bip, label="Evaluate")
@@ -2209,8 +2212,8 @@ class AnalysisDialog(wx.Dialog):
         self.wi_result = wx.TextCtrl(panel, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.BORDER_SIMPLE)
         self.wi_result.SetFont(wx.Font(9, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         style_text_like(self.wi_result, read_only=True)
-        self.wi_result.SetMinSize((-1, 120))
-        self.wi_result.SetMaxSize((-1, 160))
+        self.wi_result.SetMinSize(wx.Size(-1, dip_px(panel, 132)))
+        self.wi_result.SetMaxSize(wx.Size(-1, dip_px(panel, 176)))
         main.Add(self.wi_result, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
         # --- Section 5: History ---
@@ -2221,11 +2224,11 @@ class AnalysisDialog(wx.Dialog):
         snap_s = wx.BoxSizer(wx.HORIZONTAL)
         snap_s.Add(wx.StaticText(snap_panel, label="Version:"), 0,
                wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 12)
-        self.snap_label = wx.TextCtrl(snap_panel, size=(120, -1))
+        self.snap_label = wx.TextCtrl(snap_panel, size=dip_size(snap_panel, 136, -1))
         snap_s.Add(self.snap_label, 0, wx.ALL, 6)
         snap_s.Add(wx.StaticText(snap_panel, label="Notes:"), 0,
                wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
-        self.snap_notes = wx.TextCtrl(snap_panel, size=(200, -1))
+        self.snap_notes = wx.TextCtrl(snap_panel, size=dip_size(snap_panel, 236, -1))
         snap_s.Add(self.snap_notes, 0, wx.ALL, 6)
         btn_snap = wx.Button(snap_panel, label="Save Snapshot")
         btn_snap.Bind(wx.EVT_BUTTON, self._on_save_snapshot)
@@ -3098,14 +3101,14 @@ class AnalysisDialog(wx.Dialog):
         # Create new value control (dropdown or textctrl)
         if param in swap_opts and swap_opts[param]:
             # Create dropdown for categorical parameters
-            self.wi_val = wx.Choice(self._wi_val_panel, choices=swap_opts[param], size=(120, -1))
+            self.wi_val = wx.Choice(self._wi_val_panel, choices=swap_opts[param], size=dip_size(self._wi_val_panel, 144, -1))
             if current_val and str(current_val) in swap_opts[param]:
                 self.wi_val.SetStringSelection(str(current_val))
             elif swap_opts[param]:
                 self.wi_val.SetSelection(0)
         else:
             # Create textctrl for numeric parameters
-            self.wi_val = wx.TextCtrl(self._wi_val_panel, size=(120, -1))
+            self.wi_val = wx.TextCtrl(self._wi_val_panel, size=dip_size(self._wi_val_panel, 144, -1))
             if current_val is not None:
                 self.wi_val.SetValue(str(current_val))
         

@@ -26,11 +26,13 @@ import json
 from pathlib import Path
 
 try:
+    from .ui.theme import PALETTE, apply_compact_fonts, dip_size, style_panel, tuned_font
     from .ui.windowing import center_dialog
 except ImportError:
     from import_compat import ensure_plugin_paths
 
     ensure_plugin_paths()
+    from theme import PALETTE, apply_compact_fonts, dip_size, style_panel, tuned_font
     from windowing import center_dialog
 
 
@@ -50,20 +52,22 @@ class ProjectSelector(wx.Dialog):
 
         self.selected_project = None
         self.recent_projects = self._load_recent_projects()
+        style_panel(self, PALETTE.background)
+        self.SetSize(dip_size(self, 500, 400))
 
         self._create_ui()
+        apply_compact_fonts(self)
         wx.CallAfter(center_dialog, self, parent)
 
     def _create_ui(self):
         panel = wx.Panel(self)
+        style_panel(panel, PALETTE.panel_bg)
         main_sizer = wx.BoxSizer(wx.VERTICAL)
 
         # Header
         header = wx.StaticText(panel, label="Reliability Calculator")
-        header_font = header.GetFont()
-        header_font.SetPointSize(16)
-        header_font.SetWeight(wx.FONTWEIGHT_BOLD)
-        header.SetFont(header_font)
+        header.SetFont(tuned_font(panel, relative=6, weight=wx.FONTWEIGHT_BOLD))
+        header.SetForegroundColour(PALETTE.text)
         main_sizer.Add(header, 0, wx.ALL | wx.ALIGN_CENTER, 15)
 
         # Description
@@ -73,7 +77,7 @@ class ProjectSelector(wx.Dialog):
             "Select a project to get started.",
             style=wx.ALIGN_CENTER,
         )
-        desc.SetForegroundColour(wx.Colour(80, 80, 80))
+        desc.SetForegroundColour(PALETTE.text_muted)
         main_sizer.Add(desc, 0, wx.ALL | wx.ALIGN_CENTER, 10)
 
         main_sizer.Add(wx.StaticLine(panel), 0, wx.EXPAND | wx.ALL, 10)
@@ -87,6 +91,8 @@ class ProjectSelector(wx.Dialog):
             self.recent_list = wx.ListBox(
                 panel, choices=self.recent_projects, style=wx.LB_SINGLE
             )
+            self.recent_list.SetBackgroundColour(PALETTE.card_bg)
+            self.recent_list.SetForegroundColour(PALETTE.text)
             self.recent_list.Bind(wx.EVT_LISTBOX_DCLICK, self.on_recent_dclick)
             main_sizer.Add(self.recent_list, 1, wx.EXPAND | wx.ALL, 10)
 
@@ -99,7 +105,7 @@ class ProjectSelector(wx.Dialog):
         # Browse button
         browse_sizer = wx.BoxSizer(wx.HORIZONTAL)
 
-        browse_btn = wx.Button(panel, label=" Browse for Project...", size=(200, 40))
+        browse_btn = wx.Button(panel, label=" Browse for Project...", size=dip_size(panel, 220, 44))
         browse_btn.SetFont(browse_btn.GetFont().Bold())
         browse_btn.Bind(wx.EVT_BUTTON, self.on_browse)
         browse_sizer.Add(browse_btn, 0, wx.ALL, 10)

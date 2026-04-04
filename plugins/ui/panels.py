@@ -12,7 +12,7 @@ import wx.lib.scrolledpanel as scrolled
 try:
     from ..mission_profile import MissionPhase, MissionProfile, MISSION_TEMPLATES
     from ..component_editor import QuickReferenceDialog
-    from .theme import PALETTE, style_list_ctrl, style_panel, style_text_like
+    from .theme import PALETTE, apply_compact_fonts, dip_px, dip_size, style_list_ctrl, style_panel, style_text_like
 except ImportError:
     import sys
     from pathlib import Path
@@ -24,7 +24,7 @@ except ImportError:
             sys.path.insert(0, text)
     from mission_profile import MissionPhase, MissionProfile, MISSION_TEMPLATES
     from component_editor import QuickReferenceDialog
-    from theme import PALETTE, style_list_ctrl, style_panel, style_text_like
+    from theme import PALETTE, apply_compact_fonts, dip_px, dip_size, style_list_ctrl, style_panel, style_text_like
 
 
 class Colors:
@@ -114,6 +114,7 @@ class MissionPhaseDialog(wx.Dialog):
         super().__init__(parent, title=title, size=(380, 320),
                          style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         style_panel(self, Colors.PANEL_BG)
+        self.SetSize(dip_size(self, 380, 320))
 
         sizer = wx.BoxSizer(wx.VERTICAL)
         form = wx.FlexGridSizer(7, 2, 8, 10)
@@ -125,36 +126,36 @@ class MissionPhaseDialog(wx.Dialog):
 
         form.Add(wx.StaticText(self, label="Duration (%):"), 0, wx.ALIGN_CENTER_VERTICAL)
         self.duration_ctrl = wx.SpinCtrlDouble(self, min=0.1, max=100.0,
-            initial=(phase.duration_frac * 100) if phase else 100.0, inc=1.0, size=(100, -1))
+            initial=(phase.duration_frac * 100) if phase else 100.0, inc=1.0, size=dip_size(self, 116, -1))
         self.duration_ctrl.SetDigits(1)
         form.Add(self.duration_ctrl, 0)
 
         form.Add(wx.StaticText(self, label="T_ambient (degC):"), 0, wx.ALIGN_CENTER_VERTICAL)
         self.t_amb_ctrl = wx.SpinCtrlDouble(self, min=-55, max=200,
-            initial=phase.t_ambient if phase else 25.0, inc=5.0, size=(100, -1))
+            initial=phase.t_ambient if phase else 25.0, inc=5.0, size=dip_size(self, 116, -1))
         self.t_amb_ctrl.SetDigits(1)
         form.Add(self.t_amb_ctrl, 0)
 
         form.Add(wx.StaticText(self, label="T_junction (degC):"), 0, wx.ALIGN_CENTER_VERTICAL)
         self.t_junc_ctrl = wx.SpinCtrlDouble(self, min=-55, max=250,
-            initial=phase.t_junction if phase else 85.0, inc=5.0, size=(100, -1))
+            initial=phase.t_junction if phase else 85.0, inc=5.0, size=dip_size(self, 116, -1))
         self.t_junc_ctrl.SetDigits(1)
         form.Add(self.t_junc_ctrl, 0)
 
         form.Add(wx.StaticText(self, label="Thermal cycles/yr:"), 0, wx.ALIGN_CENTER_VERTICAL)
         self.cycles_ctrl = wx.SpinCtrl(self, min=0, max=50000,
-            initial=phase.n_cycles if phase else 5256, size=(100, -1))
+            initial=phase.n_cycles if phase else 5256, size=dip_size(self, 116, -1))
         form.Add(self.cycles_ctrl, 0)
 
         form.Add(wx.StaticText(self, label="Delta_T (degC):"), 0, wx.ALIGN_CENTER_VERTICAL)
         self.dt_ctrl = wx.SpinCtrlDouble(self, min=0.0, max=100.0,
-            initial=phase.delta_t if phase else 3.0, inc=0.5, size=(100, -1))
+            initial=phase.delta_t if phase else 3.0, inc=0.5, size=dip_size(self, 116, -1))
         self.dt_ctrl.SetDigits(1)
         form.Add(self.dt_ctrl, 0)
 
         form.Add(wx.StaticText(self, label="tau_on (0-1):"), 0, wx.ALIGN_CENTER_VERTICAL)
         self.tau_ctrl = wx.SpinCtrlDouble(self, min=0.0, max=1.0,
-            initial=phase.tau_on if phase else 1.0, inc=0.05, size=(100, -1))
+            initial=phase.tau_on if phase else 1.0, inc=0.05, size=dip_size(self, 116, -1))
         self.tau_ctrl.SetDigits(2)
         form.Add(self.tau_ctrl, 0)
 
@@ -162,6 +163,8 @@ class MissionPhaseDialog(wx.Dialog):
         btn_sizer = self.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL)
         sizer.Add(btn_sizer, 0, wx.EXPAND | wx.ALL, 10)
         self.SetSizer(sizer)
+        apply_compact_fonts(self)
+        self.Layout()
 
     def get_phase(self) -> MissionPhase:
         return MissionPhase(
@@ -192,7 +195,7 @@ class SettingsPanel(wx.Panel):
         tmpl_row = wx.BoxSizer(wx.HORIZONTAL)
         tmpl_row.Add(wx.StaticText(self, label="Template:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         templates = ["(Single-Phase)"] + sorted(MISSION_TEMPLATES.keys())
-        self.template_combo = wx.Choice(self, choices=templates, size=(160, -1))
+        self.template_combo = wx.Choice(self, choices=templates, size=dip_size(self, 184, -1))
         self.template_combo.SetSelection(0)
         self.template_combo.Bind(wx.EVT_CHOICE, self._on_template_select)
         tmpl_row.Add(self.template_combo, 1)
@@ -202,26 +205,26 @@ class SettingsPanel(wx.Panel):
         form = wx.FlexGridSizer(4, 3, 8, 10)
         form.AddGrowableCol(1, 1)
         form.Add(wx.StaticText(self, label="Duration"), 0, wx.ALIGN_CENTER_VERTICAL)
-        self.years = wx.SpinCtrl(self, min=1, max=30, initial=5, size=(80, -1))
+        self.years = wx.SpinCtrl(self, min=1, max=30, initial=5, size=dip_size(self, 92, -1))
         self.years.Bind(wx.EVT_SPINCTRL, self._on_change)
         form.Add(self.years, 0)
         form.Add(wx.StaticText(self, label="years"), 0, wx.ALIGN_CENTER_VERTICAL)
 
         form.Add(wx.StaticText(self, label="Thermal cycles"), 0, wx.ALIGN_CENTER_VERTICAL)
-        self.cycles = wx.SpinCtrl(self, min=100, max=20000, initial=5256, size=(80, -1))
+        self.cycles = wx.SpinCtrl(self, min=100, max=20000, initial=5256, size=dip_size(self, 92, -1))
         self.cycles.Bind(wx.EVT_SPINCTRL, self._on_change)
         self.cycles.SetToolTip("Annual thermal cycles (5256, approx. LEO satellite)")
         form.Add(self.cycles, 0)
         form.Add(wx.StaticText(self, label="/year"), 0, wx.ALIGN_CENTER_VERTICAL)
 
         form.Add(wx.StaticText(self, label="dT per cycle"), 0, wx.ALIGN_CENTER_VERTICAL)
-        self.dt = wx.SpinCtrlDouble(self, min=0.5, max=50, initial=3.0, inc=0.5, size=(80, -1))
+        self.dt = wx.SpinCtrlDouble(self, min=0.5, max=50, initial=3.0, inc=0.5, size=dip_size(self, 92, -1))
         self.dt.Bind(wx.EVT_SPINCTRLDOUBLE, self._on_change)
         form.Add(self.dt, 0)
         form.Add(wx.StaticText(self, label="degC"), 0, wx.ALIGN_CENTER_VERTICAL)
 
         form.Add(wx.StaticText(self, label="Default tau_on"), 0, wx.ALIGN_CENTER_VERTICAL)
-        self.tau_on = wx.SpinCtrlDouble(self, min=0.01, max=1.0, initial=1.0, inc=0.05, size=(80, -1))
+        self.tau_on = wx.SpinCtrlDouble(self, min=0.01, max=1.0, initial=1.0, inc=0.05, size=dip_size(self, 92, -1))
         self.tau_on.SetDigits(2)
         self.tau_on.Bind(wx.EVT_SPINCTRLDOUBLE, self._on_change)
         self.tau_on.SetToolTip("Working time ratio (1.0 = continuous, 0.5 = 50% duty)")
@@ -235,22 +238,22 @@ class SettingsPanel(wx.Panel):
         self.phase_label.SetFont(self.phase_label.GetFont().MakeItalic())
         main.Add(self.phase_label, 0, wx.LEFT | wx.RIGHT, 10)
 
-        self.phase_list = wx.ListCtrl(self, style=wx.LC_REPORT | wx.LC_SINGLE_SEL | wx.BORDER_SIMPLE, size=(-1, 90))
+        self.phase_list = wx.ListCtrl(self, style=wx.LC_REPORT | wx.LC_SINGLE_SEL | wx.BORDER_SIMPLE, size=wx.Size(-1, dip_px(self, 110)))
         style_list_ctrl(self.phase_list)
-        self.phase_list.InsertColumn(0, "Phase", width=80)
-        self.phase_list.InsertColumn(1, "Dur%", width=45)
-        self.phase_list.InsertColumn(2, "T_amb", width=45)
-        self.phase_list.InsertColumn(3, "T_junc", width=48)
-        self.phase_list.InsertColumn(4, "Cycles", width=50)
-        self.phase_list.InsertColumn(5, "dT", width=35)
-        self.phase_list.InsertColumn(6, "tau", width=35)
+        self.phase_list.InsertColumn(0, "Phase", width=dip_px(self, 96))
+        self.phase_list.InsertColumn(1, "Dur%", width=dip_px(self, 54))
+        self.phase_list.InsertColumn(2, "T_amb", width=dip_px(self, 58))
+        self.phase_list.InsertColumn(3, "T_junc", width=dip_px(self, 62))
+        self.phase_list.InsertColumn(4, "Cycles", width=dip_px(self, 72))
+        self.phase_list.InsertColumn(5, "dT", width=dip_px(self, 44))
+        self.phase_list.InsertColumn(6, "tau", width=dip_px(self, 44))
         self.phase_list.Hide()
         main.Add(self.phase_list, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
 
         btn_row = wx.BoxSizer(wx.HORIZONTAL)
-        self.btn_add_phase = wx.Button(self, label="+ Phase", size=(65, -1))
-        self.btn_edit_phase = wx.Button(self, label="Edit", size=(50, -1))
-        self.btn_remove_phase = wx.Button(self, label="- Phase", size=(65, -1))
+        self.btn_add_phase = wx.Button(self, label="+ Phase", size=dip_size(self, 82, -1))
+        self.btn_edit_phase = wx.Button(self, label="Edit", size=dip_size(self, 62, -1))
+        self.btn_remove_phase = wx.Button(self, label="- Phase", size=dip_size(self, 82, -1))
         self.btn_add_phase.Bind(wx.EVT_BUTTON, self._on_add_phase)
         self.btn_edit_phase.Bind(wx.EVT_BUTTON, self._on_edit_phase)
         self.btn_remove_phase.Bind(wx.EVT_BUTTON, self._on_remove_phase)
@@ -420,17 +423,18 @@ class ComponentPanel(scrolled.ScrolledPanel):
         self.header = wx.StaticText(self, label="Components")
         self.header.SetFont(self.header.GetFont().Bold())
         header.Add(self.header, 1, wx.ALIGN_CENTER_VERTICAL)
-        self.btn_edit = wx.Button(self, label="Edit", size=(70, -1))
+        self.btn_edit = wx.Button(self, label="Edit", size=dip_size(self, 82, -1))
         self.btn_edit.Bind(wx.EVT_BUTTON, self._on_edit)
         header.Add(self.btn_edit, 0)
         sizer.Add(header, 0, wx.EXPAND | wx.ALL, 10)
 
         self.list = wx.ListCtrl(self, style=wx.LC_REPORT | wx.LC_SINGLE_SEL | wx.BORDER_SIMPLE)
-        self.list.InsertColumn(0, "Ref", width=50)
-        self.list.InsertColumn(1, "Value", width=80)
-        self.list.InsertColumn(2, "Type", width=110)
-        self.list.InsertColumn(3, "L (FIT)", width=70)
-        self.list.InsertColumn(4, "R", width=70)
+        style_list_ctrl(self.list)
+        self.list.InsertColumn(0, "Ref", width=dip_px(self, 58))
+        self.list.InsertColumn(1, "Value", width=dip_px(self, 96))
+        self.list.InsertColumn(2, "Type", width=dip_px(self, 130))
+        self.list.InsertColumn(3, "L (FIT)", width=dip_px(self, 82))
+        self.list.InsertColumn(4, "R", width=dip_px(self, 82))
         self.list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self._on_dclick)
         sizer.Add(self.list, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
 

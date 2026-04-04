@@ -96,7 +96,7 @@ It is coupling component stress modeling, mission assumptions, and explicit syst
 
 ### How to use after installing
 
-The UI is quite explicit. It is important to note to select multiple blocs for k-of-n or series, etc. configurations you need to CTRL+CLICK on the blocs then right click and the options will present themselves.
+The UI is quite explicit. It is important to note to select multiple blocs for k-of-n or series, etc. configurations you need to SHIFT+CLICK on the blocs then right click and the options will present themselves.
 
 ## Report Outputs
 

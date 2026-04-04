@@ -4,9 +4,15 @@ Adaptive theme helpers for KiCad wx dialogs.
 
 from __future__ import annotations
 
+import os
+import sys
 from dataclasses import dataclass
 
 import wx
+
+
+IS_WINDOWS = sys.platform.startswith("win")
+WINDOWS_FONT_POINT_DELTA = -1
 
 
 def _colour_to_rgb(colour: wx.Colour) -> tuple[int, int, int]:
@@ -52,6 +58,97 @@ def _system_prefers_dark() -> bool:
         return False
 
 
+def _theme_mode() -> str:
+    mode = os.environ.get("KICAD_RELIABILITY_THEME", "dark").strip().lower()
+    if mode in {"dark", "light", "system"}:
+        return mode
+    return "dark"
+
+
+def platform_point_size(size: int, minimum: int = 8) -> int:
+    delta = WINDOWS_FONT_POINT_DELTA if IS_WINDOWS else 0
+    return max(minimum, size + delta)
+
+
+def _base_font_for(window: wx.Window | None = None) -> wx.Font:
+    candidates = []
+    if window is not None:
+        try:
+            candidates.append(window.GetFont())
+        except Exception:
+            pass
+    try:
+        candidates.append(wx.SystemSettings.GetFont(wx.SYS_DEFAULT_GUI_FONT))
+    except Exception:
+        pass
+    try:
+        candidates.append(wx.SystemSettings.GetFont(wx.SYS_SYSTEM_FONT))
+    except Exception:
+        pass
+    for font in candidates:
+        if font and font.IsOk():
+            return wx.Font(font)
+    return wx.Font(wx.NORMAL_FONT)
+
+
+def tuned_font(
+    window: wx.Window | None = None,
+    *,
+    relative: int = 0,
+    family: int | None = None,
+    style: int | None = None,
+    weight: int | None = None,
+    minimum: int = 8,
+) -> wx.Font:
+    font = _base_font_for(window)
+    font.SetPointSize(max(minimum, font.GetPointSize() + relative + (WINDOWS_FONT_POINT_DELTA if IS_WINDOWS else 0)))
+    if family is not None:
+        font.SetFamily(family)
+    if style is not None:
+        font.SetStyle(style)
+    if weight is not None:
+        font.SetWeight(weight)
+    return font
+
+
+def apply_compact_fonts(window: wx.Window | None, delta: int | None = None, minimum: int = 8) -> None:
+    if not window or not IS_WINDOWS:
+        return
+
+    delta = WINDOWS_FONT_POINT_DELTA if delta is None else delta
+
+    def _shrink(node: wx.Window) -> None:
+        try:
+            font = node.GetFont()
+            if font and font.IsOk():
+                sized = wx.Font(font)
+                sized.SetPointSize(max(minimum, font.GetPointSize() + delta))
+                node.SetFont(sized)
+        except Exception:
+            pass
+
+        try:
+            for child in node.GetChildren():
+                _shrink(child)
+        except Exception:
+            pass
+
+    _shrink(window)
+
+
+def dip_px(window: wx.Window, value: int) -> int:
+    if value < 0:
+        return value
+    try:
+        return int(window.FromDIP(value))
+    except Exception:
+        return value
+
+
+def dip_size(window: wx.Window, width: int, height: int = -1) -> wx.Size:
+    return wx.Size(dip_px(window, width), dip_px(window, height))
+
+
 @dataclass(frozen=True)
 class Palette:
     background: wx.Colour
@@ -80,27 +177,30 @@ def build_palette() -> Palette:
     sys_face = _safe_sys_colour(wx.SYS_COLOUR_3DFACE, wx.Colour(245, 246, 247))
     sys_text = _safe_sys_colour(wx.SYS_COLOUR_WINDOWTEXT, wx.Colour(32, 33, 36))
     sys_button = _safe_sys_colour(wx.SYS_COLOUR_BTNFACE, wx.Colour(240, 240, 240))
-    prefers_dark = _system_prefers_dark()
+    theme_mode = _theme_mode()
+    prefers_dark = True if theme_mode == "dark" else _system_prefers_dark()
+    if theme_mode == "light":
+        prefers_dark = False
     dark_like = prefers_dark or _luminance(sys_window) < 0.35 or _contrast_ratio(sys_text, sys_window) < 4.5
 
     if dark_like:
-        background = wx.Colour(23, 27, 34)
-        panel_bg = wx.Colour(28, 33, 42)
-        card_bg = wx.Colour(34, 40, 50)
-        field_bg = wx.Colour(39, 45, 57)
-        header_bg = wx.Colour(15, 20, 28)
-        border = wx.Colour(74, 85, 104)
-        grid = wx.Colour(61, 73, 89)
-        text = wx.Colour(236, 240, 245)
-        text_muted = wx.Colour(184, 192, 204)
-        text_soft = wx.Colour(144, 154, 169)
-        primary = wx.Colour(78, 143, 245)
-        accent = wx.Colour(34, 197, 155)
+        background = wx.Colour(31, 36, 46)
+        panel_bg = wx.Colour(36, 42, 54)
+        card_bg = wx.Colour(43, 50, 64)
+        field_bg = wx.Colour(48, 57, 73)
+        header_bg = wx.Colour(21, 27, 38)
+        border = wx.Colour(88, 101, 125)
+        grid = wx.Colour(73, 86, 108)
+        text = wx.Colour(238, 243, 249)
+        text_muted = wx.Colour(192, 201, 214)
+        text_soft = wx.Colour(152, 164, 181)
+        primary = wx.Colour(91, 196, 255)
+        accent = wx.Colour(53, 215, 173)
         success = wx.Colour(52, 199, 132)
         warning = wx.Colour(245, 177, 66)
         danger = wx.Colour(239, 104, 104)
-        info_bg = wx.Colour(34, 49, 77)
-        row_alt = wx.Colour(31, 37, 46)
+        info_bg = wx.Colour(37, 57, 91)
+        row_alt = wx.Colour(39, 46, 59)
     else:
         background = wx.Colour(241, 245, 249)
         panel_bg = wx.Colour(248, 250, 252)

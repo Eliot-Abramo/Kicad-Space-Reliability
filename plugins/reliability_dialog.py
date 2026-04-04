@@ -41,14 +41,14 @@ from .mission_profile import MissionProfile
 
 try:
     from .ui.panels import Colors, SheetPanel, SettingsPanel, ComponentPanel
-    from .ui.theme import style_panel, style_text_like
+    from .ui.theme import apply_compact_fonts, dip_size, style_panel, style_text_like, tuned_font
     from .ui.windowing import center_dialog, get_display_client_area
 except ImportError:
     from import_compat import ensure_plugin_paths
 
     ensure_plugin_paths()
     from panels import Colors, SheetPanel, SettingsPanel, ComponentPanel
-    from theme import style_panel, style_text_like
+    from theme import apply_compact_fonts, dip_size, style_panel, style_text_like, tuned_font
     from windowing import center_dialog, get_display_client_area
 
 
@@ -66,8 +66,8 @@ class ReliabilityMainDialog(wx.Dialog):
             size=(w, h),
             style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER | wx.MAXIMIZE_BOX,
         )
-        self.SetMinSize((1100, 750))
-        self.SetBackgroundColour(Colors.BACKGROUND)
+        style_panel(self, Colors.BACKGROUND)
+        self.SetMinSize(dip_size(self, 1100, 750))
 
         self.project_path = project_path
         self.project_manager: Optional[ProjectManager] = None
@@ -96,9 +96,7 @@ class ReliabilityMainDialog(wx.Dialog):
         style_panel(header, Colors.HEADER_BG)
         header_sizer = wx.BoxSizer(wx.HORIZONTAL)
         title = wx.StaticText(header, label="[Z] Reliability Calculator")
-        title.SetFont(
-            wx.Font(14, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
-        )
+        title.SetFont(tuned_font(header, relative=4, weight=wx.FONTWEIGHT_BOLD))
         title.SetForegroundColour(Colors.HEADER_FG)
         header_sizer.Add(title, 1, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 12)
         self.project_badge = wx.StaticText(header, label="(no project)")
@@ -156,8 +154,10 @@ class ReliabilityMainDialog(wx.Dialog):
             results_panel, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.BORDER_SIMPLE
         )
         self.results.SetFont(
-            wx.Font(
-                9, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL
+            tuned_font(
+                self.results,
+                family=wx.FONTFAMILY_TELETYPE,
+                minimum=8,
             )
         )
         style_text_like(self.results, read_only=True)
@@ -178,12 +178,14 @@ class ReliabilityMainDialog(wx.Dialog):
         self.status = wx.StaticText(self, label="Ready")
         self.status.SetForegroundColour(Colors.TEXT_SECONDARY)
         footer.Add(self.status, 1, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 8)
-        close_btn = wx.Button(self, label="Close", size=(80, -1))
+        close_btn = wx.Button(self, label="Close", size=dip_size(self, 88, -1))
         close_btn.Bind(wx.EVT_BUTTON, lambda e: self.EndModal(wx.ID_CANCEL))
         footer.Add(close_btn, 0, wx.ALL, 8)
         root.Add(footer, 0, wx.EXPAND)
 
         self.SetSizer(root)
+        apply_compact_fonts(self)
+        self.Layout()
 
     def _create_toolbar(self) -> wx.Panel:
         panel = wx.Panel(self)
@@ -200,21 +202,21 @@ class ReliabilityMainDialog(wx.Dialog):
         style_text_like(self.txt_project, read_only=True)
         sizer.Add(self.txt_project, 1, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 10)
 
-        btn_open = wx.Button(panel, label="Open...", size=(80, -1))
+        btn_open = wx.Button(panel, label="Open...", size=dip_size(panel, 88, -1))
         btn_open.Bind(wx.EVT_BUTTON, self._on_open)
         sizer.Add(btn_open, 0, wx.RIGHT, 5)
 
-        btn_save = wx.Button(panel, label="Save", size=(70, -1))
+        btn_save = wx.Button(panel, label="Save", size=dip_size(panel, 78, -1))
         btn_save.SetToolTip("Save components and block diagram to Reliability/reliability_data.json")
         btn_save.Bind(wx.EVT_BUTTON, self._on_save)
         sizer.Add(btn_save, 0, wx.RIGHT, 15)
 
-        btn_mc = wx.Button(panel, label="Analysis Suite", size=(110, -1))
+        btn_mc = wx.Button(panel, label="Analysis Suite", size=dip_size(panel, 126, -1))
         btn_mc.SetToolTip("Monte Carlo uncertainty, tornado sensitivity, and design-analysis tools")
         btn_mc.Bind(wx.EVT_BUTTON, self._on_monte_carlo)
         sizer.Add(btn_mc, 0, wx.RIGHT, 5)
 
-        btn_export = wx.Button(panel, label="Export Report", size=(100, -1))
+        btn_export = wx.Button(panel, label="Export Report", size=dip_size(panel, 114, -1))
         btn_export.Bind(wx.EVT_BUTTON, self._on_export)
         sizer.Add(btn_export, 0)
 

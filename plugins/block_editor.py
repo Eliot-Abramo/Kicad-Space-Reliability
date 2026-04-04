@@ -10,6 +10,15 @@ import wx
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
+try:
+    from .ui.theme import platform_point_size
+except ImportError:
+    from import_compat import ensure_plugin_paths
+
+    ensure_plugin_paths()
+    from theme import platform_point_size
+
+
 @dataclass
 class Block:
     """A block in the reliability diagram."""
@@ -47,6 +56,12 @@ class BlockEditor(wx.Panel):
     SERIES_COLOR = wx.Colour(220, 255, 220)
     PARALLEL_COLOR = wx.Colour(255, 220, 220)
     KN_COLOR = wx.Colour(255, 255, 200)
+    BLOCK_TEXT = wx.Colour(30, 30, 30)
+    BLOCK_TEXT_MUTED = wx.Colour(60, 60, 60)
+    BLOCK_BORDER = wx.Colour(100, 100, 100)
+    BLOCK_BORDER_STRONG = wx.Colour(50, 100, 200)
+    RUBBER_BAND_FILL = wx.Colour(100, 150, 255, 30)
+    RUBBER_BAND_STROKE = wx.Colour(50, 100, 200)
 
     def __init__(self, parent):
         super().__init__(parent, style=wx.BORDER_SIMPLE)
@@ -90,6 +105,17 @@ class BlockEditor(wx.Panel):
         self.Bind(wx.EVT_KEY_DOWN, self._on_key)
         self.Bind(wx.EVT_SIZE, lambda e: self.Refresh())
         self.SetFocus()
+
+    def _fit_text(self, gc, text: str, max_width: int) -> str:
+        if max_width <= 0:
+            return ""
+        if gc.GetTextExtent(text)[0] <= max_width:
+            return text
+        ellipsis = "..."
+        clipped = text
+        while clipped and gc.GetTextExtent(clipped + ellipsis)[0] > max_width:
+            clipped = clipped[:-1]
+        return (clipped + ellipsis) if clipped else ellipsis
 
     def screen_to_canvas(self, sx, sy):
         return int((sx - self.pan_offset[0]) / self.zoom_level), int((sy - self.pan_offset[1]) / self.zoom_level)
@@ -254,28 +280,28 @@ class BlockEditor(wx.Panel):
             y1 = min(self.rubber_start[1], self.rubber_end[1])
             rw = abs(self.rubber_end[0] - self.rubber_start[0])
             rh = abs(self.rubber_end[1] - self.rubber_start[1])
-            gc.SetBrush(wx.Brush(wx.Colour(100, 150, 255, 30)))
-            gc.SetPen(wx.Pen(wx.Colour(50, 100, 200), 2, wx.PENSTYLE_SHORT_DASH))
+            gc.SetBrush(wx.Brush(self.RUBBER_BAND_FILL))
+            gc.SetPen(wx.Pen(self.RUBBER_BAND_STROKE, 2, wx.PENSTYLE_SHORT_DASH))
             gc.DrawRectangle(x1, y1, rw, rh)
 
     def _draw_block(self, gc, b: Block):
         if b.id == self.selected:
             gc.SetBrush(wx.Brush(self.BLOCK_SEL))
-            gc.SetPen(wx.Pen(wx.Colour(50, 100, 200), 3))
+            gc.SetPen(wx.Pen(self.BLOCK_BORDER_STRONG, 3))
         elif b.id in self.multi_selected:
             gc.SetBrush(wx.Brush(wx.Colour(180, 200, 255)))
             gc.SetPen(wx.Pen(wx.Colour(80, 120, 200), 2, wx.PENSTYLE_SHORT_DASH))
         else:
             gc.SetBrush(wx.Brush(self.BLOCK_COLOR))
-            gc.SetPen(wx.Pen(wx.Colour(100, 100, 100), 1))
+            gc.SetPen(wx.Pen(self.BLOCK_BORDER, 1))
         gc.DrawRoundedRectangle(b.x, b.y, b.width, b.height, 8)
-        font = wx.Font(10, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
-        gc.SetFont(font, wx.Colour(30, 30, 30))
-        label = b.label[:18] + "..." if len(b.label) > 18 else b.label
+        font = wx.Font(platform_point_size(10), wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
+        gc.SetFont(font, self.BLOCK_TEXT)
+        label = self._fit_text(gc, b.label, max(48, b.width - 20))
         tw = gc.GetTextExtent(label)[0]
         gc.DrawText(label, b.x + (b.width - tw)/2, b.y + 10)
-        font = wx.Font(9, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
-        gc.SetFont(font, wx.Colour(60, 60, 60))
+        font = wx.Font(platform_point_size(9), wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
+        gc.SetFont(font, self.BLOCK_TEXT_MUTED)
         r_val = float(b.reliability if b.reliability is not None else 1.0)
         lam_val = float(b.lambda_val if b.lambda_val is not None else 0)
         gc.DrawText(f"R = {r_val:.4f}", b.x + 10, b.y + 32)
@@ -284,10 +310,10 @@ class BlockEditor(wx.Panel):
     def _draw_group(self, gc, g: Block):
         color = {"series": self.SERIES_COLOR, "parallel": self.PARALLEL_COLOR, "k_of_n": self.KN_COLOR}.get(g.connection_type, self.SERIES_COLOR)
         gc.SetBrush(wx.Brush(wx.Colour(color.Red(), color.Green(), color.Blue(), 60)))
-        gc.SetPen(wx.Pen(wx.Colour(100, 100, 100), 2, wx.PENSTYLE_DOT))
+        gc.SetPen(wx.Pen(self.BLOCK_BORDER, 2, wx.PENSTYLE_DOT))
         gc.DrawRoundedRectangle(g.x, g.y, g.width, g.height, 10)
-        font = wx.Font(9, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
-        gc.SetFont(font, wx.Colour(80, 80, 80))
+        font = wx.Font(platform_point_size(9), wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
+        gc.SetFont(font, self.BLOCK_TEXT_MUTED)
         gc.DrawText(g.label, g.x + 6, g.y + 3)
         r_val = float(g.reliability if g.reliability is not None else 1.0)
         gc.DrawText(f"R={r_val:.4f}", g.x + g.width - 80, g.y + 3)

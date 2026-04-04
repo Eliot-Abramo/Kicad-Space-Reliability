@@ -41,13 +41,13 @@ except ImportError:
         classification_to_fields,
     )
 try:
-    from .ui.theme import PALETTE, style_list_ctrl, style_panel, style_text_like
+    from .ui.theme import PALETTE, apply_compact_fonts, dip_px, dip_size, style_list_ctrl, style_panel, style_text_like
     from .ui.windowing import center_dialog
 except ImportError:
     from import_compat import ensure_plugin_paths
 
     ensure_plugin_paths()
-    from theme import PALETTE, style_list_ctrl, style_panel, style_text_like
+    from theme import PALETTE, apply_compact_fonts, dip_px, dip_size, style_list_ctrl, style_panel, style_text_like
     from windowing import center_dialog
 
 @dataclass
@@ -183,7 +183,9 @@ class ComponentEditorDialog(wx.Dialog):
         self.mission_hours = mission_hours
         self.result_fields = None
         style_panel(self, PALETTE.panel_bg)
+        self.SetSize(dip_size(self, 520, 650))
         self._create_ui()
+        apply_compact_fonts(self)
         self._update_preview()
         wx.CallAfter(center_dialog, self, parent)
     
@@ -231,7 +233,7 @@ class ComponentEditorDialog(wx.Dialog):
         ovr_val_row = wx.BoxSizer(wx.HORIZONTAL)
         ovr_val_row.Add(wx.StaticText(panel, label="Fixed Lambda:"), 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 4)
         self.override_val = wx.SpinCtrlDouble(panel, min=0, max=1e9, initial=float(init_override or 0),
-                                               inc=0.1, size=(120, -1))
+                                               inc=0.1, size=dip_size(panel, 136, -1))
         self.override_val.SetDigits(3)
         self.override_val.Enable(init_override is not None)
         self.override_val.Bind(wx.EVT_SPINCTRLDOUBLE, lambda e: self._update_preview())
@@ -251,7 +253,7 @@ class ComponentEditorDialog(wx.Dialog):
         # Preview
         preview_box = wx.StaticBox(panel, label="Calculated Results")
         preview_sizer = wx.StaticBoxSizer(preview_box, wx.VERTICAL)
-        self.preview = wx.TextCtrl(panel, style=wx.TE_MULTILINE | wx.TE_READONLY, size=(-1, 80))
+        self.preview = wx.TextCtrl(panel, style=wx.TE_MULTILINE | wx.TE_READONLY, size=wx.Size(-1, dip_px(panel, 96)))
         style_text_like(self.preview, read_only=True)
         preview_sizer.Add(self.preview, 1, wx.EXPAND | wx.ALL, 5)
         main.Add(preview_sizer, 0, wx.EXPAND | wx.ALL, 5)
@@ -341,7 +343,9 @@ class BatchComponentEditorDialog(wx.Dialog):
         self.mission_hours = mission_hours
         self.results = {}
         style_panel(self, PALETTE.panel_bg)
+        self.SetSize(dip_size(self, 950, 700))
         self._create_ui()
+        apply_compact_fonts(self)
         wx.CallAfter(center_dialog, self, parent)
     
     def _create_ui(self):
@@ -364,12 +368,12 @@ class BatchComponentEditorDialog(wx.Dialog):
 
         self.list = wx.ListCtrl(left, style=wx.LC_REPORT | wx.LC_SINGLE_SEL)
         style_list_ctrl(self.list)
-        self.list.InsertColumn(0, "Ref", width=60)
-        self.list.InsertColumn(1, "Value", width=80)
-        self.list.InsertColumn(2, "Type", width=120)
-        self.list.InsertColumn(3, "Lambda (FIT)", width=80)
-        self.list.InsertColumn(4, "Status", width=100)
-        self.list.InsertColumn(5, "Why", width=230)
+        self.list.InsertColumn(0, "Ref", width=dip_px(left, 68))
+        self.list.InsertColumn(1, "Value", width=dip_px(left, 96))
+        self.list.InsertColumn(2, "Type", width=dip_px(left, 138))
+        self.list.InsertColumn(3, "Lambda (FIT)", width=dip_px(left, 96))
+        self.list.InsertColumn(4, "Status", width=dip_px(left, 108))
+        self.list.InsertColumn(5, "Why", width=dip_px(left, 280))
 
         for i, comp in enumerate(self.components):
             self._refresh_row(i, comp)
@@ -417,7 +421,7 @@ class BatchComponentEditorDialog(wx.Dialog):
         ovr_sizer.Add(self.quick_override_cb, 0, wx.ALL, 4)
         ovr_val_row = wx.BoxSizer(wx.HORIZONTAL)
         ovr_val_row.Add(wx.StaticText(right, label="Lambda:"), 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 4)
-        self.quick_override_val = wx.SpinCtrlDouble(right, min=0, max=1e9, initial=0, inc=0.1, size=(100, -1))
+        self.quick_override_val = wx.SpinCtrlDouble(right, min=0, max=1e9, initial=0, inc=0.1, size=dip_size(right, 120, -1))
         self.quick_override_val.SetDigits(3)
         self.quick_override_val.Enable(False)
         ovr_val_row.Add(self.quick_override_val, 0, wx.ALL, 4)
@@ -433,7 +437,7 @@ class BatchComponentEditorDialog(wx.Dialog):
             label="Select a component to see why it was classified this way.",
         )
         self.quick_classification.SetForegroundColour(PALETTE.text_muted)
-        self.quick_classification.Wrap(360)
+        self.quick_classification.Wrap(dip_px(right, 380))
         right_sizer.Add(self.quick_classification, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
         
         apply_btn = wx.Button(right, label="Apply to Selected")
@@ -665,11 +669,16 @@ class QuickReferenceDialog(wx.Dialog):
     def __init__(self, parent):
         super().__init__(parent, title="IEC TR 62380 Quick Reference",
                         size=(650, 550), style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+        self.SetSize(dip_size(self, 650, 550))
+        style_panel(self, PALETTE.panel_bg)
         
         nb = wx.Notebook(self)
+        nb.SetBackgroundColour(PALETTE.panel_bg)
+        nb.SetForegroundColour(PALETTE.text)
         
         # Overview tab
         overview = wx.TextCtrl(nb, style=wx.TE_MULTILINE | wx.TE_READONLY)
+        style_text_like(overview, read_only=True)
         overview.SetValue("""IEC TR 62380 - Reliability Data Handbook
 =========================================
 
@@ -702,6 +711,7 @@ EOS (Electrical Overstress):
         
         # EOS tab
         eos = wx.TextCtrl(nb, style=wx.TE_MULTILINE | wx.TE_READONLY)
+        style_text_like(eos, read_only=True)
         eos_text = "EOS (Electrical Overstress) Values\n" + "="*40 + "\n\n"
         eos_text += f"{'Interface Type':<25} {'lambda_EOS (FIT)':<15}\n"
         eos_text += "-"*40 + "\n"
@@ -712,6 +722,7 @@ EOS (Electrical Overstress):
         
         # Materials tab
         mat = wx.TextCtrl(nb, style=wx.TE_MULTILINE | wx.TE_READONLY)
+        style_text_like(mat, read_only=True)
         mat_text = "Thermal Expansion Coefficients (ppm/degC)\n" + "="*45 + "\n\n"
         mat_text += "SUBSTRATES:\n"
         for name, cte in THERMAL_EXPANSION_SUBSTRATE.items():
@@ -730,4 +741,5 @@ EOS (Electrical Overstress):
         close_btn.Bind(wx.EVT_BUTTON, lambda e: self.EndModal(wx.ID_CLOSE))
         sizer.Add(close_btn, 0, wx.ALIGN_CENTER | wx.ALL, 10)
         self.SetSizer(sizer)
+        apply_compact_fonts(self)
         wx.CallAfter(center_dialog, self, parent)
