@@ -1099,12 +1099,6 @@ class AnalysisDialog(wx.Dialog):
         btn_clear.SetToolTip("Clear all analysis results and reset tables")
         hs.Add(btn_clear, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 8)
 
-        self.btn_fullscreen = wx.Button(hdr, label="Full Screen")
-        _style_button(self.btn_fullscreen, "accent")
-        self.btn_fullscreen.Bind(wx.EVT_BUTTON, self._on_toggle_maximize)
-        self.btn_fullscreen.SetToolTip("Maximize or restore this window")
-        hs.Add(self.btn_fullscreen, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 8)
-
         self.btn_cancel = wx.Button(hdr, label="Cancel")
         _style_button(self.btn_cancel, "danger")
         self.btn_cancel.Bind(wx.EVT_BUTTON, lambda e: self._cancel_analysis())
@@ -1142,11 +1136,6 @@ class AnalysisDialog(wx.Dialog):
     def _on_notebook_page_changed(self, event):
         wx.CallAfter(self._refresh_dialog_layout)
         event.Skip()
-
-    def _on_toggle_maximize(self, event):
-        self.Maximize(not self.IsMaximized())
-        self.btn_fullscreen.SetLabel("Windowed" if self.IsMaximized() else "Full Screen")
-        wx.CallAfter(self._refresh_dialog_layout)
 
     def _refresh_dialog_layout(self):
         try:
@@ -2433,13 +2422,15 @@ class AnalysisDialog(wx.Dialog):
             self.budget_sheet_list.DeleteAllItems()
             self.budget_list.DeleteAllItems()
             for sb in result.sheet_budgets:
+                util_label = getattr(sb, "utilization", 0.0)
+                util_text = f"{util_label*100:.0f}%" if math.isfinite(util_label) else "N/A"
                 sheet_color = C.FAIL if sb.required_savings_fit > 0 else (C.WARN if sb.utilization > 0.9 else C.OK)
                 _add_row(self.budget_sheet_list, [
                     sb.sheet_name,
                     f"{sb.actual_fit:.2f}",
                     f"{sb.budget_fit:.2f}",
                     f"{sb.required_savings_fit:.2f}",
-                    f"{sb.utilization*100:.0f}%",
+                    util_text,
                     str(sb.n_over_budget),
                 ], color=sheet_color)
             for cb in result.top_offenders:
@@ -2447,10 +2438,11 @@ class AnalysisDialog(wx.Dialog):
                 why = "Within budget" if cb.get("within_budget") else (
                     f"Needs {cb.get('required_savings_fit', 0):.2f} FIT reduction to hit allocation"
                 )
+                util_text = cb.get("utilization_label") or f"{cb.get('utilization_pct', 0):.0f}%"
                 _add_row(self.budget_list, [
                     cb.get("reference", "?"), cb.get("component_type", "?"),
                     f"{cb.get('actual_fit', 0):.2f}", f"{cb.get('budget_fit', 0):.2f}",
-                    f"{cb.get('required_savings_fit', 0):.2f}", f"{cb.get('utilization_pct', 0):.0f}%",
+                    f"{cb.get('required_savings_fit', 0):.2f}", util_text,
                     cb.get("status", "PASS"), why,
                 ], color=color)
             _autosize_columns(self.budget_sheet_list)
@@ -2921,7 +2913,11 @@ class AnalysisDialog(wx.Dialog):
             "manual": sum(1 for c in all_components if c.get("classification_source") == "manual"),
         }
 
-        mc_dict = self.mc_result.to_dict() if self.mc_result else None
+        mc_dict = None
+        if self.mc_result is not None:
+            samples = getattr(self.mc_result, "reliability_samples", None)
+            if samples is not None and len(samples) > 0:
+                mc_dict = self.mc_result.to_dict()
         tornado_dict = self.tornado_result.to_dict() if self.tornado_result else None
         scenario_dict = self.scenario_result.to_dict() if self.scenario_result else None
 
@@ -2983,7 +2979,7 @@ class AnalysisDialog(wx.Dialog):
                             wildcard="HTML files (*.html)|*.html",
                             style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT)
         if dlg.ShowModal() == wx.ID_OK:
-            path = dlg.GetPath()
+            path = self._ensure_report_extension(dlg.GetPath(), ".html")
             try:
                 with open(path, "w", encoding="utf-8") as f:
                     f.write(html)
@@ -3004,7 +3000,7 @@ class AnalysisDialog(wx.Dialog):
                             wildcard="PDF files (*.pdf)|*.pdf",
                             style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT)
         if dlg.ShowModal() == wx.ID_OK:
-            path = dlg.GetPath()
+            path = self._ensure_report_extension(dlg.GetPath(), ".pdf")
             try:
                 gen.generate_pdf(report_data, path)
                 self.report_status.SetLabel(f"PDF report saved: {path}")
@@ -3019,6 +3015,14 @@ class AnalysisDialog(wx.Dialog):
                 except Exception as ex2:
                     wx.MessageBox(f"Report generation failed: {ex2}", "Error", wx.OK | wx.ICON_ERROR)
         dlg.Destroy()
+
+    @staticmethod
+    def _ensure_report_extension(path: str, suffix: str) -> str:
+        if not path:
+            return path
+        lower_path = path.lower()
+        lower_suffix = suffix.lower()
+        return path if lower_path.endswith(lower_suffix) else path + suffix
 
     # =================================================================
     # What-If dropdown helpers

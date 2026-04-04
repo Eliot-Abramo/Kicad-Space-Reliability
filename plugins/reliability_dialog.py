@@ -215,12 +215,7 @@ class ReliabilityMainDialog(wx.Dialog):
 
         btn_export = wx.Button(panel, label="Export Report", size=(100, -1))
         btn_export.Bind(wx.EVT_BUTTON, self._on_export)
-        sizer.Add(btn_export, 0, wx.RIGHT, 8)
-
-        self.btn_fullscreen = wx.Button(panel, label="Full Screen", size=(105, -1))
-        self.btn_fullscreen.Bind(wx.EVT_BUTTON, self._on_toggle_fullscreen)
-        self.btn_fullscreen.SetToolTip("Maximize or restore this window")
-        sizer.Add(self.btn_fullscreen, 0)
+        sizer.Add(btn_export, 0)
 
         panel.SetSizer(sizer)
         return panel
@@ -233,15 +228,6 @@ class ReliabilityMainDialog(wx.Dialog):
         self.editor.on_structure_change = self._on_structure_change
         self.settings_panel.on_change = self._recalculate_all
         self.comp_panel.on_component_edit = self._edit_single_component
-
-    def _on_toggle_fullscreen(self, event):
-        self.Maximize(not self.IsMaximized())
-        if hasattr(self, "btn_fullscreen"):
-            self.btn_fullscreen.SetLabel(
-                "Windowed" if self.IsMaximized() else "Full Screen"
-            )
-        self.Layout()
-        self.Refresh()
 
     def _on_structure_change(self):
         self._on_calculate(None)
@@ -1057,7 +1043,7 @@ class ReliabilityMainDialog(wx.Dialog):
             style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
         )
         if dlg.ShowModal() == wx.ID_OK:
-            path = dlg.GetPath()
+            path = self._ensure_export_extension(dlg.GetPath(), dlg.GetFilterIndex())
             idx = dlg.GetFilterIndex()
             sys_r, sys_lam = self._calculate_system()
             hours = self.settings_panel.get_hours()
@@ -1075,6 +1061,13 @@ class ReliabilityMainDialog(wx.Dialog):
                 f.write(content)
             self.status.SetLabel(f"Exported: {path}")
         dlg.Destroy()
+
+    @staticmethod
+    def _ensure_export_extension(path: str, filter_index: int) -> str:
+        if not path:
+            return path
+        suffix = {0: ".html", 1: ".md", 2: ".csv", 3: ".json"}.get(filter_index, ".html")
+        return path if path.lower().endswith(suffix) else path + suffix
 
     def _generate_html(self, sys_r: float, sys_lam: float, hours: float) -> str:
         years = hours / (365 * 24)

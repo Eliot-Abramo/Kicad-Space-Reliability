@@ -57,7 +57,7 @@ Author:  Eliot Abramo
 import numpy as np
 import math
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Tuple, Optional, Callable, Any
 
 
@@ -158,9 +158,14 @@ class UncertaintyResult:
           mean, std, percentile_5/50/95, converged
         """
         samples_list = self.reliability_samples.tolist()
-        p5 = float(np.percentile(self.reliability_samples, 5))
-        p50 = float(np.percentile(self.reliability_samples, 50))
-        p95 = float(np.percentile(self.reliability_samples, 95))
+        if len(self.reliability_samples) > 0:
+            p5 = float(np.percentile(self.reliability_samples, 5))
+            p50 = float(np.percentile(self.reliability_samples, 50))
+            p95 = float(np.percentile(self.reliability_samples, 95))
+        else:
+            p5 = self.mean_reliability
+            p50 = self.median_reliability
+            p95 = self.mean_reliability
         return {
             # New v4 fields
             "nominal_lambda": self.nominal_lambda,

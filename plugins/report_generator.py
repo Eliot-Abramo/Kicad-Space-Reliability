@@ -9,15 +9,24 @@ Author:  Eliot Abramo
 """
 
 import json
-import math
 from datetime import datetime
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional
 from dataclasses import dataclass
 from pathlib import Path
 import base64
 
 PLUGIN_VERSION = "3.3.0"
 REPORT_PREPARED_BY = "Eliot Abramo"
+
+
+def _fmt_percent(value: float, decimals: int = 1, fallback: str = "N/A") -> str:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return fallback
+    if not (numeric == numeric) or numeric in (float("inf"), float("-inf")):
+        return fallback
+    return f"{numeric:.{decimals}f}%"
 
 
 @dataclass
@@ -390,20 +399,22 @@ def _svg_budget_utilization(components: list, width: int = 700, height: int = 40
         util = comp.get("utilization_pct", 0)
         ref = str(comp.get("reference", comp.get("ref", "?")))[:10]
         passed = comp.get("passed", True)
+        budget_defined = comp.get("budget_defined", True)
 
         # Background bar (budget = 100%)
         svg += f'<rect x="{ml}" y="{y}" width="{cw}" height="{bh}" fill="#f1f5f9" rx="3"/>\n'
 
         # Utilization bar
-        bar_w = min(cw, max(2, int((util / 100.0) * cw)))
+        bar_w = min(cw, max(0, int((max(0.0, util) / 100.0) * cw))) if budget_defined else 0
         color = "#22c55e" if passed else "#ef4444"
-        svg += f'<rect x="{ml}" y="{y}" width="{bar_w}" height="{bh}" fill="{color}" rx="3" opacity="0.8"/>\n'
+        if bar_w > 0:
+            svg += f'<rect x="{ml}" y="{y}" width="{bar_w}" height="{bh}" fill="{color}" rx="3" opacity="0.8"/>\n'
 
         # Label
         svg += f'<text x="{ml-5}" y="{y+bh//2+4}" font-size="9" text-anchor="end" fill="#374151">{ref}</text>\n'
 
         # Value
-        vt = f"{util:.0f}%"
+        vt = comp.get("utilization_label") or _fmt_percent(util, decimals=0)
         if bar_w > 40:
             svg += f'<text x="{ml+6}" y="{y+bh//2+4}" font-size="9" fill="white" font-weight="bold">{vt}</text>\n'
         else:
@@ -501,7 +512,7 @@ class ReportGenerator:
     def generate_html(self, data: ReportData) -> str:
         fit = data.system_lambda * 1e9
         mttf_years = data.system_mttf_hours / 8760 if data.system_mttf_hours < float('inf') else float('inf')
-        sc = "ok" if data.system_reliability >= 0.99 else "warn" if data.system_reliability >= 0.95 else "bad"
+        sc = "ok" if data.system_reliability >= 0.85 else "warn" if data.system_reliability >= 0.75 else "bad"
         st = {"ok": "Excellent", "warn": "Acceptable", "bad": "Review Required"}[sc]
 
         html = f"""<!DOCTYPE html>
@@ -901,7 +912,6 @@ that answer is, and the design-action sections if you need to close a gap agains
         samples = mc.get('samples', [])
         mean = mc.get('mean', 0)
         p5 = mc.get('percentile_5', 0)
-        p50 = mc.get('percentile_50', 0)
         p95 = mc.get('percentile_95', 0)
         std = mc.get('std', 0)
         n = mc.get('n_simulations', 0)
@@ -1003,7 +1013,7 @@ that answer is, and the design-action sections if you need to close a gap agains
             html += f'<td><span class="badge {cls}">{dp:+.1f}%</span></td>'
             html += f'<td class="mono">{dr:+.6f}</td></tr>\n'
 
-        html += f'</tbody></table>\n'
+        html += '</tbody></table>\n'
         html += f'<p style="color:var(--text2);margin-top:8px">Baseline: {bl:.2f} FIT, R = {br:.6f}</p></div>\n'
         return html
 
@@ -1104,7 +1114,6 @@ that answer is, and the design-action sections if you need to close a gap agains
         margin_fit = budget.get("system_margin_fit", 0)
         target_r = budget.get("target_reliability", 0)
         design_margin = budget.get("design_margin_pct", 10)
-        n_over = budget.get("components_over_budget", 0)
         top_offenders = budget.get("top_offenders", [])
 
         status_cls = "ok" if gap_fit <= 0 else "bad"
@@ -1126,11 +1135,12 @@ that answer is, and the design-action sections if you need to close a gap agains
 <table><thead><tr><th>Sheet</th><th>Actual (FIT)</th><th>Budget (FIT)</th><th>Gap To Close</th><th>Utilization</th><th>Over Budget</th></tr></thead><tbody>
 """
         for sb in sheets:
+            util_text = sb.get("utilization_label") or _fmt_percent(sb.get("utilization_pct", 0))
             html += f"<tr><td><strong>{sb.get('sheet_name','')}</strong></td>"
             html += f"<td class='mono'>{sb.get('actual_fit',0):.2f}</td>"
             html += f"<td class='mono'>{sb.get('budget_fit',0):.2f}</td>"
             html += f"<td class='mono'>{sb.get('required_savings_fit',0):.2f}</td>"
-            html += f"<td class='mono'>{sb.get('utilization_pct', sb.get('utilization',0)*100):.1f}%</td>"
+            html += f"<td class='mono'>{util_text}</td>"
             html += f"<td class='mono'>{sb.get('n_over_budget',0)}</td></tr>\n"
         html += "</tbody></table>\n"
 
@@ -1141,6 +1151,7 @@ that answer is, and the design-action sections if you need to close a gap agains
 """
             for cb in top_offenders[:30]:
                 util = cb.get("utilization_pct", 0)
+                util_text = cb.get("utilization_label") or _fmt_percent(util)
                 passed = cb.get("passed", True)
                 badge = "badge-ok" if passed else "badge-bad"
                 status = "PASS" if passed else "OVER"
@@ -1149,7 +1160,7 @@ that answer is, and the design-action sections if you need to close a gap agains
                 html += f'<td class="mono">{cb.get("actual_fit",0):.3f}</td>'
                 html += f'<td class="mono">{cb.get("budget_fit",0):.3f}</td>'
                 html += f'<td class="mono">{cb.get("required_savings_fit",0):.3f}</td>'
-                html += f'<td class="mono">{util:.1f}%</td>'
+                html += f'<td class="mono">{util_text}</td>'
                 html += f'<td><span class="badge {badge}">{status}</span></td></tr>\n'
             html += '</tbody></table>\n'
 
@@ -1383,10 +1394,10 @@ that answer is, and the design-action sections if you need to close a gap agains
             pct = lam / total_lam * 100
             cum += pct
             html += f'<tr><td>{name}</td><td class="mono">{lam*1e9:.2f}</td><td>{pct:.1f}%</td><td>{cum:.1f}%</td>'
-            html += f'<td style="width:120px"><div style="height:8px;background:#e2e8f0;border-radius:4px;overflow:hidden">'
+            html += '<td style="width:120px"><div style="height:8px;background:#e2e8f0;border-radius:4px;overflow:hidden">'
             html += f'<div style="height:100%;width:{min(100,pct)}%;background:linear-gradient(90deg,#3b82f6,#60a5fa);border-radius:4px"></div></div></td></tr>\n'
         html += '</tbody></table>\n'
-        chart_data = [(n, l/total_lam) for n, l, _ in contribs[:12]]
+        chart_data = [(name, lam / total_lam) for name, lam, _ in contribs[:12]]
         html += '<div class="chart-single">'
         html += _svg_bar_chart(chart_data, title="Relative Contributions", x_label="Fraction", max_value=1.0)
         html += '</div></div>\n'
@@ -1401,7 +1412,6 @@ that answer is, and the design-action sections if you need to close a gap agains
         for path, result in sorted(sheet_mc.items()):
             mc = result if isinstance(result, dict) else {}
             name = path.rstrip('/').split('/')[-1] or 'Root'
-            cl = mc.get("confidence_level", 0.90)
             html += f'<tr><td>{name}</td><td class="mono">{mc.get("mean",0):.6f}</td>'
             html += f'<td class="mono">{mc.get("std",0):.6f}</td>'
             html += f'<td class="mono">{mc.get("ci_lower", mc.get("percentile_5",0)):.6f}</td>'
@@ -1524,7 +1534,7 @@ For methodology, assumptions, and interpretation limits, see `docs/METHODOLOGY.m
 
         if data.budget:
             b = data.budget
-            md += f"## Reliability Target Closure Planning\n\n"
+            md += "## Reliability Target Closure Planning\n\n"
             md += (
                 f"Strategy: **{b.get('strategy','').title()}** | "
                 f"Target R: {b.get('target_reliability',0):.4f} | "
@@ -1536,7 +1546,8 @@ For methodology, assumptions, and interpretation limits, see `docs/METHODOLOGY.m
             md += "| Ref | Type | Actual (FIT) | Budget (FIT) | Save Needed | Utilization | Status |\n|---|---|---|---|---|---|---|\n"
             for cb in b.get("top_offenders", []):
                 st = cb.get("status", "PASS")
-                md += f"| {cb.get('reference', cb.get('ref',''))} | {cb.get('component_type','')} | {cb.get('actual_fit',0):.3f} | {cb.get('budget_fit',0):.3f} | {cb.get('required_savings_fit',0):.3f} | {cb.get('utilization_pct',0):.1f}% | {st} |\n"
+                util_text = cb.get("utilization_label") or _fmt_percent(cb.get("utilization_pct", 0))
+                md += f"| {cb.get('reference', cb.get('ref',''))} | {cb.get('component_type','')} | {cb.get('actual_fit',0):.3f} | {cb.get('budget_fit',0):.3f} | {cb.get('required_savings_fit',0):.3f} | {util_text} | {st} |\n"
             md += "\n"
 
         if data.derating:
@@ -1565,8 +1576,8 @@ For methodology, assumptions, and interpretation limits, see `docs/METHODOLOGY.m
 
         if data.correlated_mc:
             cm = data.correlated_mc
-            md += f"## Correlated Monte Carlo\n\n"
-            md += f"| Model | Mean R | Std | 5th %ile | 95th %ile |\n|---|---|---|---|---|\n"
+            md += "## Correlated Monte Carlo\n\n"
+            md += "| Model | Mean R | Std | 5th %ile | 95th %ile |\n|---|---|---|---|---|\n"
             md += f"| Independent | {cm.get('independent_mean',0):.6f} | {cm.get('independent_std',0):.6f} | {cm.get('independent_ci_lower',0):.6f} | {cm.get('independent_ci_upper',0):.6f} |\n"
             md += f"| Correlated | {cm.get('correlated_mean',0):.6f} | {cm.get('correlated_std',0):.6f} | {cm.get('correlated_ci_lower',0):.6f} | {cm.get('correlated_ci_upper',0):.6f} |\n"
             md += f"\nStd Ratio: {cm.get('std_ratio',1):.3f}x | Variance Impact: {cm.get('variance_impact','comparable')}\n\n"
@@ -1596,7 +1607,8 @@ For methodology, assumptions, and interpretation limits, see `docs/METHODOLOGY.m
             "sheets": {p: {k: v for k, v in sd.items() if k != 'components'} for p, sd in data.sheets.items()},
         }
         if data.monte_carlo:
-            mc = dict(data.monte_carlo); mc.pop('samples', None)
+            mc = dict(data.monte_carlo)
+            mc.pop('samples', None)
             output["monte_carlo"] = mc
         if data.sensitivity:
             output["sensitivity"] = data.sensitivity
@@ -1655,9 +1667,9 @@ For methodology, assumptions, and interpretation limits, see `docs/METHODOLOGY.m
             from reportlab.lib.colors import HexColor
             from reportlab.platypus import (
                 SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-                PageBreak, HRFlowable
+                HRFlowable
             )
-            from reportlab.lib.enums import TA_CENTER, TA_LEFT
+            from reportlab.lib.enums import TA_CENTER
         except ImportError as exc:
             raise RuntimeError(
                 "PDF export requires an optional dependency. Install either "

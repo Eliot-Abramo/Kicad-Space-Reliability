@@ -28,7 +28,7 @@ Author:  Eliot Abramo
 """
 
 import math
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Optional
 
 __version__ = "3.3.0"
 __author__ = "Eliot Abramo"
@@ -1653,7 +1653,7 @@ def r_k_of_n(r_list, k):
 
 def lambda_series(lam_list):
     """Series system total failure rate = sum."""
-    return sum(_safe_float(l, 0.0) for l in lam_list)
+    return sum(_safe_float(lam_value, 0.0) for lam_value in lam_list)
 
 
 # =============================================================================
@@ -2237,6 +2237,8 @@ def analyze_component_criticality(ct, params, mission_hours, perturbation=0.10):
 # =============================================================================
 
 reliability = reliability_from_lambda
-component_failure_rate = lambda c, p=None: calculate_lambda(
-    c, p.to_dict() if p and hasattr(p, "to_dict") else (p or {})
-)
+
+
+def component_failure_rate(component_type, params=None):
+    payload = params.to_dict() if params and hasattr(params, "to_dict") else (params or {})
+    return calculate_lambda(component_type, payload)

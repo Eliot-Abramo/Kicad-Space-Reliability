@@ -31,6 +31,14 @@ class AllocationStrategy(Enum):
     CRITICALITY = "criticality"
 
 
+def _serialize_utilization_pct(utilization: float) -> float:
+    return utilization * 100 if math.isfinite(utilization) else 0.0
+
+
+def _serialize_utilization_label(utilization: float) -> str:
+    return f"{utilization * 100:.1f}%" if math.isfinite(utilization) else "N/A"
+
+
 @dataclass
 class ComponentBudget:
     """Budget allocation for a single component."""
@@ -66,7 +74,9 @@ class ComponentBudget:
             "margin_percent": self.margin_percent,
             "within_budget": self.within_budget,
             "utilization": self.utilization,
-            "utilization_pct": self.utilization * 100 if math.isfinite(self.utilization) else float("inf"),
+            "utilization_pct": _serialize_utilization_pct(self.utilization),
+            "utilization_label": _serialize_utilization_label(self.utilization),
+            "budget_defined": math.isfinite(self.utilization),
             "required_savings_fit": self.required_savings_fit,
             "review_priority": self.review_priority,
             "passed": self.within_budget,
@@ -105,7 +115,9 @@ class SheetBudget:
             "margin_percent": self.margin_percent,
             "within_budget": self.within_budget,
             "utilization": self.utilization,
-            "utilization_pct": self.utilization * 100 if math.isfinite(self.utilization) else float("inf"),
+            "utilization_pct": _serialize_utilization_pct(self.utilization),
+            "utilization_label": _serialize_utilization_label(self.utilization),
+            "budget_defined": math.isfinite(self.utilization),
             "n_components": self.n_components,
             "n_over_budget": self.n_over_budget,
             "required_savings_fit": self.required_savings_fit,

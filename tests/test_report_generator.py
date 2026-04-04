@@ -29,7 +29,13 @@ class ReportGeneratorTests(unittest.TestCase):
                     "lambda": 1.2e-8,
                     "r": 0.991,
                     "components": [
-                        {"ref": "R1", "value": "10k", "class": "Resistor", "lambda": 1.2e-8, "r": 0.991}
+                        {
+                            "ref": "R1",
+                            "value": "10k",
+                            "class": "Resistor",
+                            "lambda": 1.2e-8,
+                            "r": 0.991,
+                        }
                     ],
                 }
             },
@@ -70,21 +76,32 @@ class ReportGeneratorTests(unittest.TestCase):
             design_margin={
                 "baseline_lambda_fit": 12.0,
                 "baseline_reliability": 0.991,
-                "scenarios": [{
-                    "name": "Temp +10 degC",
-                    "description": "Increase temperature by 10 degC",
-                    "lambda_fit": 14.0,
-                    "reliability": 0.989,
-                    "delta_lambda_pct": 6.0,
-                    "delta_reliability": -0.002,
-                }],
+                "scenarios": [
+                    {
+                        "name": "Temp +10 degC",
+                        "description": "Increase temperature by 10 degC",
+                        "lambda_fit": 14.0,
+                        "reliability": 0.989,
+                        "delta_lambda_pct": 6.0,
+                        "delta_reliability": -0.002,
+                    }
+                ],
             },
-            criticality=[{
-                "reference": "R1",
-                "component_type": "Resistor",
-                "base_lambda_fit": 12.0,
-                "fields": [{"name": "operating_power", "value": 0.2, "elasticity": 1.5, "impact_pct": 9.0}],
-            }],
+            criticality=[
+                {
+                    "reference": "R1",
+                    "component_type": "Resistor",
+                    "base_lambda_fit": 12.0,
+                    "fields": [
+                        {
+                            "name": "operating_power",
+                            "value": 0.2,
+                            "elasticity": 1.5,
+                            "impact_pct": 9.0,
+                        }
+                    ],
+                }
+            ],
             budget={
                 "strategy": "proportional",
                 "target_reliability": 0.999,
@@ -95,24 +112,28 @@ class ReportGeneratorTests(unittest.TestCase):
                 "design_margin_pct": 10.0,
                 "system_margin_fit": -3.0,
                 "components_over_budget": 1,
-                "sheet_budgets": [{
-                    "sheet_name": "main",
-                    "actual_fit": 12.0,
-                    "budget_fit": 9.0,
-                    "required_savings_fit": 3.0,
-                    "utilization_pct": 133.3,
-                    "n_over_budget": 1,
-                }],
-                "top_offenders": [{
-                    "reference": "R1",
-                    "component_type": "Resistor",
-                    "actual_fit": 12.0,
-                    "budget_fit": 9.0,
-                    "required_savings_fit": 3.0,
-                    "utilization_pct": 133.3,
-                    "status": "OVER",
-                    "passed": False,
-                }],
+                "sheet_budgets": [
+                    {
+                        "sheet_name": "main",
+                        "actual_fit": 12.0,
+                        "budget_fit": 9.0,
+                        "required_savings_fit": 3.0,
+                        "utilization_pct": 133.3,
+                        "n_over_budget": 1,
+                    }
+                ],
+                "top_offenders": [
+                    {
+                        "reference": "R1",
+                        "component_type": "Resistor",
+                        "actual_fit": 12.0,
+                        "budget_fit": 9.0,
+                        "required_savings_fit": 3.0,
+                        "utilization_pct": 133.3,
+                        "status": "OVER",
+                        "passed": False,
+                    }
+                ],
             },
             classification_summary={
                 "total": 1,
@@ -153,7 +174,29 @@ class ReportGeneratorTests(unittest.TestCase):
         with tempfile.NamedTemporaryFile(suffix=".pdf") as tmp:
             with mock.patch("builtins.__import__", side_effect=fake_import):
                 with self.assertRaisesRegex(RuntimeError, "optional dependency"):
-                    report_generator.ReportGenerator.html_to_pdf("<html></html>", tmp.name)
+                    report_generator.ReportGenerator.html_to_pdf(
+                        "<html></html>", tmp.name
+                    )
+
+    def test_empty_mc_samples_still_generate_html(self):
+        data = self._sample_report_data()
+        data.monte_carlo = {
+            "mean": 0.99,
+            "std": 0.0,
+            "ci_lower": 0.99,
+            "ci_upper": 0.99,
+            "confidence_level": 0.90,
+            "n_simulations": 0,
+            "samples": [],
+            "percentile_5": 0.99,
+            "percentile_95": 0.99,
+            "parameter_importance": [],
+        }
+
+        html = report_generator.ReportGenerator().generate_html(data)
+
+        self.assertIn("Monte Carlo Uncertainty Analysis", html)
+        self.assertIn("0 simulations", html)
 
 
 if __name__ == "__main__":

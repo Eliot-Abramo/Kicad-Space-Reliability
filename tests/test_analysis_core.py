@@ -56,10 +56,18 @@ class AnalysisCoreTests(unittest.TestCase):
             "/sheet": {
                 "lambda": (2.0 * 10.0 + 0.5 * 1.0 + 2.0 * 20.0 + 0.5 * 1.0) * 1e-9,
                 "components": [
-                    {"ref": "R1", "class": "Resistor", "lambda": (2.0 * 10.0 + 0.5) * 1e-9,
-                     "params": {"stress": 10.0, "drive": 1.0}},
-                    {"ref": "R2", "class": "Resistor", "lambda": (2.0 * 20.0 + 0.5) * 1e-9,
-                     "params": {"stress": 20.0, "drive": 1.0}},
+                    {
+                        "ref": "R1",
+                        "class": "Resistor",
+                        "lambda": (2.0 * 10.0 + 0.5) * 1e-9,
+                        "params": {"stress": 10.0, "drive": 1.0},
+                    },
+                    {
+                        "ref": "R2",
+                        "class": "Resistor",
+                        "lambda": (2.0 * 20.0 + 0.5) * 1e-9,
+                        "params": {"stress": 20.0, "drive": 1.0},
+                    },
                 ],
             }
         }
@@ -69,7 +77,9 @@ class AnalysisCoreTests(unittest.TestCase):
         ]
 
         with mock.patch.object(
-            sensitivity_analysis, "_import_math", return_value=(fake_calc, _exp_reliability)
+            sensitivity_analysis,
+            "_import_math",
+            return_value=(fake_calc, _exp_reliability),
         ):
             result = sensitivity_analysis.tornado_analysis(
                 sheet_data, mission_hours=1000.0, perturbations=perturbations
@@ -85,9 +95,16 @@ class AnalysisCoreTests(unittest.TestCase):
             load = float(params["load"])
             return {"lambda_total": temp / load}
 
-        with mock.patch.object(reliability_math, "calculate_component_lambda", side_effect=fake_component_lambda):
+        with mock.patch.object(
+            reliability_math,
+            "calculate_component_lambda",
+            side_effect=fake_component_lambda,
+        ):
             rows = reliability_math.analyze_component_criticality(
-                "Synthetic", {"temp": 10.0, "load": 2.0}, mission_hours=1000.0, perturbation=0.1
+                "Synthetic",
+                {"temp": 10.0, "load": 2.0},
+                mission_hours=1000.0,
+                perturbation=0.1,
             )
 
         by_field = {row["field"]: row for row in rows}
@@ -132,12 +149,17 @@ class AnalysisCoreTests(unittest.TestCase):
             ),
         ]
 
-        shared_series = np.array([0.0, 1.0, -2.0, 0.5, -1.5, 2.0, -0.5, 1.5, -1.0, 0.25])
+        shared_series = np.array(
+            [0.0, 1.0, -2.0, 0.5, -1.5, 2.0, -0.5, 1.5, -1.0, 0.25]
+        )
         drive_a = np.array([1.1, 0.9, 1.2, 1.0, 0.95, 1.05, 1.15, 0.85, 1.0, 1.1])
         drive_b = np.array([9.0, 10.5, 11.0, 9.5, 10.0, 10.8, 9.2, 10.1, 9.8, 10.3])
 
         def fake_calc(_ctype, params):
-            return {"lambda_total": (float(params["shared_temp"]) + float(params["drive"])) * 1e-6}
+            return {
+                "lambda_total": (float(params["shared_temp"]) + float(params["drive"]))
+                * 1e-6
+            }
 
         def fake_sample(_rng, min_val, mode, max_val, distribution, size):
             self.assertEqual(size, 10)
@@ -147,10 +169,18 @@ class AnalysisCoreTests(unittest.TestCase):
                 return drive_a.copy()
             if mode == 10.0:
                 return drive_b.copy()
-            raise AssertionError(f"Unexpected sample request: {min_val}, {mode}, {max_val}, {distribution}")
+            raise AssertionError(
+                f"Unexpected sample request: {min_val}, {mode}, {max_val}, {distribution}"
+            )
 
-        with mock.patch.object(monte_carlo, "_import_reliability_math", return_value=(fake_calc, _exp_reliability)):
-            with mock.patch.object(monte_carlo, "_sample_parameter", side_effect=fake_sample):
+        with mock.patch.object(
+            monte_carlo,
+            "_import_reliability_math",
+            return_value=(fake_calc, _exp_reliability),
+        ):
+            with mock.patch.object(
+                monte_carlo, "_sample_parameter", side_effect=fake_sample
+            ):
                 result = monte_carlo.run_uncertainty_analysis(
                     components,
                     specs,
@@ -160,10 +190,23 @@ class AnalysisCoreTests(unittest.TestCase):
                     seed=1,
                 )
 
-        expected = np.array([
-            310.1, 313.4, 308.2, 311.5, 307.95,
-            315.85, 309.35, 313.95, 308.8, 311.9,
-        ]) * 1e-6
+        expected = (
+            np.array(
+                [
+                    310.1,
+                    313.4,
+                    308.2,
+                    311.5,
+                    307.95,
+                    315.85,
+                    309.35,
+                    313.95,
+                    308.8,
+                    311.9,
+                ]
+            )
+            * 1e-6
+        )
         np.testing.assert_allclose(result.lambda_samples, expected, rtol=0, atol=1e-12)
 
     def test_jensen_note_compares_mean_reliability_to_reliability_at_mean_lambda(self):
@@ -187,7 +230,9 @@ class AnalysisCoreTests(unittest.TestCase):
                 shared=True,
             )
         ]
-        shared_series = np.array([0.0, 1.0, -2.0, 0.5, -1.5, 2.0, -0.5, 1.5, -1.0, 0.25])
+        shared_series = np.array(
+            [0.0, 1.0, -2.0, 0.5, -1.5, 2.0, -0.5, 1.5, -1.0, 0.25]
+        )
 
         def fake_calc(_ctype, params):
             return {"lambda_total": float(params["shared_temp"]) * 1e-6}
@@ -196,8 +241,14 @@ class AnalysisCoreTests(unittest.TestCase):
             self.assertEqual(size, 10)
             return shared_series.copy()
 
-        with mock.patch.object(monte_carlo, "_import_reliability_math", return_value=(fake_calc, _exp_reliability)):
-            with mock.patch.object(monte_carlo, "_sample_parameter", side_effect=fake_sample):
+        with mock.patch.object(
+            monte_carlo,
+            "_import_reliability_math",
+            return_value=(fake_calc, _exp_reliability),
+        ):
+            with mock.patch.object(
+                monte_carlo, "_sample_parameter", side_effect=fake_sample
+            ):
                 result = monte_carlo.run_uncertainty_analysis(
                     components,
                     specs,
@@ -230,9 +281,16 @@ class AnalysisCoreTests(unittest.TestCase):
         }
 
         def fake_calc(_ctype, params):
-            return {"lambda_total": (float(params["shared_temp"]) + float(params["drive"])) * 1e-6}
+            return {
+                "lambda_total": (float(params["shared_temp"]) + float(params["drive"]))
+                * 1e-6
+            }
 
-        with mock.patch.object(monte_carlo, "_import_reliability_math", return_value=(fake_calc, _exp_reliability)):
+        with mock.patch.object(
+            monte_carlo,
+            "_import_reliability_math",
+            return_value=(fake_calc, _exp_reliability),
+        ):
             inputs = monte_carlo.build_component_inputs(sheet_data)
 
         self.assertEqual(len(inputs), 1)
@@ -253,8 +311,14 @@ class AnalysisCoreTests(unittest.TestCase):
             self.assertEqual(size, 10)
             return drive_series.copy()
 
-        with mock.patch.object(monte_carlo, "_import_reliability_math", return_value=(fake_calc, _exp_reliability)):
-            with mock.patch.object(monte_carlo, "_sample_parameter", side_effect=fake_sample):
+        with mock.patch.object(
+            monte_carlo,
+            "_import_reliability_math",
+            return_value=(fake_calc, _exp_reliability),
+        ):
+            with mock.patch.object(
+                monte_carlo, "_sample_parameter", side_effect=fake_sample
+            ):
                 result = monte_carlo.run_uncertainty_analysis(
                     inputs,
                     specs,
@@ -272,14 +336,24 @@ class AnalysisCoreTests(unittest.TestCase):
             "/power": {
                 "lambda": 25e-9,
                 "components": [
-                    {"ref": "U1", "class": "Integrated Circuit", "lambda": 15e-9, "params": {}},
+                    {
+                        "ref": "U1",
+                        "class": "Integrated Circuit",
+                        "lambda": 15e-9,
+                        "params": {},
+                    },
                     {"ref": "C1", "class": "Capacitor", "lambda": 10e-9, "params": {}},
                 ],
             },
             "/logic": {
                 "lambda": 10e-9,
                 "components": [
-                    {"ref": "U2", "class": "Integrated Circuit", "lambda": 10e-9, "params": {}},
+                    {
+                        "ref": "U2",
+                        "class": "Integrated Circuit",
+                        "lambda": 10e-9,
+                        "params": {},
+                    },
                 ],
             },
         }
