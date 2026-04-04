@@ -9,6 +9,7 @@ import pcbnew
 import wx
 from pathlib import Path
 
+
 def get_kicad_project_path():
     """Get current project path from KiCad."""
     try:
@@ -24,6 +25,49 @@ def get_kicad_project_path():
     except Exception:
         pass
     return None
+
+
+def get_kicad_parent_window():
+    """Best-effort parent selection across KiCad 8/9/10 on Linux and Windows."""
+    try:
+        active = wx.GetActiveWindow()
+        if active and active.IsShown():
+            return active
+    except Exception:
+        pass
+
+    try:
+        app = wx.GetApp()
+        top = app.GetTopWindow() if app else None
+        if top and top.IsShown():
+            return top
+    except Exception:
+        pass
+
+    try:
+        tops = [w for w in wx.GetTopLevelWindows() if w and w.IsShown()]
+        if not tops:
+            return None
+
+        def score(window):
+            title = ""
+            try:
+                title = window.GetTitle().lower()
+            except Exception:
+                pass
+            points = 0
+            if "pcb editor" in title or "pcbnew" in title:
+                points += 5
+            if "kicad" in title:
+                points += 3
+            if "editor" in title:
+                points += 1
+            return points
+
+        tops.sort(key=score, reverse=True)
+        return tops[0]
+    except Exception:
+        return None
 
 
 class ReliabilityPlugin(pcbnew.ActionPlugin):
@@ -42,12 +86,7 @@ class ReliabilityPlugin(pcbnew.ActionPlugin):
     
     def Run(self):
         """Main entry point."""
-        parent = None
-        try:
-            tops = [w for w in wx.GetTopLevelWindows() if w and w.IsShown()]
-            parent = tops[2] if tops else None
-        except Exception:
-            pass
+        parent = get_kicad_parent_window()
         
         project_path = get_kicad_project_path()
 

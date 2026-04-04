@@ -51,7 +51,7 @@ from .component_swap import rank_all_swaps, _get_swap_options
 from .growth_tracking import (
     create_snapshot, save_snapshot, load_snapshots,
     compare_revisions, build_growth_timeline,
-    ReliabilitySnapshot,
+    delete_snapshot, ReliabilitySnapshot,
 )
 
 
@@ -60,22 +60,25 @@ from .growth_tracking import (
 # =====================================================================
 class C:
     """Compact colour palette."""
-    BG       = wx.Colour(248, 249, 250)
+    BG       = wx.Colour(242, 246, 250)
     WHITE    = wx.Colour(255, 255, 255)
-    HEADER   = wx.Colour(30, 64, 120)
-    TXT      = wx.Colour(33, 37, 41)
-    TXT_M    = wx.Colour(108, 117, 125)
-    TXT_L    = wx.Colour(173, 181, 189)
-    PRI      = wx.Colour(37, 99, 235)
-    OK       = wx.Colour(25, 135, 84)
-    WARN     = wx.Colour(255, 193, 7)
-    FAIL     = wx.Colour(220, 53, 69)
-    BORDER   = wx.Colour(222, 226, 230)
-    GRID     = wx.Colour(233, 236, 239)
-    ROW_ALT  = wx.Colour(248, 249, 250)
-    BAR = [wx.Colour(59,130,246), wx.Colour(16,185,129), wx.Colour(245,158,11),
-           wx.Colour(220,53,69), wx.Colour(139,92,246), wx.Colour(236,72,153),
-           wx.Colour(20,184,166), wx.Colour(249,115,22)]
+    HEADER   = wx.Colour(24, 48, 84)
+    TXT      = wx.Colour(28, 37, 54)
+    TXT_M    = wx.Colour(94, 109, 132)
+    TXT_L    = wx.Colour(134, 148, 170)
+    PRI      = wx.Colour(36, 99, 190)
+    ACCENT   = wx.Colour(16, 126, 103)
+    OK       = wx.Colour(24, 136, 96)
+    WARN     = wx.Colour(183, 129, 33)
+    FAIL     = wx.Colour(187, 64, 69)
+    BORDER   = wx.Colour(214, 223, 235)
+    GRID     = wx.Colour(229, 236, 244)
+    ROW_ALT  = wx.Colour(247, 250, 252)
+    FIELD_BG = wx.Colour(248, 250, 252)
+    INFO_BG  = wx.Colour(231, 239, 251)
+    BAR = [wx.Colour(59, 130, 246), wx.Colour(14, 165, 142), wx.Colour(245, 158, 11),
+           wx.Colour(239, 68, 68), wx.Colour(99, 102, 241), wx.Colour(20, 184, 166),
+           wx.Colour(168, 85, 247), wx.Colour(249, 115, 22)]
 
 
 # =====================================================================
@@ -521,6 +524,21 @@ def _safe_float(val, default=0.0):
         return default
 
 
+def _style_button(btn, role="primary"):
+    palette = {
+        "primary": (C.PRI, wx.WHITE),
+        "success": (C.OK, wx.WHITE),
+        "accent": (C.ACCENT, wx.WHITE),
+        "danger": (C.FAIL, wx.WHITE),
+        "warning": (C.WARN, wx.WHITE),
+    }
+    bg, fg = palette.get(role, (C.PRI, wx.WHITE))
+    btn.SetBackgroundColour(bg)
+    btn.SetForegroundColour(fg)
+    btn.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+    btn.SetMinSize((-1, 32))
+
+
 # =====================================================================
 # Background thread infrastructure
 # =====================================================================
@@ -638,6 +656,7 @@ class AnalysisDialog(wx.Dialog):
 
         self._build_ui()
         self._load_persisted_state()
+        self._on_load_history(None)
         self.Centre()
 
     # =================================================================
@@ -940,6 +959,15 @@ class AnalysisDialog(wx.Dialog):
                     comps.append(c)
         return comps
 
+    def _find_component(self, reference):
+        for comp in self._all_components():
+            if comp.get("ref", "") == reference:
+                return comp
+        return None
+
+    def _current_system_lambda(self):
+        return sum(_safe_float(d.get("lambda", 0)) for d in self._filtered().values())
+
     def _sys_fit(self):
         return self.system_lambda * 1e9
 
@@ -1039,15 +1067,13 @@ class AnalysisDialog(wx.Dialog):
         hs.Add(il, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 12)
 
         btn_clear = wx.Button(hdr, label="Clear All")
-        btn_clear.SetForegroundColour(wx.WHITE)
-        btn_clear.SetBackgroundColour(C.WARN)
+        _style_button(btn_clear, "warning")
         btn_clear.Bind(wx.EVT_BUTTON, self._on_clear_all)
         btn_clear.SetToolTip("Clear all analysis results and reset tables")
         hs.Add(btn_clear, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 8)
 
         self.btn_cancel = wx.Button(hdr, label="Cancel")
-        self.btn_cancel.SetForegroundColour(wx.WHITE)
-        self.btn_cancel.SetBackgroundColour(C.FAIL)
+        _style_button(self.btn_cancel, "danger")
         self.btn_cancel.Bind(wx.EVT_BUTTON, lambda e: self._cancel_analysis())
         self.btn_cancel.SetToolTip("Cancel running analysis")
         hs.Add(self.btn_cancel, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 8)
@@ -1058,6 +1084,7 @@ class AnalysisDialog(wx.Dialog):
         # Notebook
         self.nb = wx.Notebook(self)
         self.nb.SetBackgroundColour(C.BG)
+        self.nb.SetPadding(wx.Size(20, 8))
         self.nb.AddPage(self._tab_overview(), "Overview")
         self.nb.AddPage(self._tab_analysis(), "Analysis")
         self.nb.AddPage(self._tab_design_actions(), "Design Actions")
@@ -1227,9 +1254,7 @@ class AnalysisDialog(wx.Dialog):
         qs.Add(self.unc_ci, 0, wx.ALL, 6)
 
         self.btn_run_mc = wx.Button(qp, label="\u25B6  Run Uncertainty")
-        self.btn_run_mc.SetBackgroundColour(C.PRI)
-        self.btn_run_mc.SetForegroundColour(wx.WHITE)
-        self.btn_run_mc.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        _style_button(self.btn_run_mc, "primary")
         self.btn_run_mc.Bind(wx.EVT_BUTTON, self._on_run_uncertainty)
         qs.Add(self.btn_run_mc, 0, wx.ALL, 6)
 
@@ -1301,9 +1326,7 @@ class AnalysisDialog(wx.Dialog):
         self.tornado_mode.SetSelection(0)
         ts.Add(self.tornado_mode, 0, wx.ALL, 6)
         self.btn_tornado = wx.Button(tp, label="\u25B6  Run Tornado")
-        self.btn_tornado.SetBackgroundColour(C.OK)
-        self.btn_tornado.SetForegroundColour(wx.WHITE)
-        self.btn_tornado.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        _style_button(self.btn_tornado, "success")
         self.btn_tornado.Bind(wx.EVT_BUTTON, self._on_run_tornado)
         ts.Add(self.btn_tornado, 0, wx.ALL, 6)
         ts.Add(wx.StaticText(tp,
@@ -1353,9 +1376,7 @@ class AnalysisDialog(wx.Dialog):
         self.crit_n = wx.SpinCtrl(cp, min=0, max=500, initial=0, size=(70, -1))
         css.Add(self.crit_n, 0, wx.ALL, 6)
         self.btn_crit = wx.Button(cp, label="\u25B6  Run Criticality")
-        self.btn_crit.SetBackgroundColour(C.PRI)
-        self.btn_crit.SetForegroundColour(wx.WHITE)
-        self.btn_crit.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        _style_button(self.btn_crit, "primary")
         self.btn_crit.Bind(wx.EVT_BUTTON, self._on_run_criticality)
         css.Add(self.btn_crit, 0, wx.ALL, 6)
         cp.SetSizer(css)
@@ -1376,7 +1397,7 @@ class AnalysisDialog(wx.Dialog):
 
     def _section_label(self, parent, text):
         p = wx.Panel(parent)
-        p.SetBackgroundColour(wx.Colour(230, 240, 255))
+        p.SetBackgroundColour(C.INFO_BG)
         s = wx.BoxSizer(wx.VERTICAL)
         l = wx.StaticText(p, label=text)
         l.SetFont(wx.Font(11, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
@@ -1753,9 +1774,7 @@ class AnalysisDialog(wx.Dialog):
         sa_panel.SetBackgroundColour(C.WHITE)
         sa_sizer = wx.BoxSizer(wx.HORIZONTAL)
         self.btn_smart = wx.Button(sa_panel, label="\u25B6  Identify Best Actions")
-        self.btn_smart.SetBackgroundColour(wx.Colour(139, 92, 246))
-        self.btn_smart.SetForegroundColour(wx.WHITE)
-        self.btn_smart.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        _style_button(self.btn_smart, "accent")
         self.btn_smart.Bind(wx.EVT_BUTTON, self._on_smart_actions)
         sa_sizer.Add(self.btn_smart, 0, wx.ALL, 6)
         sa_sizer.Add(wx.StaticText(sa_panel,
@@ -1785,9 +1804,7 @@ class AnalysisDialog(wx.Dialog):
         ws = wx.BoxSizer(wx.VERTICAL)
         row1 = wx.BoxSizer(wx.HORIZONTAL)
         self.btn_whatif = wx.Button(wp, label="\u25B6  Run Scenarios")
-        self.btn_whatif.SetBackgroundColour(C.PRI)
-        self.btn_whatif.SetForegroundColour(wx.WHITE)
-        self.btn_whatif.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        _style_button(self.btn_whatif, "primary")
         self.btn_whatif.Bind(wx.EVT_BUTTON, self._on_run_whatif)
         row1.Add(self.btn_whatif, 0, wx.ALL, 6)
         row1.Add(wx.StaticText(wp,
@@ -1855,9 +1872,7 @@ class AnalysisDialog(wx.Dialog):
                                              inc=1, size=(65, -1))
         ts.Add(self.opt_margin, 0, wx.ALL, 6)
         self.btn_budget = wx.Button(tp, label="\u25B6  Allocate Budget")
-        self.btn_budget.SetBackgroundColour(C.PRI)
-        self.btn_budget.SetForegroundColour(wx.WHITE)
-        self.btn_budget.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        _style_button(self.btn_budget, "primary")
         self.btn_budget.Bind(wx.EVT_BUTTON, self._on_run_budget)
         ts.Add(self.btn_budget, 0, wx.ALL, 6)
         tp.SetSizer(ts)
@@ -1895,9 +1910,7 @@ class AnalysisDialog(wx.Dialog):
         rp.SetBackgroundColour(C.WHITE)
         rps = wx.BoxSizer(wx.HORIZONTAL)
         self.btn_improve = wx.Button(rp, label="\u25B6  Generate Recommendations")
-        self.btn_improve.SetBackgroundColour(C.OK)
-        self.btn_improve.SetForegroundColour(wx.WHITE)
-        self.btn_improve.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        _style_button(self.btn_improve, "success")
         self.btn_improve.Bind(wx.EVT_BUTTON, self._on_run_improvements)
         rps.Add(self.btn_improve, 0, wx.ALL, 6)
         self.improve_info = wx.StaticText(rp, label="Run budget first, then generate improvements.")
@@ -1935,23 +1948,28 @@ class AnalysisDialog(wx.Dialog):
         bis.Add(wx.StaticText(bip, label="New value:"), 0,
                 wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
         self._wi_val_panel = bip
-        self._wi_val_sizer = bis
-        self.wi_val = wx.TextCtrl(bip, size=(100, -1))
-        bis.Add(self.wi_val, 0, wx.ALL, 6)
+        self._wi_val_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.wi_val = wx.TextCtrl(bip, size=(140, -1))
+        self._wi_val_sizer.Add(self.wi_val, 0, wx.ALL, 0)
+        bis.Add(self._wi_val_sizer, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 6)
         self.btn_wi = wx.Button(bip, label="Evaluate")
         self.btn_wi.Bind(wx.EVT_BUTTON, self._on_whatif_single)
         bis.Add(self.btn_wi, 0, wx.ALL, 6)
         bip.SetSizer(bis)
         main.Add(bip, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 6)
 
+        self.wi_hint = wx.StaticText(panel, label="Pick a component and parameter to preview a local design-point change.")
+        self.wi_hint.SetForegroundColour(C.TXT_M)
+        main.Add(self.wi_hint, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+
         if comp_refs:
             self._on_wi_ref_changed(None)
 
         self.wi_result = wx.TextCtrl(panel, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.BORDER_SIMPLE)
         self.wi_result.SetFont(wx.Font(9, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
-        self.wi_result.SetBackgroundColour(wx.Colour(250, 250, 250))
-        self.wi_result.SetMinSize((-1, 80))
-        self.wi_result.SetMaxSize((-1, 100))
+        self.wi_result.SetBackgroundColour(C.FIELD_BG)
+        self.wi_result.SetMinSize((-1, 120))
+        self.wi_result.SetMaxSize((-1, 160))
         main.Add(self.wi_result, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
         # --- Section 5: History ---
@@ -1974,14 +1992,33 @@ class AnalysisDialog(wx.Dialog):
         btn_load = wx.Button(snap_panel, label="Load History")
         btn_load.Bind(wx.EVT_BUTTON, self._on_load_history)
         snap_s.Add(btn_load, 0, wx.ALL, 6)
+        btn_compare = wx.Button(snap_panel, label="Compare Latest 2")
+        btn_compare.Bind(wx.EVT_BUTTON, self._on_compare_latest_history)
+        snap_s.Add(btn_compare, 0, wx.ALL, 6)
+        btn_delete = wx.Button(snap_panel, label="Delete Selected")
+        btn_delete.Bind(wx.EVT_BUTTON, self._on_delete_selected_history)
+        snap_s.Add(btn_delete, 0, wx.ALL, 6)
         snap_panel.SetSizer(snap_s)
         main.Add(snap_panel, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 6)
 
         self.history_list = _make_list(panel,
             ["Version", "Date", "System FIT", "R(t)", "Components", "Notes"],
             [130, 170, 110, 120, 110, 280])
+        self.history_list.Bind(wx.EVT_LIST_ITEM_SELECTED, self._on_history_selected)
         self.history_list.SetMinSize((-1, 180))
         main.Add(self.history_list, 0, wx.EXPAND | wx.ALL, 6)
+
+        self.history_summary = wx.StaticText(panel, label="Save a snapshot to start a design history.")
+        self.history_summary.SetForegroundColour(C.TXT_M)
+        main.Add(self.history_summary, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+
+        self.history_detail = wx.TextCtrl(
+            panel, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.BORDER_SIMPLE
+        )
+        self.history_detail.SetFont(wx.Font(9, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        self.history_detail.SetBackgroundColour(C.FIELD_BG)
+        self.history_detail.SetMinSize((-1, 150))
+        main.Add(self.history_detail, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
         panel.SetSizer(main)
         return panel
@@ -2262,24 +2299,23 @@ class AnalysisDialog(wx.Dialog):
             wx.MessageBox("Fill in component reference, parameter name, and new value.",
                           "Missing Input", wx.OK | wx.ICON_WARNING)
             return
-        try:
-            new_val = float(val_str)
-        except ValueError:
-            wx.MessageBox(f"'{val_str}' is not a valid number.", "Input Error", wx.OK | wx.ICON_ERROR)
-            return
+        if isinstance(self.wi_val, wx.TextCtrl):
+            try:
+                new_val = float(val_str)
+            except ValueError:
+                new_val = val_str
+        else:
+            new_val = val_str
 
-        comp = None
-        for c in self._all_components():
-            if c.get("ref", "") == ref:
-                comp = c
-                break
+        comp = self._find_component(ref)
         if comp is None:
             self.wi_result.SetValue(f"Component '{ref}' not found in active sheets.")
             return
 
         try:
+            system_lambda = self._current_system_lambda()
             result = single_param_whatif(
-                comp, param, new_val, self.system_lambda, self.mission_hours)
+                comp, param, new_val, system_lambda, self.mission_hours)
         except Exception as e:
             self.wi_result.SetValue(f"Error: {e}")
             return
@@ -2291,29 +2327,29 @@ class AnalysisDialog(wx.Dialog):
         comp_delta = result.get('comp_delta_fit', 0)
         sys_fit_before = result.get('sys_fit_before', 0)
         sys_fit_after = result.get('sys_fit_after', 0)
-        sys_delta = result.get('delta_lambda_fit', 0) * 1e9  # FIT adjustment
+        sys_delta = result.get('sys_delta_fit', 0)
         r_before = result.get('r_before', 0)
         r_after = result.get('r_after', 0)
         r_delta = result.get('delta_r', 0)
-        
-        comp_improvement = comp_delta < -0.01
-        sys_improvement = sys_delta < -0.01 if abs(sys_delta) > 0.01 else False
-        
+
+        comp_direction = "improves" if comp_delta < -0.01 else "worsens" if comp_delta > 0.01 else "is neutral"
+        sys_direction = "improves" if sys_delta < -0.01 else "worsens" if sys_delta > 0.01 else "is neutral"
+        mttf_after = (1.0 / (sys_fit_after * 1e-9)) if sys_fit_after > 0 else float("inf")
+
         output = (
-            f"┌─ What-If Analysis: {ref} ─────────────────────┐\n"
-            f"│ Parameter: {param}\n"
-            f"│ Change: {old_val} → {new_val}\n"
-            f"├──────────────────────────────────────────────────┤\n"
-            f"│ Component Reliability:\n"
-            f"│   FIT:  {comp_fit_before:8.2f} → {comp_fit_after:8.2f}  "
-            f"({comp_delta:+7.2f})  {'✓ improved' if comp_improvement else ''}\n"
-            f"├──────────────────────────────────────────────────┤\n"
-            f"│ System Reliability:\n"
-            f"│   FIT:  {sys_fit_before:8.2f} → {sys_fit_after:8.2f}  "
-            f"({sys_delta:+7.2f})  {'✓ improved' if sys_improvement else ''}\n"
-            f"│   R(t): {r_before:.6f} → {r_after:.6f}  ({r_delta:+.6f})\n"
-            f"│   ΔMTTF: {1/sys_fit_after*1e9 if sys_fit_after>0 else float('inf'):.0f} hrs\n"
-            f"└──────────────────────────────────────────────────┘"
+            f"What-If Analysis: {ref}\n"
+            f"Parameter: {param}\n"
+            f"Change: {old_val} -> {new_val}\n"
+            f"\n"
+            f"Component impact:\n"
+            f"  FIT: {comp_fit_before:.2f} -> {comp_fit_after:.2f} ({comp_delta:+.2f})\n"
+            f"  Interpretation: component reliability {comp_direction}.\n"
+            f"\n"
+            f"System impact:\n"
+            f"  FIT: {sys_fit_before:.2f} -> {sys_fit_after:.2f} ({sys_delta:+.2f})\n"
+            f"  R(t): {r_before:.6f} -> {r_after:.6f} ({r_delta:+.6f})\n"
+            f"  MTTF after change: {mttf_after:.0f} h\n"
+            f"  Interpretation: system reliability {sys_direction}."
         )
         self.wi_result.SetValue(output)
 
@@ -2326,29 +2362,140 @@ class AnalysisDialog(wx.Dialog):
         label = self.snap_label.GetValue().strip() or "v1"
         notes = self.snap_notes.GetValue().strip()
         try:
-            snap = create_snapshot(self._active_data, self.system_lambda,
+            snap = create_snapshot(self._filtered(), self._current_system_lambda(),
                                    self.mission_hours, label, notes)
             path = save_snapshot(snap, self.project_path)
             self.status.SetLabel(f"Snapshot '{label}' saved to {path}")
+            self.snap_label.SetValue("")
+            self.snap_notes.SetValue("")
             self._on_load_history(None)
         except Exception as e:
             wx.MessageBox(f"Failed to save snapshot: {e}", "Error", wx.OK | wx.ICON_ERROR)
 
     def _on_load_history(self, event):
         if not self.project_path:
+            self.history_summary.SetLabel("History is unavailable until the dialog has a project path.")
+            self.history_detail.SetValue("")
             return
         try:
             snapshots = load_snapshots(self.project_path)
+            self._history_snapshots = sorted(snapshots, key=lambda s: s.timestamp)
             self.history_list.DeleteAllItems()
-            for s in reversed(snapshots):
+            self._history_row_map = []
+            for s in reversed(self._history_snapshots):
                 _add_row(self.history_list, [
                     s.version_label, s.timestamp[:19],
                     f"{s.system_fit:.2f}", f"{s.system_reliability:.6f}",
                     str(s.n_components), s.notes,
                 ])
+                self._history_row_map.append(s.version_label)
             _autosize_columns(self.history_list)
+            timeline = build_growth_timeline(self.project_path)
+            if not self._history_snapshots:
+                self.history_summary.SetLabel("No snapshots yet. Save a snapshot to create a revision history.")
+                self.history_detail.SetValue("")
+            elif len(self._history_snapshots) == 1:
+                only = self._history_snapshots[0]
+                self.history_summary.SetLabel(
+                    f"1 snapshot stored. Latest: {only.version_label} at {only.system_fit:.2f} FIT."
+                )
+                self.history_detail.SetValue(self._format_snapshot_detail(only))
+            else:
+                latest = self._history_snapshots[-1]
+                previous = self._history_snapshots[-2]
+                comp = compare_revisions(previous, latest)
+                self.history_summary.SetLabel(
+                    f"{len(timeline.snapshots)} snapshots loaded. Latest comparison: "
+                    f"{previous.version_label} -> {latest.version_label} ({comp.system_delta_fit:+.2f} FIT)."
+                )
+                self.history_detail.SetValue(self._format_revision_comparison(comp, timeline))
         except Exception as e:
             wx.MessageBox(f"Failed to load history: {e}", "Error", wx.OK | wx.ICON_ERROR)
+
+    def _format_snapshot_detail(self, snapshot):
+        return (
+            f"Snapshot: {snapshot.version_label}\n"
+            f"Timestamp: {snapshot.timestamp[:19]}\n"
+            f"System FIT: {snapshot.system_fit:.2f}\n"
+            f"Reliability: {snapshot.system_reliability:.6f}\n"
+            f"Mission: {snapshot.mission_hours:.0f} h\n"
+            f"Components: {snapshot.n_components}\n"
+            f"Sheets: {snapshot.n_sheets}\n"
+            f"Notes: {snapshot.notes or '-'}"
+        )
+
+    def _format_revision_comparison(self, comparison, timeline=None):
+        lines = [
+            f"Revision Comparison: {comparison.from_version} -> {comparison.to_version}",
+            f"System FIT: {comparison.system_fit_before:.2f} -> {comparison.system_fit_after:.2f} "
+            f"({comparison.system_delta_fit:+.2f}, {comparison.system_delta_percent:+.1f}%)",
+            f"Reliability: {comparison.reliability_before:.6f} -> {comparison.reliability_after:.6f} "
+            f"({comparison.reliability_improvement:+.6f})",
+            f"Changed components: improved {comparison.components_improved}, "
+            f"degraded {comparison.components_degraded}, added {comparison.components_added}, "
+            f"removed {comparison.components_removed}, unchanged {comparison.components_unchanged}",
+        ]
+        if timeline and timeline.snapshots:
+            first = timeline.snapshots[0]
+            last = timeline.snapshots[-1]
+            lines.append(
+                f"Timeline: {len(timeline.snapshots)} snapshots from {first.version_label} to {last.version_label}"
+            )
+        if comparison.top_improvements:
+            lines.append("")
+            lines.append("Top improvements:")
+            for change in comparison.top_improvements[:3]:
+                lines.append(f"  {change.reference}: {change.delta_fit:+.2f} FIT ({change.change_type})")
+        if comparison.top_degradations:
+            lines.append("")
+            lines.append("Top degradations:")
+            for change in comparison.top_degradations[:3]:
+                lines.append(f"  {change.reference}: {change.delta_fit:+.2f} FIT ({change.change_type})")
+        return "\n".join(lines)
+
+    def _on_history_selected(self, event):
+        if not getattr(self, "_history_snapshots", None):
+            return
+        idx = event.GetIndex()
+        if idx < 0 or idx >= len(self._history_row_map):
+            return
+        version = self._history_row_map[idx]
+        for snapshot in self._history_snapshots:
+            if snapshot.version_label == version:
+                self.history_detail.SetValue(self._format_snapshot_detail(snapshot))
+                break
+
+    def _on_compare_latest_history(self, event):
+        if len(getattr(self, "_history_snapshots", [])) < 2:
+            wx.MessageBox("Need at least two snapshots to compare revisions.",
+                          "History", wx.OK | wx.ICON_INFORMATION)
+            return
+        timeline = build_growth_timeline(self.project_path)
+        before = self._history_snapshots[-2]
+        after = self._history_snapshots[-1]
+        comparison = compare_revisions(before, after)
+        self.history_detail.SetValue(self._format_revision_comparison(comparison, timeline))
+        self.history_summary.SetLabel(
+            f"Comparing latest revisions: {before.version_label} -> {after.version_label}."
+        )
+
+    def _on_delete_selected_history(self, event):
+        idx = self.history_list.GetFirstSelected()
+        if idx < 0 or not getattr(self, "_history_row_map", None):
+            wx.MessageBox("Select a snapshot to delete.", "History", wx.OK | wx.ICON_INFORMATION)
+            return
+        version = self._history_row_map[idx]
+        if wx.MessageBox(
+            f"Delete snapshot '{version}'?",
+            "Confirm Delete",
+            wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING,
+        ) != wx.YES:
+            return
+        if delete_snapshot(self.project_path, version):
+            self.status.SetLabel(f"Deleted snapshot '{version}'")
+            self._on_load_history(None)
+        else:
+            wx.MessageBox(f"Could not delete snapshot '{version}'.", "History", wx.OK | wx.ICON_ERROR)
 
     # =================================================================
     # Tab 4: Report
@@ -2363,15 +2510,11 @@ class AnalysisDialog(wx.Dialog):
         rp.SetBackgroundColour(C.WHITE)
         rs = wx.BoxSizer(wx.HORIZONTAL)
         self.btn_html = wx.Button(rp, label="Generate HTML Report")
-        self.btn_html.SetBackgroundColour(C.PRI)
-        self.btn_html.SetForegroundColour(wx.WHITE)
-        self.btn_html.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        _style_button(self.btn_html, "primary")
         self.btn_html.Bind(wx.EVT_BUTTON, self._on_gen_html)
         rs.Add(self.btn_html, 0, wx.ALL, 10)
         self.btn_pdf = wx.Button(rp, label="Generate PDF Report")
-        self.btn_pdf.SetBackgroundColour(C.OK)
-        self.btn_pdf.SetForegroundColour(wx.WHITE)
-        self.btn_pdf.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        _style_button(self.btn_pdf, "success")
         self.btn_pdf.SetToolTip("Requires optional dependency support: install weasyprint or reportlab.")
         self.btn_pdf.Bind(wx.EVT_BUTTON, self._on_gen_pdf)
         rs.Add(self.btn_pdf, 0, wx.ALL, 10)
@@ -2607,11 +2750,7 @@ class AnalysisDialog(wx.Dialog):
         if ref_sel < 0:
             return
         ref = self.wi_ref.GetString(ref_sel)
-        comp = None
-        for c in self._all_components():
-            if c.get("ref", "") == ref:
-                comp = c
-                break
+        comp = self._find_component(ref)
         if not comp:
             return
         params = []
@@ -2635,12 +2774,7 @@ class AnalysisDialog(wx.Dialog):
         ref = self.wi_ref.GetString(ref_sel)
         param = self.wi_param.GetString(param_sel)
         
-        # Find component
-        comp = None
-        for c in self._all_components():
-            if c.get("ref", "") == ref:
-                comp = c
-                break
+        comp = self._find_component(ref)
         if not comp:
             return
         
@@ -2654,9 +2788,9 @@ class AnalysisDialog(wx.Dialog):
         except Exception:
             swap_opts = {}
         
-        # Remove old value control from sizer
+        # Remove old value control from dedicated holder
         if isinstance(self.wi_val, (wx.TextCtrl, wx.Choice)):
-            self._wi_val_sizer.Remove(self._wi_val_sizer.GetItemCount() - 3)  # Remove val control (before Evaluate button)
+            self._wi_val_sizer.Detach(self.wi_val)
             self.wi_val.Destroy()
         
         # Create new value control (dropdown or textctrl)
@@ -2673,8 +2807,12 @@ class AnalysisDialog(wx.Dialog):
             if current_val is not None:
                 self.wi_val.SetValue(str(current_val))
         
-        self._wi_val_sizer.Insert(self._wi_val_sizer.GetItemCount() - 1, self.wi_val, 0, wx.ALL, 6)
+        self._wi_val_sizer.Add(self.wi_val, 0, wx.ALL, 0)
         self._wi_val_panel.Layout()
+        unit_hint = "categorical choice" if isinstance(self.wi_val, wx.Choice) else "numeric or literal value"
+        self.wi_hint.SetLabel(
+            f"{ref}.{param} current value: {current_val!s}. Enter a {unit_hint} and evaluate the local impact."
+        )
 
     # =================================================================
     # Type filter handler
