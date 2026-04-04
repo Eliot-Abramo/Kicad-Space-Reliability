@@ -41,6 +41,5 @@ Thumbs.db
 # Project specific
 *.bak
 *.tmp
-plugins/.codex
 .ruff_cache/
 .pytest_cache/

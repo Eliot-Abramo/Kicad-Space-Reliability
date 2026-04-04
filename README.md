@@ -48,7 +48,7 @@ Use the plugin when you want to answer questions like:
 
 ## Installation
 
-1. Install the plugin into KiCad using your normal plugin workflow or a local checkout.
+1. Open the Kicad 'Plugin and Content Manager' and click on 'Install from File...' at the bottom. Take the ZIP from your desired release (in the 'Releases' folder) and apply changes.
 2. Open a KiCad project and launch **Reliability Calculator** from the PCB editor action plugins menu.
 3. If you need PDF export, install one of the optional backends:
    - `weasyprint`
@@ -105,6 +105,10 @@ Version 3.3.0 focuses on publish-readiness hardening:
 - clearer separation between OAT, elasticity, SRRC, and internal Sobol code
 - explicit PDF dependency messaging
 - added tests and CI for core analysis and report export paths
+
+## Special Thanks
+
+I first started developing this tool at Spacelocker after noticing that the process of calculating the reliability and standardizing PCBs often involved reading very long standards and was more of a validation process, less a design workflow. Also a special thanks to Louise Grangette for doing the first pass at some of the mathematics used in this tool.
 
 ## License
 
