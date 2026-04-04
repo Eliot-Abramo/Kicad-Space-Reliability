@@ -1,7 +1,27 @@
 # KiCad Reliability Calculator
 
-**Version:** 3.3.0
-**Author:** Eliot Abramo
+<p align="center">
+  <img src="plugins/icon.png" alt="KiCad Reliability Calculator logo" width="120" />
+</p>
+
+<p align="center">
+  <strong>Architected, implemented, and maintained by Eliot Abramo</strong>
+</p>
+
+<p align="center">
+  IEC TR 62380 reliability engineering for KiCad projects, from component stress modeling to system-level design closure.
+</p>
+
+<p align="center">
+  <img alt="Version 3.3.0" src="https://img.shields.io/badge/version-3.3.0-0f766e" />
+  <img alt="Author Eliot Abramo" src="https://img.shields.io/badge/author-Eliot%20Abramo-111827" />
+  <img alt="IEC TR 62380 2004" src="https://img.shields.io/badge/IEC%20TR%2062380-2004-1d4ed8" />
+  <img alt="KiCad plugin" src="https://img.shields.io/badge/KiCad-plugin-f97316" />
+  <img alt="License MIT" src="https://img.shields.io/badge/license-MIT-16a34a" />
+</p>
+
+**Version:** 3.3.0  
+**Author:** Eliot Abramo  
 **Standard:** IEC TR 62380:2004
 
 Reliability Calculator is a KiCad plugin that turns a schematic and block diagram into a reliability model. It estimates failure rate at the component level with IEC TR 62380, rolls those results up to the system level, and then gives you a practical way to inspect uncertainty, sensitivity, dominant contributors, and likely improvement paths.
@@ -79,6 +99,10 @@ It is coupling component stress modeling, mission assumptions, and explicit syst
 4. If you want PDF export, install one of the optional backends:
    - `weasyprint`
    - `reportlab`
+
+### How to use after installing
+
+The UI is quite explicit. It is important to note to select multiple blocs for k-of-n or series, etc. configurations you need to CTRL+CLICK on the blocs then right click and the options will present themselves.
 
 ## Report Outputs
 

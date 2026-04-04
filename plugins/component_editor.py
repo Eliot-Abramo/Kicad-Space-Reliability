@@ -42,11 +42,13 @@ except ImportError:
     )
 try:
     from .ui.theme import PALETTE, style_list_ctrl, style_panel, style_text_like
+    from .ui.windowing import center_dialog
 except ImportError:
     from import_compat import ensure_plugin_paths
 
     ensure_plugin_paths()
     from theme import PALETTE, style_list_ctrl, style_panel, style_text_like
+    from windowing import center_dialog
 
 @dataclass
 class ComponentData:
@@ -183,7 +185,7 @@ class ComponentEditorDialog(wx.Dialog):
         style_panel(self, PALETTE.panel_bg)
         self._create_ui()
         self._update_preview()
-        self.Centre()
+        wx.CallAfter(center_dialog, self, parent)
     
     def _create_ui(self):
         panel = wx.Panel(self)
@@ -340,7 +342,7 @@ class BatchComponentEditorDialog(wx.Dialog):
         self.results = {}
         style_panel(self, PALETTE.panel_bg)
         self._create_ui()
-        self.Centre()
+        wx.CallAfter(center_dialog, self, parent)
     
     def _create_ui(self):
         panel = wx.Panel(self)
@@ -728,4 +730,4 @@ EOS (Electrical Overstress):
         close_btn.Bind(wx.EVT_BUTTON, lambda e: self.EndModal(wx.ID_CLOSE))
         sizer.Add(close_btn, 0, wx.ALIGN_CENTER | wx.ALL, 10)
         self.SetSizer(sizer)
-        self.Centre()
+        wx.CallAfter(center_dialog, self, parent)

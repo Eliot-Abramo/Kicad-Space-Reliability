@@ -42,20 +42,21 @@ from .mission_profile import MissionProfile
 try:
     from .ui.panels import Colors, SheetPanel, SettingsPanel, ComponentPanel
     from .ui.theme import style_panel, style_text_like
+    from .ui.windowing import center_dialog, get_display_client_area
 except ImportError:
     from import_compat import ensure_plugin_paths
 
     ensure_plugin_paths()
     from panels import Colors, SheetPanel, SettingsPanel, ComponentPanel
     from theme import style_panel, style_text_like
+    from windowing import center_dialog, get_display_client_area
 
 
 class ReliabilityMainDialog(wx.Dialog):
     """Main reliability calculator dialog."""
 
     def __init__(self, parent, project_path: str = None):
-        display = wx.Display(0)
-        rect = display.GetClientArea()
+        rect = get_display_client_area(parent=parent)
         w = min(1600, int(rect.Width * 0.9))
         h = min(1000, int(rect.Height * 0.9))
 
@@ -85,7 +86,7 @@ class ReliabilityMainDialog(wx.Dialog):
         else:
             self._load_test_data()
 
-        self.Centre()
+        wx.CallAfter(center_dialog, self, parent)
 
     def _create_ui(self):
         root = wx.BoxSizer(wx.VERTICAL)

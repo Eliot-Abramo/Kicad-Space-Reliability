@@ -55,11 +55,13 @@ from .growth_tracking import (
 )
 try:
     from .ui.theme import PALETTE, style_text_like, style_list_ctrl
+    from .ui.windowing import center_dialog, get_display_client_area
 except ImportError:
     from import_compat import ensure_plugin_paths
 
     ensure_plugin_paths()
     from theme import PALETTE, style_text_like, style_list_ctrl
+    from windowing import center_dialog, get_display_client_area
 
 
 # =====================================================================
@@ -616,8 +618,7 @@ class AnalysisDialog(wx.Dialog):
                  block_structure=None, blocks=None, root_id=None, project_path=None,
                  logo_path=None, logo_mime=None, n_cycles=5256, delta_t=3.0,
                  title="Reliability Analysis Suite"):
-        display = wx.Display(0)
-        rect = display.GetClientArea()
+        rect = get_display_client_area(parent=parent)
         w = min(1400, int(rect.Width * 0.88))
         h = min(950, int(rect.Height * 0.90))
         super().__init__(parent, title=title, size=(w, h),
@@ -660,15 +661,15 @@ class AnalysisDialog(wx.Dialog):
         self._runner: Optional[_AnalysisRunner] = None
         # Collected warnings from last analysis run
         self._warnings: List[str] = []
+        self._positioned_on_show = False
 
         self._build_ui()
         self._load_persisted_state()
         self._on_load_history(None)
         self.Bind(wx.EVT_SHOW, self._on_dialog_show)
-        self.Centre()
-        wx.CallAfter(self._refresh_dialog_layout)
-        wx.CallLater(120, self._refresh_dialog_layout)
-        wx.CallLater(320, self._refresh_dialog_layout)
+        wx.CallAfter(self._refresh_dialog_layout, True)
+        wx.CallLater(120, self._refresh_dialog_layout, True)
+        wx.CallLater(320, self._refresh_dialog_layout, True)
 
     # =================================================================
     # Persistence: save/load analysis state
@@ -1128,16 +1129,16 @@ class AnalysisDialog(wx.Dialog):
 
     def _on_dialog_show(self, event):
         if event.IsShown():
-            wx.CallAfter(self._refresh_dialog_layout)
-            wx.CallLater(120, self._refresh_dialog_layout)
-            wx.CallLater(320, self._refresh_dialog_layout)
+            wx.CallAfter(self._refresh_dialog_layout, not self._positioned_on_show)
+            wx.CallLater(120, self._refresh_dialog_layout, not self._positioned_on_show)
+            wx.CallLater(320, self._refresh_dialog_layout, not self._positioned_on_show)
         event.Skip()
 
     def _on_notebook_page_changed(self, event):
         wx.CallAfter(self._refresh_dialog_layout)
         event.Skip()
 
-    def _refresh_dialog_layout(self):
+    def _refresh_dialog_layout(self, recenter=False):
         try:
             self.Layout()
             if hasattr(self, "nb"):
@@ -1163,6 +1164,9 @@ class AnalysisDialog(wx.Dialog):
                     widget.SendSizeEvent()
                     widget.Refresh()
             self.SendSizeEvent()
+            if recenter:
+                center_dialog(self, self.GetParent())
+                self._positioned_on_show = True
             self.Refresh()
             self.Update()
         except Exception:

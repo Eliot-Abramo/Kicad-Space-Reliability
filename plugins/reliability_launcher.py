@@ -25,6 +25,14 @@ import wx
 import json
 from pathlib import Path
 
+try:
+    from .ui.windowing import center_dialog
+except ImportError:
+    from import_compat import ensure_plugin_paths
+
+    ensure_plugin_paths()
+    from windowing import center_dialog
+
 
 class ProjectSelector(wx.Dialog):
     """
@@ -44,7 +52,7 @@ class ProjectSelector(wx.Dialog):
         self.recent_projects = self._load_recent_projects()
 
         self._create_ui()
-        self.Centre()
+        wx.CallAfter(center_dialog, self, parent)
 
     def _create_ui(self):
         panel = wx.Panel(self)
