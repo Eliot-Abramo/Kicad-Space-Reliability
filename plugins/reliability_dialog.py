@@ -110,7 +110,7 @@ class ReliabilityMainDialog(wx.Dialog):
         root.Add(toolbar, 0, wx.EXPAND | wx.ALL, 8)
 
         # Main content
-        splitter = wx.SplitterWindow(self, style=wx.SP_LIVE_UPDATE)
+        splitter = wx.SplitterWindow(self, style=wx.SP_LIVE_UPDATE | wx.BORDER_NONE)
         splitter.SetMinimumPaneSize(220)
 
         # Left panel
@@ -124,7 +124,7 @@ class ReliabilityMainDialog(wx.Dialog):
         left.SetSizer(left_sizer)
 
         # Right panel
-        right = wx.SplitterWindow(splitter, style=wx.SP_LIVE_UPDATE)
+        right = wx.SplitterWindow(splitter, style=wx.SP_LIVE_UPDATE | wx.BORDER_NONE)
         right.SetMinimumPaneSize(280)
 
         # Editor panel
@@ -139,7 +139,7 @@ class ReliabilityMainDialog(wx.Dialog):
         editor_panel.SetSizer(editor_sizer)
 
         # Bottom panel
-        bottom = wx.SplitterWindow(right, style=wx.SP_LIVE_UPDATE)
+        bottom = wx.SplitterWindow(right, style=wx.SP_LIVE_UPDATE | wx.BORDER_NONE)
         bottom.SetMinimumPaneSize(220)
 
         self.comp_panel = ComponentPanel(bottom)

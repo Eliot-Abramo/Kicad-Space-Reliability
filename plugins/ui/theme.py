@@ -12,7 +12,7 @@ import wx
 
 
 IS_WINDOWS = sys.platform.startswith("win")
-WINDOWS_FONT_POINT_DELTA = -2
+WINDOWS_FONT_POINT_DELTA = -3
 
 
 def _colour_to_rgb(colour: wx.Colour) -> tuple[int, int, int]:
@@ -364,7 +364,18 @@ def apply_theme_recursively(
         elif isinstance(node, wx.Notebook):
             next_bg = inherited_bg or PALETTE.background
             _set_surface(node, next_bg, PALETTE.text)
-        elif isinstance(node, (wx.Panel, wx.ScrolledWindow, wx.SplitterWindow)):
+        elif isinstance(node, wx.SplitterWindow):
+            splitter_bg = PALETTE.border if PALETTE.is_dark else PALETTE.grid
+            _set_surface(node, splitter_bg, PALETTE.text)
+            try:
+                node.SetBorderSize(0)
+            except Exception:
+                pass
+            try:
+                node.SetSashSize(dip_px(node, 6))
+            except Exception:
+                pass
+        elif isinstance(node, (wx.Panel, wx.ScrolledWindow)):
             if force_bg or _is_native_light_surface(node.GetBackgroundColour()):
                 _set_surface(node, next_bg, PALETTE.text)
         elif isinstance(node, wx.TextCtrl):

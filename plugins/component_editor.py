@@ -41,12 +41,14 @@ except ImportError:
         classification_to_fields,
     )
 try:
+    from .ui.book import SegmentedBook
     from .ui.theme import PALETTE, apply_compact_fonts, apply_theme_recursively, dip_px, dip_size, style_list_ctrl, style_panel, style_text_like
     from .ui.windowing import center_dialog
 except ImportError:
     from import_compat import ensure_plugin_paths
 
     ensure_plugin_paths()
+    from book import SegmentedBook
     from theme import PALETTE, apply_compact_fonts, apply_theme_recursively, dip_px, dip_size, style_list_ctrl, style_panel, style_text_like
     from windowing import center_dialog
 
@@ -676,9 +678,12 @@ class QuickReferenceDialog(wx.Dialog):
         self.SetSize(dip_size(self, 650, 550))
         style_panel(self, PALETTE.panel_bg)
         
-        nb = wx.Notebook(self)
-        nb.SetBackgroundColour(PALETTE.panel_bg)
-        nb.SetForegroundColour(PALETTE.text)
+        nb = SegmentedBook(
+            self,
+            background=PALETTE.panel_bg,
+            tab_background=PALETTE.panel_bg,
+            page_background=PALETTE.panel_bg,
+        )
         
         # Overview tab
         overview = wx.TextCtrl(nb, style=wx.TE_MULTILINE | wx.TE_READONLY)

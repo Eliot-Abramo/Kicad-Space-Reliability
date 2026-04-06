@@ -54,12 +54,14 @@ from .growth_tracking import (
     delete_snapshot, ReliabilitySnapshot,
 )
 try:
+    from .ui.book import SegmentedBook
     from .ui.theme import PALETTE, apply_compact_fonts, apply_theme_recursively, dip_px, dip_size, platform_point_size, style_text_like, style_list_ctrl, ui_font
     from .ui.windowing import center_dialog, get_display_client_area
 except ImportError:
     from import_compat import ensure_plugin_paths
 
     ensure_plugin_paths()
+    from book import SegmentedBook
     from theme import PALETTE, apply_compact_fonts, apply_theme_recursively, dip_px, dip_size, platform_point_size, style_text_like, style_list_ctrl, ui_font
     from windowing import center_dialog, get_display_client_area
 
@@ -1114,10 +1116,13 @@ class AnalysisDialog(wx.Dialog):
         sizer.Add(hdr, 0, wx.EXPAND)
 
         # Notebook
-        self.nb = wx.Notebook(self)
-        self.nb.SetBackgroundColour(C.BG)
-        self.nb.SetPadding(wx.Size(20, 8))
-        self.nb.Bind(wx.EVT_NOTEBOOK_PAGE_CHANGED, self._on_notebook_page_changed)
+        self.nb = SegmentedBook(
+            self,
+            background=C.BG,
+            tab_background=C.BG,
+            page_background=C.BG,
+        )
+        self.nb.set_on_page_changed(self._on_notebook_page_changed)
         self.nb.AddPage(self._tab_overview(), "Overview")
         self.nb.AddPage(self._tab_analysis(), "Analysis")
         self.nb.AddPage(self._tab_design_actions(), "Design Actions")
@@ -1138,9 +1143,10 @@ class AnalysisDialog(wx.Dialog):
             wx.CallLater(320, self._refresh_dialog_layout, not self._positioned_on_show)
         event.Skip()
 
-    def _on_notebook_page_changed(self, event):
+    def _on_notebook_page_changed(self, event=None):
         wx.CallAfter(self._refresh_dialog_layout)
-        event.Skip()
+        if event is not None:
+            event.Skip()
 
     def _refresh_dialog_layout(self, recenter=False):
         try:
