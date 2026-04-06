@@ -45,6 +45,19 @@ class PublishReadinessTests(unittest.TestCase):
         self.assertTrue(methodology.exists())
         self.assertIn("./docs/METHODOLOGY.md", readme)
 
+    def test_windows_ui_policy_is_wired_into_source_files(self):
+        readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+        theme_py = (REPO_ROOT / "plugins" / "ui" / "theme.py").read_text(encoding="utf-8")
+        analysis_dialog = (REPO_ROOT / "plugins" / "analysis_dialog.py").read_text(encoding="utf-8")
+        reliability_dialog = (REPO_ROOT / "plugins" / "reliability_dialog.py").read_text(encoding="utf-8")
+
+        self.assertIn("Cross-platform UI validation", readme)
+        self.assertIn('if IS_WINDOWS:\n        return "dark"', theme_py)
+        self.assertIn("def apply_theme_recursively(", theme_py)
+        self.assertIn("apply_theme_recursively(self, background=C.BG)", analysis_dialog)
+        self.assertIn("apply_theme_recursively(self.nb, background=C.BG)", analysis_dialog)
+        self.assertIn("apply_theme_recursively(self, background=Colors.BACKGROUND)", reliability_dialog)
+
 
 if __name__ == "__main__":
     unittest.main()

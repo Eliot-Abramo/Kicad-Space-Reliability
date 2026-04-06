@@ -54,13 +54,13 @@ from .growth_tracking import (
     delete_snapshot, ReliabilitySnapshot,
 )
 try:
-    from .ui.theme import PALETTE, apply_compact_fonts, dip_px, dip_size, platform_point_size, style_text_like, style_list_ctrl
+    from .ui.theme import PALETTE, apply_compact_fonts, apply_theme_recursively, dip_px, dip_size, platform_point_size, style_text_like, style_list_ctrl, ui_font
     from .ui.windowing import center_dialog, get_display_client_area
 except ImportError:
     from import_compat import ensure_plugin_paths
 
     ensure_plugin_paths()
-    from theme import PALETTE, apply_compact_fonts, dip_px, dip_size, platform_point_size, style_text_like, style_list_ctrl
+    from theme import PALETTE, apply_compact_fonts, apply_theme_recursively, dip_px, dip_size, platform_point_size, style_text_like, style_list_ctrl, ui_font
     from windowing import center_dialog, get_display_client_area
 
 
@@ -501,7 +501,7 @@ def _make_list(parent, columns, col_widths=None):
     lc = _SortableListCtrl(parent,
                             style=wx.LC_REPORT | wx.BORDER_SIMPLE)
     style_list_ctrl(lc)
-    lc.SetFont(wx.Font(platform_point_size(9), wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+    lc.SetFont(ui_font(lc, role="small"))
     for i, name in enumerate(columns):
         w = col_widths[i] if col_widths and i < len(col_widths) else 120
         lc.InsertColumn(i, name, width=dip_px(parent, w))
@@ -546,7 +546,7 @@ def _style_button(btn, role="primary"):
     bg, fg = palette.get(role, (C.PRI, wx.WHITE))
     btn.SetBackgroundColour(bg)
     btn.SetForegroundColour(fg)
-    btn.SetFont(wx.Font(platform_point_size(10), wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+    btn.SetFont(ui_font(btn, role="body", weight=wx.FONTWEIGHT_BOLD))
     btn.SetMinSize(wx.Size(-1, dip_px(btn, 36)))
 
 
@@ -667,6 +667,7 @@ class AnalysisDialog(wx.Dialog):
 
         self._build_ui()
         apply_compact_fonts(self)
+        apply_theme_recursively(self, background=C.BG)
         self._load_persisted_state()
         self._on_load_history(None)
         self.Bind(wx.EVT_SHOW, self._on_dialog_show)
@@ -1084,7 +1085,7 @@ class AnalysisDialog(wx.Dialog):
         hdr.SetBackgroundColour(C.HEADER)
         hs = wx.BoxSizer(wx.HORIZONTAL)
         t = wx.StaticText(hdr, label="Reliability Analysis Suite")
-        t.SetFont(wx.Font(13, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        t.SetFont(ui_font(hdr, role="title", weight=wx.FONTWEIGHT_BOLD))
         t.SetForegroundColour(wx.WHITE)
         hs.Add(t, 1, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 12)
         r = self._sys_r()
@@ -1093,7 +1094,7 @@ class AnalysisDialog(wx.Dialog):
                 f"R(t) = {r:.6f}  |  {yrs:.1f}y  |  "
                 f"{len(self._active_data)} sheets")
         il = wx.StaticText(hdr, label=info)
-        il.SetFont(wx.Font(9, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        il.SetFont(ui_font(hdr, role="small"))
         il.SetForegroundColour(wx.Colour(200, 215, 240))
         hs.Add(il, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 12)
 
@@ -1143,13 +1144,16 @@ class AnalysisDialog(wx.Dialog):
 
     def _refresh_dialog_layout(self, recenter=False):
         try:
+            apply_theme_recursively(self, background=C.BG)
             self.Layout()
             if hasattr(self, "nb"):
+                apply_theme_recursively(self.nb, background=C.BG)
                 self.nb.Layout()
                 for page_index in range(self.nb.GetPageCount()):
                     page = self.nb.GetPage(page_index)
                     if not page:
                         continue
+                    apply_theme_recursively(page, background=C.BG)
                     page.Layout()
                     if isinstance(page, scrolled.ScrolledPanel):
                         page.SetupScrolling(scroll_x=False, scrollToTop=False)
@@ -1188,7 +1192,7 @@ class AnalysisDialog(wx.Dialog):
         hero.SetBackgroundColour(C.INFO_BG)
         hs = wx.BoxSizer(wx.VERTICAL)
         title = wx.StaticText(hero, label="Design Overview")
-        title.SetFont(wx.Font(12, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        title.SetFont(ui_font(hero, role="section", weight=wx.FONTWEIGHT_BOLD))
         title.SetForegroundColour(C.HEADER)
         hs.Add(title, 0, wx.ALL, 10)
         self.overview_message = wx.StaticText(
@@ -1206,13 +1210,13 @@ class AnalysisDialog(wx.Dialog):
         fp.SetBackgroundColour(C.WHITE)
         fs = wx.BoxSizer(wx.VERTICAL)
         fl = wx.StaticText(fp, label="Component Types (uncheck to exclude from all analyses):")
-        fl.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        fl.SetFont(ui_font(fp, role="body", weight=wx.FONTWEIGHT_BOLD))
         fs.Add(fl, 0, wx.ALL, 8)
         tr = wx.WrapSizer(wx.HORIZONTAL)
         for tn in sorted(self._component_types()):
             cb = wx.CheckBox(fp, label=tn)
             cb.SetValue(True)
-            cb.SetFont(wx.Font(9, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+            cb.SetFont(ui_font(cb, role="small"))
             cb.Bind(wx.EVT_CHECKBOX, self._on_type_filter)
             tr.Add(cb, 0, wx.ALL, 4)
             self._type_cbs[tn] = cb
@@ -1252,10 +1256,10 @@ class AnalysisDialog(wx.Dialog):
         card.SetBackgroundColour(C.WHITE)
         cs = wx.BoxSizer(wx.VERTICAL)
         cl = wx.StaticText(card, label="System Summary")
-        cl.SetFont(wx.Font(12, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        cl.SetFont(ui_font(card, role="section", weight=wx.FONTWEIGHT_BOLD))
         cs.Add(cl, 0, wx.ALL, 12)
         self.dash_summary = wx.StaticText(card, label="")
-        self.dash_summary.SetFont(wx.Font(10, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        self.dash_summary.SetFont(ui_font(card, role="mono"))
         cs.Add(self.dash_summary, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 12)
         card.SetSizer(cs)
         charts.Add(card, 1, wx.EXPAND)
@@ -1277,10 +1281,10 @@ class AnalysisDialog(wx.Dialog):
         sizer = wx.BoxSizer(wx.VERTICAL)
         title = wx.StaticText(card, label=label)
         title.SetForegroundColour(C.TXT_M)
-        title.SetFont(wx.Font(9, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        title.SetFont(ui_font(card, role="small", weight=wx.FONTWEIGHT_BOLD))
         value = wx.StaticText(card, label="--")
         value.SetForegroundColour(C.TXT)
-        value.SetFont(wx.Font(11 if wide else 13, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        value.SetFont(ui_font(card, role="section" if wide else "title", weight=wx.FONTWEIGHT_BOLD))
         if wide:
             value.Wrap(300)
         sizer.Add(title, 0, wx.ALL, 10)
@@ -1388,7 +1392,7 @@ class AnalysisDialog(wx.Dialog):
             label="Sensitivity workflow: 1) quantify uncertainty around the current estimate, "
                   "2) identify which parameters move system FIT the most, "
                   "3) find which component parameters are worth tightening in the design.")
-        hint.SetFont(wx.Font(9, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_ITALIC, wx.FONTWEIGHT_NORMAL))
+        hint.SetFont(ui_font(hint_panel, role="small", style=wx.FONTSTYLE_ITALIC))
         hint.SetForegroundColour(C.TXT)
         hint.Wrap(1300)
         hs.Add(hint, 0, wx.ALL, 10)
@@ -1451,7 +1455,7 @@ class AnalysisDialog(wx.Dialog):
         ps = wx.BoxSizer(wx.VERTICAL)
         pl = wx.StaticText(param_panel,
             label="Parameter Uncertainty Bounds (double-click to edit):")
-        pl.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        pl.SetFont(ui_font(param_panel, role="body", weight=wx.FONTWEIGHT_BOLD))
         ps.Add(pl, 0, wx.ALL, 8)
 
         self.param_list = _make_list(param_panel,
@@ -1479,10 +1483,10 @@ class AnalysisDialog(wx.Dialog):
         sp.SetBackgroundColour(C.WHITE)
         ss = wx.BoxSizer(wx.VERTICAL)
         sl = wx.StaticText(sp, label="Statistics")
-        sl.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        sl.SetFont(ui_font(sp, role="body", weight=wx.FONTWEIGHT_BOLD))
         ss.Add(sl, 0, wx.ALL, 8)
         self.mc_stats_text = wx.StaticText(sp, label="Run analysis to see results.")
-        self.mc_stats_text.SetFont(wx.Font(9, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        self.mc_stats_text.SetFont(ui_font(sp, role="mono"))
         ss.Add(self.mc_stats_text, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
         sp.SetSizer(ss)
         right.Add(sp, 1, wx.EXPAND)
@@ -1496,7 +1500,7 @@ class AnalysisDialog(wx.Dialog):
 
         self.jensen_label = wx.StaticText(panel, label="")
         self.jensen_label.SetForegroundColour(C.TXT_M)
-        self.jensen_label.SetFont(wx.Font(8, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_ITALIC, wx.FONTWEIGHT_NORMAL))
+        self.jensen_label.SetFont(ui_font(panel, role="caption", style=wx.FONTSTYLE_ITALIC))
         main.Add(self.jensen_label, 0, wx.LEFT | wx.BOTTOM, 8)
         self.mc_interpretation = wx.StaticText(
             panel,
@@ -1562,8 +1566,7 @@ class AnalysisDialog(wx.Dialog):
                   "Higher elasticity = more design leverage. 'Impact %' shows the "
                   "contribution of that parameter's swing relative to the total system FIT.")
         elas_note.SetForegroundColour(C.TXT_M)
-        elas_note.SetFont(wx.Font(8, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_ITALIC,
-                                   wx.FONTWEIGHT_NORMAL))
+        elas_note.SetFont(ui_font(panel, role="caption", style=wx.FONTSTYLE_ITALIC))
         elas_note.Wrap(1200)
         main.Add(elas_note, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
@@ -1605,7 +1608,7 @@ class AnalysisDialog(wx.Dialog):
         p.SetBackgroundColour(C.INFO_BG)
         s = wx.BoxSizer(wx.VERTICAL)
         l = wx.StaticText(p, label=text)
-        l.SetFont(wx.Font(11, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        l.SetFont(ui_font(p, role="section", weight=wx.FONTWEIGHT_BOLD))
         l.SetForegroundColour(C.HEADER)
         s.Add(l, 0, wx.ALL, 10)
         p.SetSizer(s)
@@ -2020,7 +2023,7 @@ class AnalysisDialog(wx.Dialog):
         main.Add(self.smart_list, 0, wx.EXPAND | wx.ALL, 6)
 
         self.smart_detail = wx.StaticText(panel, label="")
-        self.smart_detail.SetFont(wx.Font(9, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_ITALIC, wx.FONTWEIGHT_NORMAL))
+        self.smart_detail.SetFont(ui_font(panel, role="small", style=wx.FONTSTYLE_ITALIC))
         self.smart_detail.SetForegroundColour(C.TXT_M)
         main.Add(self.smart_detail, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
@@ -2113,14 +2116,13 @@ class AnalysisDialog(wx.Dialog):
                   "Strategy note: Proportional preserves the current design balance and is the recommended baseline. "
                   "Equal, Complexity, and Criticality are alternate lenses for planning conversations.")
         budget_help.SetForegroundColour(C.TXT_L)
-        budget_help.SetFont(wx.Font(8, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_ITALIC,
-                                     wx.FONTWEIGHT_NORMAL))
+        budget_help.SetFont(ui_font(panel, role="caption", style=wx.FONTSTYLE_ITALIC))
         budget_help.Wrap(1200)
         main.Add(budget_help, 0, wx.LEFT | wx.RIGHT, 12)
 
         self.budget_info = wx.StaticText(panel, label="Set target and run budget allocation.")
         self.budget_info.SetForegroundColour(C.TXT_M)
-        self.budget_info.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        self.budget_info.SetFont(ui_font(panel, role="body"))
         main.Add(self.budget_info, 0, wx.ALL, 10)
 
         budget_cards = wx.BoxSizer(wx.HORIZONTAL)
@@ -2210,7 +2212,7 @@ class AnalysisDialog(wx.Dialog):
             self._on_wi_ref_changed(None)
 
         self.wi_result = wx.TextCtrl(panel, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.BORDER_SIMPLE)
-        self.wi_result.SetFont(wx.Font(9, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        self.wi_result.SetFont(ui_font(panel, role="mono"))
         style_text_like(self.wi_result, read_only=True)
         self.wi_result.SetMinSize(wx.Size(-1, dip_px(panel, 132)))
         self.wi_result.SetMaxSize(wx.Size(-1, dip_px(panel, 176)))
@@ -2259,7 +2261,7 @@ class AnalysisDialog(wx.Dialog):
         self.history_detail = wx.TextCtrl(
             panel, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.BORDER_SIMPLE
         )
-        self.history_detail.SetFont(wx.Font(9, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        self.history_detail.SetFont(ui_font(panel, role="mono"))
         style_text_like(self.history_detail, read_only=True)
         self.history_detail.SetMinSize((-1, 150))
         main.Add(self.history_detail, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
@@ -2809,7 +2811,7 @@ class AnalysisDialog(wx.Dialog):
 
         self.report_status = wx.StaticText(panel, label="")
         self.report_status.SetForegroundColour(C.TXT_M)
-        self.report_status.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        self.report_status.SetFont(ui_font(panel, role="body"))
         main.Add(self.report_status, 0, wx.ALL, 10)
 
         # Report preview
@@ -2817,12 +2819,11 @@ class AnalysisDialog(wx.Dialog):
         preview_card.SetBackgroundColour(C.WHITE)
         pcs = wx.BoxSizer(wx.VERTICAL)
         pl = wx.StaticText(preview_card, label="Report Preview")
-        pl.SetFont(wx.Font(11, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+        pl.SetFont(ui_font(preview_card, role="section", weight=wx.FONTWEIGHT_BOLD))
         pcs.Add(pl, 0, wx.ALL, 10)
         self.report_preview = wx.TextCtrl(
             preview_card, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.BORDER_SIMPLE)
-        self.report_preview.SetFont(
-            wx.Font(9, wx.FONTFAMILY_TELETYPE, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        self.report_preview.SetFont(ui_font(preview_card, role="mono"))
         style_text_like(self.report_preview, read_only=True)
         pcs.Add(self.report_preview, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
         preview_card.SetSizer(pcs)

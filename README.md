@@ -7,8 +7,14 @@
 </p>
 
 <p align="center">
+  <strong>Version:</strong> 3.3.0
+</p>
+
+<p align="center">
   IEC TR 62380 reliability engineering for KiCad projects, from component stress modeling to system-level design closure.
 </p>
+
+**Version:** 3.3.0
 
 <p align="center">
   <img alt="Version 3.3.0" src="https://img.shields.io/badge/version-3.3.0-0f766e" />
@@ -97,6 +103,12 @@ It is coupling component stress modeling, mission assumptions, and explicit syst
 ### How to use after installing
 
 The UI is quite explicit. It is important to note to select multiple blocs for k-of-n or series, etc. configurations you need to SHIFT+CLICK on the blocs then right click and the options will present themselves.
+
+### Cross-platform UI validation
+
+The plugin keeps its own dark visual treatment on Windows by default so it stays visually aligned with Linux instead of inheriting bright Windows light-theme surfaces.
+
+For release validation, manually check the launcher, main calculator, Analysis Suite, and component editor on Windows, especially around notebook tabs, scrolled pages, and dialog resizing, because the current automated tests do not import `wx`.
 
 ## Report Outputs
 

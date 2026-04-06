@@ -12,7 +12,7 @@ import wx
 
 
 IS_WINDOWS = sys.platform.startswith("win")
-WINDOWS_FONT_POINT_DELTA = -1
+WINDOWS_FONT_POINT_DELTA = -2
 
 
 def _colour_to_rgb(colour: wx.Colour) -> tuple[int, int, int]:
@@ -58,10 +58,22 @@ def _system_prefers_dark() -> bool:
         return False
 
 
-def _theme_mode() -> str:
-    mode = os.environ.get("KICAD_RELIABILITY_THEME", "dark").strip().lower()
+def _explicit_theme_mode() -> str | None:
+    mode = os.environ.get("KICAD_RELIABILITY_THEME")
+    if mode is None:
+        return None
+    mode = mode.strip().lower()
     if mode in {"dark", "light", "system"}:
         return mode
+    return None
+
+
+def _theme_mode() -> str:
+    mode = _explicit_theme_mode()
+    if mode:
+        return mode
+    if IS_WINDOWS:
+        return "dark"
     return "dark"
 
 
@@ -111,6 +123,37 @@ def tuned_font(
     return font
 
 
+def ui_font(
+    window: wx.Window | None = None,
+    *,
+    role: str = "body",
+    relative: int = 0,
+    family: int | None = None,
+    style: int | None = None,
+    weight: int | None = None,
+    minimum: int = 8,
+) -> wx.Font:
+    role_relative = {
+        "caption": -2,
+        "small": -1,
+        "body": 0,
+        "section": 1,
+        "title": 2,
+        "hero": 4,
+        "mono": -1,
+    }.get(role, 0)
+    if role == "mono" and family is None:
+        family = wx.FONTFAMILY_TELETYPE
+    return tuned_font(
+        window,
+        relative=role_relative + relative,
+        family=family,
+        style=style,
+        weight=weight,
+        minimum=minimum,
+    )
+
+
 def apply_compact_fonts(window: wx.Window | None, delta: int | None = None, minimum: int = 8) -> None:
     if not window or not IS_WINDOWS:
         return
@@ -147,6 +190,44 @@ def dip_px(window: wx.Window, value: int) -> int:
 
 def dip_size(window: wx.Window, width: int, height: int = -1) -> wx.Size:
     return wx.Size(dip_px(window, width), dip_px(window, height))
+
+
+def _same_colour(lhs: wx.Colour, rhs: wx.Colour, tolerance: int = 10) -> bool:
+    if not lhs or not rhs or not lhs.IsOk() or not rhs.IsOk():
+        return False
+    return all(abs(a - b) <= tolerance for a, b in zip(_colour_to_rgb(lhs), _colour_to_rgb(rhs)))
+
+
+def _is_native_light_surface(colour: wx.Colour) -> bool:
+    if not colour or not colour.IsOk():
+        return True
+    if _luminance(colour) < 0.55:
+        return False
+    for sys_colour in (
+        _safe_sys_colour(wx.SYS_COLOUR_WINDOW, wx.Colour(255, 255, 255)),
+        _safe_sys_colour(wx.SYS_COLOUR_3DFACE, wx.Colour(245, 246, 247)),
+        _safe_sys_colour(wx.SYS_COLOUR_BTNFACE, wx.Colour(240, 240, 240)),
+    ):
+        if _same_colour(colour, sys_colour):
+            return True
+    return _luminance(colour) > 0.80
+
+
+def _set_surface(window: wx.Window, background: wx.Colour | None = None, foreground: wx.Colour | None = None) -> None:
+    if foreground is not None:
+        try:
+            window.SetForegroundColour(foreground)
+        except Exception:
+            pass
+    if background is not None:
+        try:
+            window.SetBackgroundColour(background)
+        except Exception:
+            pass
+        try:
+            window.SetOwnBackgroundColour(background)
+        except Exception:
+            pass
 
 
 @dataclass(frozen=True)
@@ -253,15 +334,66 @@ PALETTE = build_palette()
 
 
 def style_panel(panel: wx.Window, background: wx.Colour | None = None) -> None:
-    panel.SetBackgroundColour(background or PALETTE.card_bg)
-    panel.SetForegroundColour(PALETTE.text)
+    _set_surface(panel, background or PALETTE.card_bg, PALETTE.text)
 
 
 def style_text_like(ctrl: wx.Window, read_only: bool = False) -> None:
-    ctrl.SetForegroundColour(PALETTE.text)
-    ctrl.SetBackgroundColour(PALETTE.field_bg if read_only else PALETTE.card_bg)
+    _set_surface(ctrl, PALETTE.field_bg if read_only else PALETTE.card_bg, PALETTE.text)
 
 
 def style_list_ctrl(ctrl: wx.ListCtrl) -> None:
-    ctrl.SetBackgroundColour(PALETTE.card_bg)
-    ctrl.SetForegroundColour(PALETTE.text)
+    _set_surface(ctrl, PALETTE.card_bg, PALETTE.text)
+
+
+def apply_theme_recursively(
+    window: wx.Window | None,
+    *,
+    background: wx.Colour | None = None,
+    force_background: bool = False,
+) -> None:
+    if not window:
+        return
+
+    def _style(node: wx.Window, inherited_bg: wx.Colour | None, force_bg: bool) -> None:
+        next_bg = inherited_bg or PALETTE.panel_bg
+
+        if isinstance(node, wx.Dialog):
+            next_bg = inherited_bg or PALETTE.background
+            if force_bg or _is_native_light_surface(node.GetBackgroundColour()):
+                _set_surface(node, next_bg, PALETTE.text)
+        elif isinstance(node, wx.Notebook):
+            next_bg = inherited_bg or PALETTE.background
+            _set_surface(node, next_bg, PALETTE.text)
+        elif isinstance(node, (wx.Panel, wx.ScrolledWindow, wx.SplitterWindow)):
+            if force_bg or _is_native_light_surface(node.GetBackgroundColour()):
+                _set_surface(node, next_bg, PALETTE.text)
+        elif isinstance(node, wx.TextCtrl):
+            read_only = bool(node.GetWindowStyleFlag() & wx.TE_READONLY)
+            style_text_like(node, read_only=read_only)
+            next_bg = PALETTE.field_bg if read_only else PALETTE.card_bg
+        elif isinstance(node, wx.ListCtrl):
+            style_list_ctrl(node)
+            next_bg = PALETTE.card_bg
+        elif isinstance(node, wx.ListBox):
+            _set_surface(node, PALETTE.card_bg, PALETTE.text)
+            next_bg = PALETTE.card_bg
+        elif isinstance(node, (wx.ComboBox, wx.Choice, wx.SpinCtrl, wx.SpinCtrlDouble)):
+            _set_surface(node, PALETTE.card_bg, PALETTE.text)
+            next_bg = PALETTE.card_bg
+        elif isinstance(node, wx.StaticBox):
+            _set_surface(node, foreground=PALETTE.text)
+        elif isinstance(node, wx.StaticText):
+            _set_surface(node, foreground=PALETTE.text)
+
+        try:
+            children = list(node.GetChildren())
+        except Exception:
+            children = []
+
+        for child in children:
+            child_bg = next_bg
+            if isinstance(node, wx.Notebook):
+                child_bg = PALETTE.background
+            _style(child, child_bg, force_bg)
+
+    _style(window, background, force_background)

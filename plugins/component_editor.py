@@ -41,13 +41,13 @@ except ImportError:
         classification_to_fields,
     )
 try:
-    from .ui.theme import PALETTE, apply_compact_fonts, dip_px, dip_size, style_list_ctrl, style_panel, style_text_like
+    from .ui.theme import PALETTE, apply_compact_fonts, apply_theme_recursively, dip_px, dip_size, style_list_ctrl, style_panel, style_text_like
     from .ui.windowing import center_dialog
 except ImportError:
     from import_compat import ensure_plugin_paths
 
     ensure_plugin_paths()
-    from theme import PALETTE, apply_compact_fonts, dip_px, dip_size, style_list_ctrl, style_panel, style_text_like
+    from theme import PALETTE, apply_compact_fonts, apply_theme_recursively, dip_px, dip_size, style_list_ctrl, style_panel, style_text_like
     from windowing import center_dialog
 
 @dataclass
@@ -96,6 +96,7 @@ class FieldEditorPanel(scrolled.ScrolledPanel):
             main_sizer.Add(box_sizer, 0, wx.EXPAND | wx.ALL, 5)
         
         self.SetSizer(main_sizer)
+        apply_theme_recursively(self, background=PALETTE.card_bg)
     
     def _create_field(self, name: str, defn: Dict, initial: Dict[str, Any]) -> wx.Sizer:
         sizer = wx.BoxSizer(wx.VERTICAL)
@@ -170,6 +171,7 @@ class FieldEditorPanel(scrolled.ScrolledPanel):
         self.DestroyChildren()
         self._create_ui(initial_values or {})
         self.SetupScrolling(scroll_x=False)
+        apply_theme_recursively(self, background=PALETTE.card_bg)
         self.Layout()
 
 
@@ -186,6 +188,7 @@ class ComponentEditorDialog(wx.Dialog):
         self.SetSize(dip_size(self, 520, 650))
         self._create_ui()
         apply_compact_fonts(self)
+        apply_theme_recursively(self, background=PALETTE.panel_bg)
         self._update_preview()
         wx.CallAfter(center_dialog, self, parent)
     
@@ -346,6 +349,7 @@ class BatchComponentEditorDialog(wx.Dialog):
         self.SetSize(dip_size(self, 950, 700))
         self._create_ui()
         apply_compact_fonts(self)
+        apply_theme_recursively(self, background=PALETTE.panel_bg)
         wx.CallAfter(center_dialog, self, parent)
     
     def _create_ui(self):
@@ -742,4 +746,5 @@ EOS (Electrical Overstress):
         sizer.Add(close_btn, 0, wx.ALIGN_CENTER | wx.ALL, 10)
         self.SetSizer(sizer)
         apply_compact_fonts(self)
+        apply_theme_recursively(self, background=PALETTE.panel_bg)
         wx.CallAfter(center_dialog, self, parent)

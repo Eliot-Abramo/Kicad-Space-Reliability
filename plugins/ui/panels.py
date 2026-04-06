@@ -12,7 +12,7 @@ import wx.lib.scrolledpanel as scrolled
 try:
     from ..mission_profile import MissionPhase, MissionProfile, MISSION_TEMPLATES
     from ..component_editor import QuickReferenceDialog
-    from .theme import PALETTE, apply_compact_fonts, dip_px, dip_size, style_list_ctrl, style_panel, style_text_like
+    from .theme import PALETTE, apply_compact_fonts, apply_theme_recursively, dip_px, dip_size, style_list_ctrl, style_panel, style_text_like
 except ImportError:
     import sys
     from pathlib import Path
@@ -24,7 +24,7 @@ except ImportError:
             sys.path.insert(0, text)
     from mission_profile import MissionPhase, MissionProfile, MISSION_TEMPLATES
     from component_editor import QuickReferenceDialog
-    from theme import PALETTE, apply_compact_fonts, dip_px, dip_size, style_list_ctrl, style_panel, style_text_like
+    from theme import PALETTE, apply_compact_fonts, apply_theme_recursively, dip_px, dip_size, style_list_ctrl, style_panel, style_text_like
 
 
 class Colors:
@@ -164,6 +164,7 @@ class MissionPhaseDialog(wx.Dialog):
         sizer.Add(btn_sizer, 0, wx.EXPAND | wx.ALL, 10)
         self.SetSizer(sizer)
         apply_compact_fonts(self)
+        apply_theme_recursively(self, background=Colors.PANEL_BG)
         self.Layout()
 
     def get_phase(self) -> MissionPhase:

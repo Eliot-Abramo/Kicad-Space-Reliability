@@ -41,14 +41,14 @@ from .mission_profile import MissionProfile
 
 try:
     from .ui.panels import Colors, SheetPanel, SettingsPanel, ComponentPanel
-    from .ui.theme import apply_compact_fonts, dip_size, style_panel, style_text_like, tuned_font
+    from .ui.theme import apply_compact_fonts, apply_theme_recursively, dip_size, style_panel, style_text_like, ui_font
     from .ui.windowing import center_dialog, get_display_client_area
 except ImportError:
     from import_compat import ensure_plugin_paths
 
     ensure_plugin_paths()
     from panels import Colors, SheetPanel, SettingsPanel, ComponentPanel
-    from theme import apply_compact_fonts, dip_size, style_panel, style_text_like, tuned_font
+    from theme import apply_compact_fonts, apply_theme_recursively, dip_size, style_panel, style_text_like, ui_font
     from windowing import center_dialog, get_display_client_area
 
 
@@ -96,7 +96,7 @@ class ReliabilityMainDialog(wx.Dialog):
         style_panel(header, Colors.HEADER_BG)
         header_sizer = wx.BoxSizer(wx.HORIZONTAL)
         title = wx.StaticText(header, label="[Z] Reliability Calculator")
-        title.SetFont(tuned_font(header, relative=4, weight=wx.FONTWEIGHT_BOLD))
+        title.SetFont(ui_font(header, role="title", weight=wx.FONTWEIGHT_BOLD))
         title.SetForegroundColour(Colors.HEADER_FG)
         header_sizer.Add(title, 1, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 12)
         self.project_badge = wx.StaticText(header, label="(no project)")
@@ -153,13 +153,7 @@ class ReliabilityMainDialog(wx.Dialog):
         self.results = wx.TextCtrl(
             results_panel, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.BORDER_SIMPLE
         )
-        self.results.SetFont(
-            tuned_font(
-                self.results,
-                family=wx.FONTFAMILY_TELETYPE,
-                minimum=8,
-            )
-        )
+        self.results.SetFont(ui_font(self.results, role="mono", minimum=8))
         style_text_like(self.results, read_only=True)
         results_sizer.Add(self.results, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
         btn_calc = wx.Button(results_panel, label="Recalculate")
@@ -185,6 +179,7 @@ class ReliabilityMainDialog(wx.Dialog):
 
         self.SetSizer(root)
         apply_compact_fonts(self)
+        apply_theme_recursively(self, background=Colors.BACKGROUND)
         self.Layout()
 
     def _create_toolbar(self) -> wx.Panel:

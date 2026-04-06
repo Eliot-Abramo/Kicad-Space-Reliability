@@ -26,13 +26,13 @@ import json
 from pathlib import Path
 
 try:
-    from .ui.theme import PALETTE, apply_compact_fonts, dip_size, style_panel, tuned_font
+    from .ui.theme import PALETTE, apply_compact_fonts, apply_theme_recursively, dip_size, style_panel, ui_font
     from .ui.windowing import center_dialog
 except ImportError:
     from import_compat import ensure_plugin_paths
 
     ensure_plugin_paths()
-    from theme import PALETTE, apply_compact_fonts, dip_size, style_panel, tuned_font
+    from theme import PALETTE, apply_compact_fonts, apply_theme_recursively, dip_size, style_panel, ui_font
     from windowing import center_dialog
 
 
@@ -57,6 +57,7 @@ class ProjectSelector(wx.Dialog):
 
         self._create_ui()
         apply_compact_fonts(self)
+        apply_theme_recursively(self, background=PALETTE.background)
         wx.CallAfter(center_dialog, self, parent)
 
     def _create_ui(self):
@@ -66,7 +67,7 @@ class ProjectSelector(wx.Dialog):
 
         # Header
         header = wx.StaticText(panel, label="Reliability Calculator")
-        header.SetFont(tuned_font(panel, relative=6, weight=wx.FONTWEIGHT_BOLD))
+        header.SetFont(ui_font(panel, role="hero", weight=wx.FONTWEIGHT_BOLD))
         header.SetForegroundColour(PALETTE.text)
         main_sizer.Add(header, 0, wx.ALL | wx.ALIGN_CENTER, 15)
 
