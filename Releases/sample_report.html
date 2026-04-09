@@ -1,0 +1,1994 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Reliability Report - SWIFT_deployment_board</title>
+<style>
+        :root { --primary:#2563eb; --success:#22c55e; --warning:#f59e0b;
+                --danger:#ef4444; --bg:#f8fafc; --card:#fff; --text:#1e293b;
+                --text2:#64748b; --border:#e2e8f0; }
+        * { box-sizing:border-box; margin:0; padding:0; }
+        body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+               background:var(--bg); color:var(--text); line-height:1.6; padding:32px; }
+        .container { max-width:1200px; margin:0 auto; }
+        .header { background:linear-gradient(135deg,var(--primary),#1e40af);
+                  color:white; padding:32px 40px; border-radius:12px; margin-bottom:24px;
+                  display:flex; align-items:center; justify-content:space-between; }
+        .header h1 { font-size:2em; margin-bottom:6px; }
+        .header .sub { opacity:0.9; font-size:0.95em; }
+        .header-logo { max-height:70px; max-width:160px; margin-left:20px; object-fit:contain; }
+        .card { background:var(--card); border-radius:10px; padding:24px;
+                margin-bottom:20px; box-shadow:0 1px 4px rgba(0,0,0,0.06); }
+        .card h2 { color:var(--primary); margin-bottom:14px; font-size:1.3em;
+                   border-bottom:2px solid var(--border); padding-bottom:8px; }
+        .card h3 { color:var(--text); margin:18px 0 10px; font-size:1.05em; }
+        .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:16px; }
+        .metric { background:#f1f5f9; padding:18px; border-radius:8px; text-align:center; }
+        .metric .v { font-size:1.8em; font-weight:bold; color:var(--primary); }
+        .metric .l { color:var(--text2); font-size:0.85em; margin-top:2px; }
+        .metric.ok .v { color:var(--success); }
+        .metric.warn .v { color:var(--warning); }
+        .metric.bad .v { color:var(--danger); }
+        table { width:100%; border-collapse:collapse; margin:14px 0; font-size:0.9em; }
+        th,td { padding:10px 12px; text-align:left; border-bottom:1px solid var(--border); }
+        th { background:#f1f5f9; font-weight:600; color:var(--text2); position:sticky; top:0; }
+        tr:hover { background:#f8fafc; }
+        .mono { font-family:'SF Mono',Monaco,'Courier New',monospace; font-size:0.9em; }
+        .badge { display:inline-block; padding:3px 10px; border-radius:16px; font-size:0.8em; font-weight:500; }
+        .badge-ok { background:#dcfce7; color:#166534; }
+        .badge-warn { background:#fef3c7; color:#92400e; }
+        .badge-bad { background:#fecaca; color:#991b1b; }
+        .badge-override { background:#dbeafe; color:#1e40af; }
+        .chart-row { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:16px 0; }
+        .chart-single { margin:16px 0; }
+        .footer { text-align:center; color:var(--text2); padding:20px; font-size:0.82em; }
+        @media print { body { padding:16px; } .card { break-inside:avoid; box-shadow:none; border:1px solid var(--border); } }
+        @media (max-width:768px) { .chart-row { grid-template-columns:1fr; } }
+        </style>
+</head><body><div class="container">
+<div class="header"><div>
+<h1>Reliability Analysis Report</h1>
+<div class="sub">Project: <strong>SWIFT_deployment_board</strong> | 2026-04-05 00:31 | IEC TR 62380:2004</div>
+<div class="sub" style="margin-top:4px">Prepared by <strong>Eliot Abramo</strong></div>
+</div></div>
+
+<div class="card" style="position:sticky;top:0;z-index:100;background:#fff;border-bottom:2px solid #2563eb;padding:8px 18px;font-size:0.85rem"><strong>Contents:</strong> <a href="#sec-intro" style="color:#2563eb;text-decoration:none">What This Report Means</a> &middot; <a href="#sec-summary" style="color:#2563eb;text-decoration:none">System Summary</a> &middot; <a href="#sec-executive" style="color:#2563eb;text-decoration:none">Executive Summary</a> &middot; <a href="#sec-methodology" style="color:#2563eb;text-decoration:none">Methodology</a> &middot; <a href="#sec-mc" style="color:#2563eb;text-decoration:none">Monte Carlo Uncertainty</a> &middot; <a href="#sec-tornado" style="color:#2563eb;text-decoration:none">Tornado Sensitivity</a> &middot; <a href="#sec-whatif" style="color:#2563eb;text-decoration:none">What-If Scenarios</a> &middot; <a href="#sec-criticality" style="color:#2563eb;text-decoration:none">Component Criticality</a> &middot; <a href="#sec-budget" style="color:#2563eb;text-decoration:none">Budget Allocation</a> &middot; <a href="#sec-derating" style="color:#2563eb;text-decoration:none">Derating Guidance</a> &middot; <a href="#sec-swap" style="color:#2563eb;text-decoration:none">Swap Analysis</a> &middot; <a href="#sec-contributions" style="color:#2563eb;text-decoration:none">FIT Contributions</a> &middot; <a href="#sec-sheets" style="color:#2563eb;text-decoration:none">Sheet Details</a> &middot; <a href="#sec-glossary" style="color:#2563eb;text-decoration:none">Glossary</a></div>
+
+
+<div class="card"><h2 id="sec-intro">What This Tool Does And What This Report Communicates</h2>
+<p>This plugin turns your KiCad design into a reliability model. It reads the component set, applies the IEC TR 62380 failure-rate model to each part, combines those part-level rates into a system result, and then adds uncertainty and sensitivity views so you can see what is solid, what is assumption-driven, and what is worth fixing first.</p>
+<p>In plain terms, this report tells you four things. First, the current estimate: system FIT, mission reliability, and MTTF. Second, how much that estimate moves when uncertain inputs such as temperature, duty, or cycling are allowed to vary. Third, which sheets, components, and parameters are doing most of the damage. Fourth, where design effort is most likely to buy back margin if the result is not where you want it yet.</p>
+<p>It is best used as a design-review document. The summary gives the headline result, the analysis pages explain what is driving it, and the action pages help you decide what to change next. For the math, assumptions, and interpretation limits behind the numbers, see <span class="mono">docs/METHODOLOGY.md</span>.</p>
+<p style="margin-top:12px;color:var(--text2)">Component classification provenance: 17 high-confidence auto-classified, 0 explicit from fields, 121 manually reviewed, 0 flagged for review.</p></div>
+
+
+<div class="card"><h2 id="sec-summary">System Summary</h2>
+<div class="grid">
+<div class="metric ok"><div class="v">0.958577</div><div class="l">System Reliability</div></div>
+<div class="metric"><div class="v">965.9</div><div class="l">Failure Rate (FIT)</div></div>
+<div class="metric"><div class="v">118.2</div><div class="l">MTTF (years)</div></div>
+<div class="metric"><div class="v">5.0</div><div class="l">Mission (years)</div></div>
+</div>
+<p style="margin-top:16px"><span class="badge badge-ok">Excellent</span>
+Mission: 5256 cycles/yr, dT = 3.0 degC</p></div>
+<div class="card"><h2 id="sec-executive">Executive Summary</h2><p style="margin-bottom:14px">This is the short version for a design review: how the design is performing now, how stable that answer looks, and what the next useful engineering actions are.</p><div class="grid"><div class="metric ok"><div class="v">0.958577</div><div class="l">Mission Reliability</div></div><div class="metric"><div class="v">965.9</div><div class="l">System FIT</div></div><div class="metric"><div class="v">118.2</div><div class="l">MTTF (years)</div></div><div class="metric"><div class="v">0.00</div><div class="l">FIT Gap To Close</div></div></div><h3 style="margin-top:0">Key Findings</h3><ul><li>System reliability meets the 0.99 threshold -- design is robust.</li><li>Monte Carlo analysis (5,000 samples) gives 90% CI: [0.970522, 0.971125].</li><li>That uncertainty window spans 0.000603 reliability points across the current assumptions.</li><li>Highest-leverage parameter: t_junction (22 comps) (FIT swing: 29.3).</li><li>Classification status: 121 manually reviewed, 17 high-confidence auto-classified, 0 flagged for review.</li></ul><h3>What Deserves Attention First</h3><ul><li>The fastest sensitivity lever right now is t_junction (22 comps).</li></ul><h3>Recommendations</h3><ol><li>Focus design effort on the top 3 parameters: t_junction (22 comps), t_ambient (108 comps), voltage_stress_vgs (9 comps).</li></ol></div>
+<div class="card"><h2 id="sec-methodology">Methodology &amp; Mathematical Foundations</h2>
+<p>The calculation flow in this tool is straightforward: estimate each component failure rate with
+<strong>IEC TR 62380:2004</strong>, combine those rates into a system result that matches the modelled
+architecture, then run focused analysis views to show uncertainty, leverage points, and likely paths
+to improvement. The goal is not to hide the math. It is to make the assumptions visible enough that an
+engineering team can challenge them, defend them, and act on them.</p>
+
+<h3>1. Core Reliability Model</h3>
+<p>Each component's failure rate &lambda;<sub>i</sub> is computed with the IEC TR 62380 formulation,
+which captures die-level stress, package-related effects, and overstress terms:</p>
+<pre style="background:#f8f9fa;padding:12px;border-radius:4px;font-size:0.9em">
+  &lambda;<sub>i</sub> = &pi;<sub>die</sub> &middot; &lambda;<sub>base</sub> + &pi;<sub>pkg</sub> &middot; &lambda;<sub>therm</sub> + &pi;<sub>EOS</sub> &middot; &lambda;<sub>overstress</sub>
+</pre>
+<p>where &pi;<sub>die</sub> includes the <strong>Arrhenius temperature acceleration</strong>
+(exponential dependence on junction temperature T<sub>j</sub>), &pi;<sub>pkg</sub> includes the
+<strong>Coffin&ndash;Manson thermal cycling fatigue</strong> (power-law dependence on &Delta;T and
+N<sub>cycles</sub>), and &pi;<sub>EOS</sub> models electrical overstress contributions.</p>
+
+<p>The system failure rate comes from the assembled block model. For a simple series path it reduces to
+the sum of all contributing component failure rates:</p>
+<pre style="background:#f8f9fa;padding:12px;border-radius:4px;font-size:0.9em">
+  &lambda;<sub>sys</sub> = &Sigma; &lambda;<sub>i</sub>     R(t) = exp(&minus;&lambda;<sub>sys</sub> &middot; t)
+</pre>
+
+<h3>2. Tornado Sensitivity (OAT)</h3>
+<p>The <strong>One-At-a-Time (OAT)</strong> view perturbs each parameter by a user-specified
+amount while holding all other parameters at their nominal values. For each perturbation
+&Delta;x of parameter x:</p>
+<pre style="background:#f8f9fa;padding:12px;border-radius:4px;font-size:0.9em">
+  FIT<sub>swing</sub> = |&lambda;<sub>sys</sub>(x + &Delta;x) &minus; &lambda;<sub>sys</sub>(x &minus; &Delta;x)| &times; 10<sup>9</sup>
+</pre>
+<p>This is a <strong>local deterministic ranking tool</strong>. Each bar shows how much system FIT
+moves when one parameter is perturbed around the current design point and the full IEC formulas
+are re-evaluated. It is useful for design prioritisation, but it should not be interpreted as a
+global Sobol analysis.</p>
+
+<h3>3. Component Criticality (Elasticity)</h3>
+<p>The <strong>normalized elasticity</strong> (log-log derivative) measures the proportional
+sensitivity of &lambda;<sub>i</sub> to each parameter &theta;:</p>
+<pre style="background:#f8f9fa;padding:12px;border-radius:4px;font-size:0.9em">
+  e = (d&lambda;/&lambda;) / (d&theta;/&theta;) &approx; (&lambda;(&theta;+&Delta;&theta;) &minus; &lambda;(&theta;&minus;&Delta;&theta;)) / (2&Delta;&theta;/&theta;) / &lambda;<sub>nom</sub>
+</pre>
+<p>This central finite-difference approximation is second-order accurate: error is O(h&sup2;).
+<em>Reference: Borgonovo &amp; Plischke (2016) &ldquo;Sensitivity analysis: A review of recent advances.&rdquo;</em></p>
+
+<h3>4. Monte Carlo Uncertainty Analysis</h3>
+<p>The uncertainty analysis pushes plausible input variation through the full model. For each simulation,
+the tool samples the uncertain inputs, rebuilds the component failure rates, and records the resulting
+system FIT and mission reliability.</p>
+<ol>
+<li>Draw shared parameters once (environmental) and independent parameters per component</li>
+<li>Recompute &lambda;<sub>i</sub> through the full IEC TR 62380 formula</li>
+<li>Sum to obtain &lambda;<sub>sys</sub> and compute R(t) = exp(&minus;&lambda;<sub>sys</sub> &middot; t)</li>
+</ol>
+<p>Convergence rate: O(1/&radic;N) by the Central Limit Theorem. Confidence intervals are computed
+directly from empirical quantiles of the sample distribution.</p>
+<p><strong>PERT distribution</strong> (Beta-PERT) with &gamma;=4 is used for expert-elicited bounds.
+<em>Reference: Vose (2008) &ldquo;Risk Analysis: A Quantitative Guide.&rdquo;</em></p>
+
+<h3>5. SRRC (Parameter Importance)</h3>
+<p><strong>Standardized Rank Regression Coefficients</strong> provide a Monte Carlo-based importance
+ranking for monotonic input-output relationships. In this plugin, SRRC and SRRC&sup2; are used as
+relative screening metrics rather than as a formal substitute for a validated Sobol workflow.
+<em>Reference: Helton &amp; Davis (2003) &ldquo;Latin Hypercube Sampling and Propagation of Uncertainty.&rdquo;</em></p>
+
+<h3>6. Jensen's Inequality Diagnostic</h3>
+<p>Since R(t) = exp(&minus;&lambda;t) is <strong>convex</strong> in &lambda;, Jensen's inequality gives:
+E[R(t)] &ge; R(E[&lambda;],t). The report uses this relationship as a consistency check on the
+Monte Carlo output by comparing the sample mean reliability with the reliability evaluated at the
+mean sampled failure rate.</p>
+
+<p style="margin-top:12px;color:var(--text2)">Practical reading guide: use the System Summary and
+Executive Summary for the headline answer, the Monte Carlo and tornado sections to understand how stable
+that answer is, and the design-action sections if you need to close a gap against a target.</p>
+</div>
+<div class="card"><h2 id="sec-mc">Monte Carlo Uncertainty Analysis</h2>
+<div class="grid">
+<div class="metric"><div class="v">0.970823</div><div class="l">Mean Reliability</div></div>
+<div class="metric"><div class="v">0.000185</div><div class="l">Standard Deviation</div></div>
+<div class="metric"><div class="v">0.970522</div><div class="l">90% CI Lower</div></div>
+<div class="metric"><div class="v">0.971125</div><div class="l">90% CI Upper</div></div>
+</div>
+<p style="margin-top:12px;color:var(--text2)">Based on 5,000 simulations (converged) | 90% Confidence Interval: [0.970522, 0.971125]</p>
+<div class="chart-row"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 300" style="max-width:100%;height:auto;font-family:sans-serif;">
+<rect width="600" height="300" fill="white" rx="8"/>
+<text x="60" y="24" font-size="13" font-weight="bold" fill="#1e293b">Reliability Distribution</text>
+<line x1="60" y1="40" x2="570" y2="40" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="60" y1="92" x2="570" y2="92" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="60" y1="145" x2="570" y2="145" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="60" y1="197" x2="570" y2="197" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="60" y1="250" x2="570" y2="250" stroke="#f1f5f9" stroke-width="1"/>
+<rect x="60" y="249" width="13" height="1" fill="#3b82f6" rx="1"/>
+<rect x="74" y="247" width="13" height="3" fill="#3b82f6" rx="1"/>
+<rect x="89" y="242" width="13" height="8" fill="#3b82f6" rx="1"/>
+<rect x="103" y="245" width="13" height="5" fill="#3b82f6" rx="1"/>
+<rect x="118" y="239" width="13" height="11" fill="#3b82f6" rx="1"/>
+<rect x="132" y="233" width="13" height="17" fill="#3b82f6" rx="1"/>
+<rect x="147" y="226" width="13" height="24" fill="#3b82f6" rx="1"/>
+<rect x="162" y="200" width="13" height="50" fill="#3b82f6" rx="1"/>
+<rect x="176" y="187" width="13" height="63" fill="#3b82f6" rx="1"/>
+<rect x="191" y="168" width="13" height="82" fill="#3b82f6" rx="1"/>
+<rect x="205" y="131" width="13" height="119" fill="#3b82f6" rx="1"/>
+<rect x="220" y="128" width="13" height="122" fill="#3b82f6" rx="1"/>
+<rect x="234" y="99" width="13" height="151" fill="#3b82f6" rx="1"/>
+<rect x="249" y="97" width="13" height="153" fill="#3b82f6" rx="1"/>
+<rect x="264" y="62" width="13" height="188" fill="#3b82f6" rx="1"/>
+<rect x="278" y="61" width="13" height="189" fill="#3b82f6" rx="1"/>
+<rect x="293" y="42" width="13" height="208" fill="#3b82f6" rx="1"/>
+<rect x="307" y="40" width="13" height="210" fill="#3b82f6" rx="1"/>
+<rect x="322" y="58" width="13" height="192" fill="#3b82f6" rx="1"/>
+<rect x="336" y="70" width="13" height="180" fill="#3b82f6" rx="1"/>
+<rect x="351" y="96" width="13" height="154" fill="#3b82f6" rx="1"/>
+<rect x="366" y="82" width="13" height="168" fill="#3b82f6" rx="1"/>
+<rect x="380" y="99" width="13" height="151" fill="#3b82f6" rx="1"/>
+<rect x="395" y="143" width="13" height="107" fill="#3b82f6" rx="1"/>
+<rect x="409" y="156" width="13" height="94" fill="#3b82f6" rx="1"/>
+<rect x="424" y="185" width="13" height="65" fill="#3b82f6" rx="1"/>
+<rect x="438" y="203" width="13" height="47" fill="#3b82f6" rx="1"/>
+<rect x="453" y="213" width="13" height="37" fill="#3b82f6" rx="1"/>
+<rect x="468" y="227" width="13" height="23" fill="#3b82f6" rx="1"/>
+<rect x="482" y="230" width="13" height="20" fill="#3b82f6" rx="1"/>
+<rect x="497" y="242" width="13" height="8" fill="#3b82f6" rx="1"/>
+<rect x="511" y="244" width="13" height="6" fill="#3b82f6" rx="1"/>
+<rect x="526" y="246" width="13" height="4" fill="#3b82f6" rx="1"/>
+<rect x="540" y="250" width="13" height="0" fill="#3b82f6" rx="1"/>
+<rect x="555" y="249" width="13" height="1" fill="#3b82f6" rx="1"/>
+<rect x="181.5" y="40" width="259.1" height="210" fill="#22c55e" opacity="0.12"/>
+<line x1="181.5" y1="40" x2="181.5" y2="250" stroke="#22c55e" stroke-width="2" stroke-dasharray="5,3"/>
+<line x1="440.6" y1="40" x2="440.6" y2="250" stroke="#22c55e" stroke-width="2" stroke-dasharray="5,3"/>
+<line x1="310.7" y1="40" x2="310.7" y2="250" stroke="#ef4444" stroke-width="2"/>
+<line x1="181.5" y1="40" x2="181.5" y2="250" stroke="#f59e0b" stroke-width="2" stroke-dasharray="5,3"/>
+<line x1="440.6" y1="40" x2="440.6" y2="250" stroke="#f59e0b" stroke-width="2" stroke-dasharray="5,3"/>
+<line x1="410" y1="51" x2="430" y2="51" stroke="#ef4444" stroke-width="2"/>
+<text x="435" y="55" font-size="10" fill="#475569">Mean</text>
+<line x1="410" y1="65" x2="430" y2="65" stroke="#f59e0b" stroke-width="2" stroke-dasharray="5,3"/>
+<text x="435" y="69" font-size="10" fill="#475569">5th/95th %ile</text>
+<rect x="410" y="75" width="20" height="10" fill="#22c55e" opacity="0.3" rx="2"/>
+<text x="435" y="84" font-size="10" fill="#475569">90% CI</text>
+<text x="60" y="270" font-size="9" text-anchor="middle" fill="#64748b">0.9702</text>
+<text x="187" y="270" font-size="9" text-anchor="middle" fill="#64748b">0.9705</text>
+<text x="315" y="270" font-size="9" text-anchor="middle" fill="#64748b">0.9708</text>
+<text x="442" y="270" font-size="9" text-anchor="middle" fill="#64748b">0.9711</text>
+<text x="570" y="270" font-size="9" text-anchor="middle" fill="#64748b">0.9714</text>
+<text x="315" y="295" font-size="10" text-anchor="middle" fill="#64748b">Reliability R(t)</text>
+</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 300" style="max-width:100%;height:auto;font-family:sans-serif;">
+<rect width="600" height="300" fill="white" rx="8"/>
+<text x="60" y="24" font-size="13" font-weight="bold" fill="#1e293b">Mean Convergence</text>
+<line x1="60" y1="40" x2="570" y2="40" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="60" y1="92" x2="570" y2="92" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="60" y1="145" x2="570" y2="145" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="60" y1="197" x2="570" y2="197" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="60" y1="250" x2="570" y2="250" stroke="#f1f5f9" stroke-width="1"/>
+<path d="M60.0,232.5 L66.3,57.5 L72.6,70.2 L79.0,78.3 L85.3,80.9 L91.6,87.8 L97.9,87.2 L104.3,84.4 L110.6,86.8 L116.9,82.3 L123.2,85.2 L129.6,87.9 L135.9,87.2 L142.2,86.3 L148.5,86.2 L154.9,85.3 L161.2,84.9 L167.5,84.6 L173.8,83.5 L180.2,81.3 L186.5,81.9 L192.8,82.1 L199.1,83.6 L205.5,82.3 L211.8,82.7 L218.1,82.8 L224.4,83.7 L230.7,83.4 L237.1,85.2 L243.4,84.4 L249.7,84.9 L256.0,84.5 L262.4,84.6 L268.7,84.0 L275.0,83.7 L281.3,83.8 L287.7,84.0 L294.0,83.3 L300.3,83.9 L306.6,83.2 L313.0,82.6 L319.3,81.9 L325.6,81.2 L331.9,80.9 L338.3,81.5 L344.6,81.1 L350.9,80.7 L357.2,81.5 L363.6,81.7 L369.9,81.3 L376.2,81.4 L382.5,81.8 L388.8,82.1 L395.2,82.4 L401.5,82.0 L407.8,82.4 L414.1,81.5 L420.5,81.9 L426.8,81.4 L433.1,81.9 L439.4,81.9 L445.8,80.7 L452.1,80.4 L458.4,80.7 L464.7,80.9 L471.1,80.4 L477.4,80.4 L483.7,80.3 L490.0,80.6 L496.4,81.0 L502.7,81.3 L509.0,81.2 L515.3,81.2 L521.7,81.4 L528.0,80.9 L534.3,80.7 L540.6,80.9 L546.9,82.1 L553.3,81.8 L559.6,81.1 L565.9,81.3 L569.9,81.2" fill="none" stroke="#3b82f6" stroke-width="2"/>
+<line x1="60" y1="81.2" x2="570" y2="81.2" stroke="#22c55e" stroke-width="1" stroke-dasharray="5,3"/>
+<text x="315" y="295" font-size="10" text-anchor="middle" fill="#64748b">Simulations</text>
+</svg>
+</div><h3>Parameter Importance (SRRC)</h3><p style="color:var(--text2)">Standardised Rank Regression Coefficients measure which uncertain parameters most influence system reliability.</p><table><thead><tr><th>Rank</th><th>Parameter</th><th>Mode</th><th>SRRC</th><th>SRRC&sup2;</th><th>Variance %</th></tr></thead><tbody>
+<tr><td>1</td><td>n_contacts</td><td>Indep.</td><td class="mono">0.7192</td><td class="mono">0.5172</td><td class="mono">83.4%</td></tr>
+<tr><td>2</td><td>power_loss</td><td>Indep.</td><td class="mono">0.2326</td><td class="mono">0.0541</td><td class="mono">8.7%</td></tr>
+<tr><td>3</td><td>t_junction</td><td>Indep.</td><td class="mono">0.1173</td><td class="mono">0.0138</td><td class="mono">2.2%</td></tr>
+<tr><td>4</td><td>n_cycles</td><td>Indep.</td><td class="mono">0.1131</td><td class="mono">0.0128</td><td class="mono">2.1%</td></tr>
+<tr><td>5</td><td>surface_area_mm2</td><td>Indep.</td><td class="mono">-0.1093</td><td class="mono">0.0120</td><td class="mono">1.9%</td></tr>
+<tr><td>6</td><td>construction_year</td><td>Indep.</td><td class="mono">-0.0921</td><td class="mono">0.0085</td><td class="mono">1.4%</td></tr>
+<tr><td>7</td><td>t_ambient</td><td>Shared</td><td class="mono">0.0349</td><td class="mono">0.0012</td><td class="mono">0.2%</td></tr>
+<tr><td>8</td><td>voltage_stress_vgs</td><td>Indep.</td><td class="mono">0.0231</td><td class="mono">0.0005</td><td class="mono">0.1%</td></tr>
+<tr><td>9</td><td>voltage_stress_vds</td><td>Indep.</td><td class="mono">0.0076</td><td class="mono">0.0001</td><td class="mono">0.0%</td></tr>
+<tr><td>10</td><td>operating_power</td><td>Indep.</td><td class="mono">-0.0071</td><td class="mono">0.0001</td><td class="mono">0.0%</td></tr>
+<tr><td>11</td><td>voltage_stress_vce</td><td>Indep.</td><td class="mono">-0.0059</td><td class="mono">0.0000</td><td class="mono">0.0%</td></tr>
+<tr><td>12</td><td>rated_power</td><td>Indep.</td><td class="mono">0.0049</td><td class="mono">0.0000</td><td class="mono">0.0%</td></tr>
+<tr><td>13</td><td>transistor_count</td><td>Indep.</td><td class="mono">-0.0042</td><td class="mono">0.0000</td><td class="mono">0.0%</td></tr>
+<tr><td>14</td><td>mating_cycles_per_year</td><td>Indep.</td><td class="mono">0.0003</td><td class="mono">0.0000</td><td class="mono">0.0%</td></tr>
+<tr><td>15</td><td>contact_current_ratio</td><td>Indep.</td><td class="mono">-0.0001</td><td class="mono">0.0000</td><td class="mono">0.0%</td></tr>
+</tbody></table>
+<div class="chart-single"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 400" style="max-width:100%;height:auto;font-family:sans-serif;">
+<rect width="600" height="400" fill="white" rx="8"/>
+<text x="120" y="24" font-size="13" font-weight="bold" fill="#1e293b">Parameter Importance (SRRC²)</text>
+<line x1="120" y1="40" x2="120" y2="350" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="232" y1="40" x2="232" y2="350" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="345" y1="40" x2="345" y2="350" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="457" y1="40" x2="457" y2="350" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="570" y1="40" x2="570" y2="350" stroke="#f1f5f9" stroke-width="1"/>
+<rect x="120" y="48" width="450" height="22" fill="#3b82f6" rx="3"/>
+<text x="115" y="63" font-size="9" text-anchor="end" fill="#374151">n_contacts</text>
+<text x="126" y="63" font-size="9" fill="white">0.517</text>
+<rect x="120" y="78" width="47" height="22" fill="#10b981" rx="3"/>
+<text x="115" y="93" font-size="9" text-anchor="end" fill="#374151">power_loss</text>
+<text x="173" y="93" font-size="9" fill="#374151">0.054</text>
+<rect x="120" y="108" width="11" height="22" fill="#f59e0b" rx="3"/>
+<text x="115" y="123" font-size="9" text-anchor="end" fill="#374151">t_junction</text>
+<text x="137" y="123" font-size="9" fill="#374151">0.014</text>
+<rect x="120" y="138" width="11" height="22" fill="#ef4444" rx="3"/>
+<text x="115" y="153" font-size="9" text-anchor="end" fill="#374151">n_cycles</text>
+<text x="137" y="153" font-size="9" fill="#374151">0.013</text>
+<rect x="120" y="168" width="10" height="22" fill="#8b5cf6" rx="3"/>
+<text x="115" y="183" font-size="9" text-anchor="end" fill="#374151">surface_area_mm2</text>
+<text x="136" y="183" font-size="9" fill="#374151">0.012</text>
+<rect x="120" y="198" width="7" height="22" fill="#ec4899" rx="3"/>
+<text x="115" y="213" font-size="9" text-anchor="end" fill="#374151">construction_year</text>
+<text x="133" y="213" font-size="9" fill="#374151">0.008</text>
+<rect x="120" y="228" width="2" height="22" fill="#14b8a6" rx="3"/>
+<text x="115" y="243" font-size="9" text-anchor="end" fill="#374151">t_ambient</text>
+<text x="128" y="243" font-size="9" fill="#374151">0.001</text>
+<rect x="120" y="258" width="2" height="22" fill="#f97316" rx="3"/>
+<text x="115" y="273" font-size="9" text-anchor="end" fill="#374151">voltage_stress_vgs</text>
+<text x="128" y="273" font-size="9" fill="#374151">0.001</text>
+<rect x="120" y="288" width="2" height="22" fill="#6366f1" rx="3"/>
+<text x="115" y="303" font-size="9" text-anchor="end" fill="#374151">voltage_stress_vds</text>
+<text x="128" y="303" font-size="9" fill="#374151">0.000</text>
+<rect x="120" y="318" width="2" height="22" fill="#06b6d4" rx="3"/>
+<text x="115" y="333" font-size="9" text-anchor="end" fill="#374151">operating_power</text>
+<text x="128" y="333" font-size="9" fill="#374151">0.000</text>
+<text x="120" y="370" font-size="9" text-anchor="middle" fill="#64748b">0.00</text>
+<text x="232" y="370" font-size="9" text-anchor="middle" fill="#64748b">0.13</text>
+<text x="345" y="370" font-size="9" text-anchor="middle" fill="#64748b">0.26</text>
+<text x="457" y="370" font-size="9" text-anchor="middle" fill="#64748b">0.39</text>
+<text x="570" y="370" font-size="9" text-anchor="middle" fill="#64748b">0.52</text>
+<text x="345" y="395" font-size="10" text-anchor="middle" fill="#64748b">SRRC²</text>
+</svg>
+</div><p style="color:var(--text2);font-style:italic;margin-top:12px">Jensen diagnostic: mean R(t) = 0.970823, while R(E[λ]) = 0.970823. Because R(t) = exp(-λ·t) is convex in λ, E[R(t)] should be greater than or equal to R(E[λ]). This checks the Monte Carlo samples against that theorem; it is not a bound statement about the nominal design point.</p></div>
+<div class="card"><h2 id="sec-tornado">Sensitivity Analysis (Tornado)</h2>
+<p>One-at-a-time perturbation of +/-20% showing system failure rate impact.</p>
+<div class="chart-single"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 400" style="max-width:100%;height:auto;font-family:sans-serif;">
+<rect width="700" height="400" fill="white" rx="8"/>
+<text x="140" y="26" font-size="13" font-weight="bold" fill="#1e293b">System FIT Sensitivity (+/-20%)</text>
+<line x1="400" y1="45" x2="400" y2="345" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4,3"/>
+<rect x="192" y="67" width="208" height="24" fill="#22c55e" rx="2" opacity="0.85"/>
+<rect x="400" y="67" width="260" height="24" fill="#ef4444" rx="2" opacity="0.85"/>
+<text x="135" y="83" font-size="9" text-anchor="end" fill="#374151">t_junction (22 comps)</text>
+<text x="665" y="83" font-size="8" fill="#64748b">29.3</text>
+<rect x="361" y="113" width="39" height="24" fill="#22c55e" rx="2" opacity="0.85"/>
+<rect x="400" y="113" width="43" height="24" fill="#ef4444" rx="2" opacity="0.85"/>
+<text x="135" y="129" font-size="9" text-anchor="end" fill="#374151">t_ambient (108 comps)</text>
+<text x="448" y="129" font-size="8" fill="#64748b">5.1</text>
+<rect x="377" y="159" width="23" height="24" fill="#22c55e" rx="2" opacity="0.85"/>
+<rect x="400" y="159" width="27" height="24" fill="#ef4444" rx="2" opacity="0.85"/>
+<text x="135" y="175" font-size="9" text-anchor="end" fill="#374151">voltage_stress_vgs (9 </text>
+<text x="432" y="175" font-size="8" fill="#64748b">3.2</text>
+<rect x="387" y="205" width="13" height="24" fill="#22c55e" rx="2" opacity="0.85"/>
+<rect x="400" y="205" width="14" height="24" fill="#ef4444" rx="2" opacity="0.85"/>
+<text x="135" y="221" font-size="9" text-anchor="end" fill="#374151">voltage_stress_vds (9 </text>
+<text x="419" y="221" font-size="8" fill="#64748b">1.8</text>
+<rect x="400" y="251" width="0" height="24" fill="#22c55e" rx="2" opacity="0.85"/>
+<rect x="400" y="251" width="0" height="24" fill="#ef4444" rx="2" opacity="0.85"/>
+<text x="135" y="267" font-size="9" text-anchor="end" fill="#374151">rated_power (66 comps)</text>
+<text x="405" y="267" font-size="8" fill="#64748b">0.0</text>
+<rect x="400" y="297" width="0" height="24" fill="#22c55e" rx="2" opacity="0.85"/>
+<rect x="400" y="297" width="0" height="24" fill="#ef4444" rx="2" opacity="0.85"/>
+<text x="135" y="313" font-size="9" text-anchor="end" fill="#374151">operating_power (66 co</text>
+<text x="405" y="313" font-size="8" fill="#64748b">0.0</text>
+<text x="140" y="365" font-size="9" text-anchor="middle" fill="#64748b">-16.3</text>
+<text x="400" y="365" font-size="9" text-anchor="middle" fill="#64748b">Base: 684.0</text>
+<text x="660" y="365" font-size="9" text-anchor="middle" fill="#64748b">+16.3</text>
+<rect x="480" y="47" width="12" height="12" fill="#22c55e" rx="2" opacity="0.85"/>
+<text x="496" y="57" font-size="9" fill="#475569">Improvement (lower FIT)</text>
+<rect x="480" y="63" width="12" height="12" fill="#ef4444" rx="2" opacity="0.85"/>
+<text x="496" y="73" font-size="9" fill="#475569">Degradation (higher FIT)</text>
+<text x="400" y="395" font-size="10" text-anchor="middle" fill="#64748b">System Failure Rate Impact (FIT)</text>
+</svg>
+</div><table><thead><tr><th>Parameter</th><th>Base (FIT)</th><th>Low (FIT)</th><th>High (FIT)</th><th>Swing (FIT)</th></tr></thead><tbody>
+<tr><td>t_junction (22 comps)</td><td class="mono">684.00</td><td class="mono">670.93</td><td class="mono">700.26</td><td class="mono">29.33</td></tr>
+<tr><td>t_ambient (108 comps)</td><td class="mono">684.00</td><td class="mono">681.55</td><td class="mono">686.70</td><td class="mono">5.15</td></tr>
+<tr><td>voltage_stress_vgs (9 comps)</td><td class="mono">684.00</td><td class="mono">682.54</td><td class="mono">685.71</td><td class="mono">3.17</td></tr>
+<tr><td>voltage_stress_vds (9 comps)</td><td class="mono">684.00</td><td class="mono">683.14</td><td class="mono">684.94</td><td class="mono">1.79</td></tr>
+<tr><td>rated_power (66 comps)</td><td class="mono">684.00</td><td class="mono">684.02</td><td class="mono">683.99</td><td class="mono">0.03</td></tr>
+<tr><td>operating_power (66 comps)</td><td class="mono">684.00</td><td class="mono">683.99</td><td class="mono">684.01</td><td class="mono">0.02</td></tr>
+</tbody></table></div>
+<div class="card"><h2 id="sec-whatif">Design Margin Analysis (What-If Scenarios)</h2>
+<p>Impact of environmental and design parameter changes on system reliability.</p>
+<table><thead><tr><th>Scenario</th><th>Description</th><th>Lambda (FIT)</th><th>R(t)</th><th>Delta Lambda</th><th>Delta R</th></tr></thead><tbody>
+<tr><td><strong>Derate power 20%</strong></td><td>Reduce operating power by 20% on all components (better thermal design)</td><td class="mono">683.93</td><td class="mono">0.970488</td><td><span class="badge badge-ok">-0.0%</span></td><td class="mono">+0.000003</td></tr>
+<tr><td><strong>Derate power 50%</strong></td><td>Reduce operating power by 50% (aggressive derating for space)</td><td class="mono">683.82</td><td class="mono">0.970493</td><td><span class="badge badge-ok">-0.0%</span></td><td class="mono">+0.000008</td></tr>
+<tr><td><strong>Better packages (-15C Tj)</strong></td><td>Upgrade packages to reduce junction temperature by 15 degC</td><td class="mono">665.45</td><td class="mono">0.971274</td><td><span class="badge badge-ok">-2.7%</span></td><td class="mono">+0.000789</td></tr>
+<tr><td><strong>Better packages (-30C Tj)</strong></td><td>Premium thermal packages: junction temperature reduced 30 degC</td><td class="mono">652.50</td><td class="mono">0.971825</td><td><span class="badge badge-ok">-4.6%</span></td><td class="mono">+0.001340</td></tr>
+<tr><td><strong>Hi-rel parts (-30% base FIT)</strong></td><td>Use mil-spec / space-grade parts with 30% lower base failure rates</td><td class="mono">478.80</td><td class="mono">0.979247</td><td><span class="badge badge-ok">-30.0%</span></td><td class="mono">+0.008762</td></tr>
+<tr><td><strong>Hi-rel parts (-50% base FIT)</strong></td><td>Use highest-reliability screened parts with 50% lower base failure rates</td><td class="mono">342.00</td><td class="mono">0.985132</td><td><span class="badge badge-ok">-50.0%</span></td><td class="mono">+0.014647</td></tr>
+<tr><td><strong>Voltage derating 20%</strong></td><td>Reduce all voltage stress ratios by 20% (conservative design)</td><td class="mono">680.05</td><td class="mono">0.970653</td><td><span class="badge badge-ok">-0.6%</span></td><td class="mono">+0.000168</td></tr>
+<tr><td><strong>Voltage derating 50%</strong></td><td>Aggressive voltage derating for high-reliability (50% reduction)</td><td class="mono">676.72</td><td class="mono">0.970795</td><td><span class="badge badge-ok">-1.1%</span></td><td class="mono">+0.000310</td></tr>
+<tr><td><strong>Temp +10 degC</strong></td><td>Environment: all temperatures +10 degC</td><td class="mono">702.96</td><td class="mono">0.969680</td><td><span class="badge badge-warn">+2.8%</span></td><td class="mono">-0.000805</td></tr>
+<tr><td><strong>Temp -10 degC</strong></td><td>Improved cooling: all temperatures -10 degC</td><td class="mono">668.48</td><td class="mono">0.971145</td><td><span class="badge badge-ok">-2.3%</span></td><td class="mono">+0.000660</td></tr>
+</tbody></table>
+<p style="color:var(--text2);margin-top:8px">Baseline: 684.00 FIT, R = 0.970485</p></div>
+<div class="card"><h2 id="sec-criticality">Component Parameter Criticality</h2>
+<p>Parameter sensitivity showing which inputs most influence each component's failure rate.</p>
+<h3>L5 (Inductor/Transformer) -- Base: 99.57 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>power_loss</td><td>2.7</td><td>+0.576</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.470</td><td>9.4%</td><td>increases lambda</td></tr>
+<tr><td>surface_area_mm2</td><td>100.0</td><td>-0.275</td><td>5.5%</td><td>decreases lambda</td></tr>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.046</td><td>0.9%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.041</td><td>0.8%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.006</td><td>0.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>e1 (Miscellaneous) -- Base: 52.59 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.616</td><td>12.3%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.551</td><td>11.0%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.095</td><td>1.9%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>e2 (Miscellaneous) -- Base: 52.59 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.616</td><td>12.3%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.551</td><td>11.0%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.095</td><td>1.9%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>BT1 (Miscellaneous) -- Base: 52.59 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.616</td><td>12.3%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.551</td><td>11.0%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.095</td><td>1.9%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>J9 (Connector) -- Base: 35.39 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_contacts</td><td>10.0</td><td>+0.972</td><td>19.4%</td><td>increases lambda</td></tr>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.610</td><td>12.2%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.546</td><td>10.9%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.071</td><td>1.4%</td><td>increases lambda</td></tr>
+<tr><td>mating_cycles_per_year</td><td>10.0</td><td>+0.028</td><td>0.6%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R158 (Connector) -- Base: 35.39 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_contacts</td><td>10.0</td><td>+0.972</td><td>19.4%</td><td>increases lambda</td></tr>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.610</td><td>12.2%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.546</td><td>10.9%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.071</td><td>1.4%</td><td>increases lambda</td></tr>
+<tr><td>mating_cycles_per_year</td><td>10.0</td><td>+0.028</td><td>0.6%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>JP2 (Connector) -- Base: 35.39 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_contacts</td><td>10.0</td><td>+0.972</td><td>19.4%</td><td>increases lambda</td></tr>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.610</td><td>12.2%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.546</td><td>10.9%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.071</td><td>1.4%</td><td>increases lambda</td></tr>
+<tr><td>mating_cycles_per_year</td><td>10.0</td><td>+0.028</td><td>0.6%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>JP3 (Connector) -- Base: 35.39 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_contacts</td><td>10.0</td><td>+0.972</td><td>19.4%</td><td>increases lambda</td></tr>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.610</td><td>12.2%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.546</td><td>10.9%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.071</td><td>1.4%</td><td>increases lambda</td></tr>
+<tr><td>mating_cycles_per_year</td><td>10.0</td><td>+0.028</td><td>0.6%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>JP1 (Connector) -- Base: 35.39 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_contacts</td><td>10.0</td><td>+0.972</td><td>19.4%</td><td>increases lambda</td></tr>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.610</td><td>12.2%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.546</td><td>10.9%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.071</td><td>1.4%</td><td>increases lambda</td></tr>
+<tr><td>mating_cycles_per_year</td><td>10.0</td><td>+0.028</td><td>0.6%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>U2 (Integrated Circuit) -- Base: 14.40 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>t_junction</td><td>85.0</td><td>+0.665</td><td>13.3%</td><td>increases lambda</td></tr>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.542</td><td>10.8%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.485</td><td>9.7%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.144</td><td>2.9%</td><td>increases lambda</td></tr>
+<tr><td>construction_year</td><td>2020.0</td><td>-0.115</td><td>2.3%</td><td>decreases lambda</td></tr>
+<tr><td>transistor_count</td><td>10000.0</td><td>+0.000</td><td>0.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>U3 (Integrated Circuit) -- Base: 14.40 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>t_junction</td><td>85.0</td><td>+0.665</td><td>13.3%</td><td>increases lambda</td></tr>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.542</td><td>10.8%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.485</td><td>9.7%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.144</td><td>2.9%</td><td>increases lambda</td></tr>
+<tr><td>construction_year</td><td>2020.0</td><td>-0.115</td><td>2.3%</td><td>decreases lambda</td></tr>
+<tr><td>transistor_count</td><td>10000.0</td><td>+0.000</td><td>0.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>U17 (Integrated Circuit) -- Base: 14.40 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>t_junction</td><td>85.0</td><td>+0.665</td><td>13.3%</td><td>increases lambda</td></tr>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.542</td><td>10.8%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.485</td><td>9.7%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.144</td><td>2.9%</td><td>increases lambda</td></tr>
+<tr><td>construction_year</td><td>2020.0</td><td>-0.115</td><td>2.3%</td><td>decreases lambda</td></tr>
+<tr><td>transistor_count</td><td>10000.0</td><td>+0.000</td><td>0.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>U16 (Integrated Circuit) -- Base: 14.40 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>t_junction</td><td>85.0</td><td>+0.665</td><td>13.3%</td><td>increases lambda</td></tr>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.542</td><td>10.8%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.485</td><td>9.7%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.144</td><td>2.9%</td><td>increases lambda</td></tr>
+<tr><td>construction_year</td><td>2020.0</td><td>-0.115</td><td>2.3%</td><td>decreases lambda</td></tr>
+<tr><td>transistor_count</td><td>10000.0</td><td>+0.000</td><td>0.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>U32 (Integrated Circuit) -- Base: 14.40 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>t_junction</td><td>85.0</td><td>+0.665</td><td>13.3%</td><td>increases lambda</td></tr>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.542</td><td>10.8%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.485</td><td>9.7%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.144</td><td>2.9%</td><td>increases lambda</td></tr>
+<tr><td>construction_year</td><td>2020.0</td><td>-0.115</td><td>2.3%</td><td>decreases lambda</td></tr>
+<tr><td>transistor_count</td><td>10000.0</td><td>+0.000</td><td>0.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>U42 (Integrated Circuit) -- Base: 14.40 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>t_junction</td><td>85.0</td><td>+0.665</td><td>13.3%</td><td>increases lambda</td></tr>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.542</td><td>10.8%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.485</td><td>9.7%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.144</td><td>2.9%</td><td>increases lambda</td></tr>
+<tr><td>construction_year</td><td>2020.0</td><td>-0.115</td><td>2.3%</td><td>decreases lambda</td></tr>
+<tr><td>transistor_count</td><td>10000.0</td><td>+0.000</td><td>0.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>U14 (Integrated Circuit) -- Base: 14.40 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>t_junction</td><td>85.0</td><td>+0.665</td><td>13.3%</td><td>increases lambda</td></tr>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.542</td><td>10.8%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.485</td><td>9.7%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.144</td><td>2.9%</td><td>increases lambda</td></tr>
+<tr><td>construction_year</td><td>2020.0</td><td>-0.115</td><td>2.3%</td><td>decreases lambda</td></tr>
+<tr><td>transistor_count</td><td>10000.0</td><td>+0.000</td><td>0.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>U41 (Integrated Circuit) -- Base: 14.40 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>t_junction</td><td>85.0</td><td>+0.665</td><td>13.3%</td><td>increases lambda</td></tr>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.542</td><td>10.8%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.485</td><td>9.7%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.144</td><td>2.9%</td><td>increases lambda</td></tr>
+<tr><td>construction_year</td><td>2020.0</td><td>-0.115</td><td>2.3%</td><td>decreases lambda</td></tr>
+<tr><td>transistor_count</td><td>10000.0</td><td>+0.000</td><td>0.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>U19 (Integrated Circuit) -- Base: 14.40 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>t_junction</td><td>85.0</td><td>+0.665</td><td>13.3%</td><td>increases lambda</td></tr>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.542</td><td>10.8%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.485</td><td>9.7%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.144</td><td>2.9%</td><td>increases lambda</td></tr>
+<tr><td>construction_year</td><td>2020.0</td><td>-0.115</td><td>2.3%</td><td>decreases lambda</td></tr>
+<tr><td>transistor_count</td><td>10000.0</td><td>+0.000</td><td>0.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>U18 (Integrated Circuit) -- Base: 14.40 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>t_junction</td><td>85.0</td><td>+0.665</td><td>13.3%</td><td>increases lambda</td></tr>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.542</td><td>10.8%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.485</td><td>9.7%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.144</td><td>2.9%</td><td>increases lambda</td></tr>
+<tr><td>construction_year</td><td>2020.0</td><td>-0.115</td><td>2.3%</td><td>decreases lambda</td></tr>
+<tr><td>transistor_count</td><td>10000.0</td><td>+0.000</td><td>0.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R157 (Relay) -- Base: 9.22 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>tau_on</td><td>1.0</td><td>+0.394</td><td>7.9%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.386</td><td>7.7%</td><td>increases lambda</td></tr>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.161</td><td>3.2%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.144</td><td>2.9%</td><td>increases lambda</td></tr>
+<tr><td>contact_current_ratio</td><td>0.5</td><td>+0.000</td><td>0.0%</td><td>--</td></tr>
+</tbody></table>
+<h3>Q2 (Transistor) -- Base: 5.07 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.585</td><td>11.7%</td><td>increases lambda</td></tr>
+<tr><td>t_junction</td><td>85.0</td><td>+0.534</td><td>10.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.524</td><td>10.5%</td><td>increases lambda</td></tr>
+<tr><td>voltage_stress_vgs</td><td>0.5</td><td>+0.347</td><td>6.9%</td><td>increases lambda</td></tr>
+<tr><td>voltage_stress_vds</td><td>0.5</td><td>+0.196</td><td>3.9%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.115</td><td>2.3%</td><td>increases lambda</td></tr>
+<tr><td>voltage_stress_vce</td><td>0.5</td><td>+0.000</td><td>0.0%</td><td>--</td></tr>
+</tbody></table>
+<h3>Q1 (Transistor) -- Base: 5.07 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.585</td><td>11.7%</td><td>increases lambda</td></tr>
+<tr><td>t_junction</td><td>85.0</td><td>+0.534</td><td>10.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.524</td><td>10.5%</td><td>increases lambda</td></tr>
+<tr><td>voltage_stress_vgs</td><td>0.5</td><td>+0.347</td><td>6.9%</td><td>increases lambda</td></tr>
+<tr><td>voltage_stress_vds</td><td>0.5</td><td>+0.196</td><td>3.9%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.115</td><td>2.3%</td><td>increases lambda</td></tr>
+<tr><td>voltage_stress_vce</td><td>0.5</td><td>+0.000</td><td>0.0%</td><td>--</td></tr>
+</tbody></table>
+<h3>Q10 (Transistor) -- Base: 5.07 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.585</td><td>11.7%</td><td>increases lambda</td></tr>
+<tr><td>t_junction</td><td>85.0</td><td>+0.534</td><td>10.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.524</td><td>10.5%</td><td>increases lambda</td></tr>
+<tr><td>voltage_stress_vgs</td><td>0.5</td><td>+0.347</td><td>6.9%</td><td>increases lambda</td></tr>
+<tr><td>voltage_stress_vds</td><td>0.5</td><td>+0.196</td><td>3.9%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.115</td><td>2.3%</td><td>increases lambda</td></tr>
+<tr><td>voltage_stress_vce</td><td>0.5</td><td>+0.000</td><td>0.0%</td><td>--</td></tr>
+</tbody></table>
+<h3>Q11 (Transistor) -- Base: 5.07 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.585</td><td>11.7%</td><td>increases lambda</td></tr>
+<tr><td>t_junction</td><td>85.0</td><td>+0.534</td><td>10.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.524</td><td>10.5%</td><td>increases lambda</td></tr>
+<tr><td>voltage_stress_vgs</td><td>0.5</td><td>+0.347</td><td>6.9%</td><td>increases lambda</td></tr>
+<tr><td>voltage_stress_vds</td><td>0.5</td><td>+0.196</td><td>3.9%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.115</td><td>2.3%</td><td>increases lambda</td></tr>
+<tr><td>voltage_stress_vce</td><td>0.5</td><td>+0.000</td><td>0.0%</td><td>--</td></tr>
+</tbody></table>
+<h3>Q19 (Transistor) -- Base: 5.07 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.585</td><td>11.7%</td><td>increases lambda</td></tr>
+<tr><td>t_junction</td><td>85.0</td><td>+0.534</td><td>10.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.524</td><td>10.5%</td><td>increases lambda</td></tr>
+<tr><td>voltage_stress_vgs</td><td>0.5</td><td>+0.347</td><td>6.9%</td><td>increases lambda</td></tr>
+<tr><td>voltage_stress_vds</td><td>0.5</td><td>+0.196</td><td>3.9%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.115</td><td>2.3%</td><td>increases lambda</td></tr>
+<tr><td>voltage_stress_vce</td><td>0.5</td><td>+0.000</td><td>0.0%</td><td>--</td></tr>
+</tbody></table>
+<h3>Q18 (Transistor) -- Base: 5.07 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.585</td><td>11.7%</td><td>increases lambda</td></tr>
+<tr><td>t_junction</td><td>85.0</td><td>+0.534</td><td>10.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.524</td><td>10.5%</td><td>increases lambda</td></tr>
+<tr><td>voltage_stress_vgs</td><td>0.5</td><td>+0.347</td><td>6.9%</td><td>increases lambda</td></tr>
+<tr><td>voltage_stress_vds</td><td>0.5</td><td>+0.196</td><td>3.9%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.115</td><td>2.3%</td><td>increases lambda</td></tr>
+<tr><td>voltage_stress_vce</td><td>0.5</td><td>+0.000</td><td>0.0%</td><td>--</td></tr>
+</tbody></table>
+<h3>Q3 (Transistor) -- Base: 5.07 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.585</td><td>11.7%</td><td>increases lambda</td></tr>
+<tr><td>t_junction</td><td>85.0</td><td>+0.534</td><td>10.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.524</td><td>10.5%</td><td>increases lambda</td></tr>
+<tr><td>voltage_stress_vgs</td><td>0.5</td><td>+0.347</td><td>6.9%</td><td>increases lambda</td></tr>
+<tr><td>voltage_stress_vds</td><td>0.5</td><td>+0.196</td><td>3.9%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.115</td><td>2.3%</td><td>increases lambda</td></tr>
+<tr><td>voltage_stress_vce</td><td>0.5</td><td>+0.000</td><td>0.0%</td><td>--</td></tr>
+</tbody></table>
+<h3>Q4 (Transistor) -- Base: 5.07 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.585</td><td>11.7%</td><td>increases lambda</td></tr>
+<tr><td>t_junction</td><td>85.0</td><td>+0.534</td><td>10.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.524</td><td>10.5%</td><td>increases lambda</td></tr>
+<tr><td>voltage_stress_vgs</td><td>0.5</td><td>+0.347</td><td>6.9%</td><td>increases lambda</td></tr>
+<tr><td>voltage_stress_vds</td><td>0.5</td><td>+0.196</td><td>3.9%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.115</td><td>2.3%</td><td>increases lambda</td></tr>
+<tr><td>voltage_stress_vce</td><td>0.5</td><td>+0.000</td><td>0.0%</td><td>--</td></tr>
+</tbody></table>
+<h3>Q8 (Transistor) -- Base: 5.07 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.585</td><td>11.7%</td><td>increases lambda</td></tr>
+<tr><td>t_junction</td><td>85.0</td><td>+0.534</td><td>10.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.524</td><td>10.5%</td><td>increases lambda</td></tr>
+<tr><td>voltage_stress_vgs</td><td>0.5</td><td>+0.347</td><td>6.9%</td><td>increases lambda</td></tr>
+<tr><td>voltage_stress_vds</td><td>0.5</td><td>+0.196</td><td>3.9%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.115</td><td>2.3%</td><td>increases lambda</td></tr>
+<tr><td>voltage_stress_vce</td><td>0.5</td><td>+0.000</td><td>0.0%</td><td>--</td></tr>
+</tbody></table>
+<h3>D8 (Diode) -- Base: 4.35 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.681</td><td>13.6%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.610</td><td>12.2%</td><td>increases lambda</td></tr>
+<tr><td>t_junction</td><td>85.0</td><td>+0.322</td><td>6.4%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.052</td><td>1.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>D10 (Diode) -- Base: 4.35 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.681</td><td>13.6%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.610</td><td>12.2%</td><td>increases lambda</td></tr>
+<tr><td>t_junction</td><td>85.0</td><td>+0.322</td><td>6.4%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.052</td><td>1.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>D13 (Diode) -- Base: 4.35 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.681</td><td>13.6%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.610</td><td>12.2%</td><td>increases lambda</td></tr>
+<tr><td>t_junction</td><td>85.0</td><td>+0.322</td><td>6.4%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.052</td><td>1.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>C7 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>C3 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>C11 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>C9 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>C5 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>C2 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>C8 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>C6 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>C4 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>C10 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>C41 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>C38 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>C39 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>C40 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>C86 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>C87 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>C89 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>C88 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>Cw1 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>Cw2 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>C114 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>C113 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>C111 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>C112 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>Cw3 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>Cw4 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>C35 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>C34 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>C36 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>C37 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>C117 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>C119 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>C60 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>C116 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>C115 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>C62 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>C42 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>C44 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>C43 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>C45 (Capacitor) -- Base: 0.84 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.633</td><td>12.7%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.567</td><td>11.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.054</td><td>1.1%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R11 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R9 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R32 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R36 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R33 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R29 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R28 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R31 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R35 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R27 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R30 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R34 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R111 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R114 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R113 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R112 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R154 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R156 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R155 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R25 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R24 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R131 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R133 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R174 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R130 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R132 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R173 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R88 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R86 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R92 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R87 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R89 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R90 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R85 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R84 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R83 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R91 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R120 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R121 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R40 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R37 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R39 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R38 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R43 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R41 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R46 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R42 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R44 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R45 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R74 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R72 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R124 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R73 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R70 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R126 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R71 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R127 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R125 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.577</td><td>11.5%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.516</td><td>10.3%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.120</td><td>2.4%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>2.0</td><td>-0.110</td><td>2.2%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>1.0</td><td>+0.109</td><td>2.2%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.099</td><td>2.0%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R115 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.628</td><td>12.6%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.562</td><td>11.2%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.087</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>0.125</td><td>-0.015</td><td>0.3%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>0.01</td><td>+0.015</td><td>0.3%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R117 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.628</td><td>12.6%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.562</td><td>11.2%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.087</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>0.125</td><td>-0.015</td><td>0.3%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>0.01</td><td>+0.015</td><td>0.3%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R116 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.628</td><td>12.6%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.562</td><td>11.2%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.087</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>0.125</td><td>-0.015</td><td>0.3%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>0.01</td><td>+0.015</td><td>0.3%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R159 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.628</td><td>12.6%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.562</td><td>11.2%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.087</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>0.125</td><td>-0.015</td><td>0.3%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>0.01</td><td>+0.015</td><td>0.3%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R160 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.628</td><td>12.6%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.562</td><td>11.2%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.087</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>0.125</td><td>-0.015</td><td>0.3%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>0.01</td><td>+0.015</td><td>0.3%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R22 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.628</td><td>12.6%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.562</td><td>11.2%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.087</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>0.125</td><td>-0.015</td><td>0.3%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>0.01</td><td>+0.015</td><td>0.3%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R23 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.628</td><td>12.6%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.562</td><td>11.2%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.087</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>0.125</td><td>-0.015</td><td>0.3%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>0.01</td><td>+0.015</td><td>0.3%</td><td>increases lambda</td></tr>
+</tbody></table>
+<h3>R2 (Resistor) -- Base: 0.06 FIT</h3>
+<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>
+<tr><td>n_cycles</td><td>5256.0</td><td>+0.628</td><td>12.6%</td><td>increases lambda</td></tr>
+<tr><td>delta_t</td><td>3.0</td><td>+0.562</td><td>11.2%</td><td>increases lambda</td></tr>
+<tr><td>tau_on</td><td>1.0</td><td>+0.087</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>t_ambient</td><td>25.0</td><td>+0.083</td><td>1.7%</td><td>increases lambda</td></tr>
+<tr><td>rated_power</td><td>0.125</td><td>-0.015</td><td>0.3%</td><td>decreases lambda</td></tr>
+<tr><td>operating_power</td><td>0.01</td><td>+0.015</td><td>0.3%</td><td>increases lambda</td></tr>
+</tbody></table>
+</div>
+<div class="card"><h2 id="sec-budget">Reliability Target Closure Planning</h2>
+<div class="grid">
+<div class="metric"><div class="v">0.9500</div><div class="l">Target R(t)</div></div>
+<div class="metric"><div class="v">1171.1</div><div class="l">Raw Target (FIT)</div></div>
+<div class="metric"><div class="v">1054.0</div><div class="l">Effective Budget (FIT)</div></div>
+<div class="metric"><div class="v">684.00</div><div class="l">Actual System (FIT)</div></div>
+<div class="metric ok"><div class="v">Within Planning Budget</div><div class="l">Budget Status</div></div>
+</div>
+<p style="margin-top:12px;color:var(--text2)">Strategy: <strong>Proportional</strong> | Design Margin: 10% | System Margin: 369.97 FIT</p>
+<p style="color:var(--text2)">This section is intended to show how much FIT must still be removed, which sheets are carrying the pressure, and which components deserve attention first.</p>
+<h3>Sheet Pressure</h3>
+<table><thead><tr><th>Sheet</th><th>Actual (FIT)</th><th>Budget (FIT)</th><th>Gap To Close</th><th>Utilization</th><th>Over Budget</th></tr></thead><tbody>
+<tr><td><strong>MCU_A</strong></td><td class='mono'>72.75</td><td class='mono'>112.10</td><td class='mono'>0.00</td><td class='mono'>64.9%</td><td class='mono'>0</td></tr>
+<tr><td><strong>MCU_C</strong></td><td class='mono'>0.00</td><td class='mono'>0.00</td><td class='mono'>0.00</td><td class='mono'>N/A</td><td class='mono'>0</td></tr>
+<tr><td><strong>MCU_B</strong></td><td class='mono'>0.00</td><td class='mono'>0.00</td><td class='mono'>0.00</td><td class='mono'>N/A</td><td class='mono'>0</td></tr>
+<tr><td><strong>Protection Satellite 24V</strong></td><td class='mono'>42.94</td><td class='mono'>66.17</td><td class='mono'>0.00</td><td class='mono'>64.9%</td><td class='mono'>0</td></tr>
+<tr><td><strong>LDO_3v3_sat</strong></td><td class='mono'>76.82</td><td class='mono'>118.37</td><td class='mono'>0.00</td><td class='mono'>64.9%</td><td class='mono'>0</td></tr>
+<tr><td><strong>LDO_3v3_bat</strong></td><td class='mono'>121.31</td><td class='mono'>186.92</td><td class='mono'>0.00</td><td class='mono'>64.9%</td><td class='mono'>0</td></tr>
+<tr><td><strong>TRIGGER_LOGIC_B3</strong></td><td class='mono'>18.01</td><td class='mono'>27.75</td><td class='mono'>0.00</td><td class='mono'>64.9%</td><td class='mono'>0</td></tr>
+<tr><td><strong>Buck</strong></td><td class='mono'>119.40</td><td class='mono'>183.98</td><td class='mono'>0.00</td><td class='mono'>64.9%</td><td class='mono'>0</td></tr>
+<tr><td><strong>TRIGGER_LOGIC_B1</strong></td><td class='mono'>0.00</td><td class='mono'>0.00</td><td class='mono'>0.00</td><td class='mono'>N/A</td><td class='mono'>0</td></tr>
+<tr><td><strong>TRIGGER_LOGIC_B2</strong></td><td class='mono'>0.00</td><td class='mono'>0.00</td><td class='mono'>0.00</td><td class='mono'>N/A</td><td class='mono'>0</td></tr>
+<tr><td><strong>Deploy</strong></td><td class='mono'>0.00</td><td class='mono'>0.00</td><td class='mono'>0.00</td><td class='mono'>N/A</td><td class='mono'>0</td></tr>
+<tr><td><strong>Passivate Memory</strong></td><td class='mono'>10.77</td><td class='mono'>16.59</td><td class='mono'>0.00</td><td class='mono'>64.9%</td><td class='mono'>0</td></tr>
+<tr><td><strong>Ideal Diode Satellite</strong></td><td class='mono'>10.27</td><td class='mono'>15.83</td><td class='mono'>0.00</td><td class='mono'>64.9%</td><td class='mono'>0</td></tr>
+<tr><td><strong>Passivate Arbitration</strong></td><td class='mono'>0.00</td><td class='mono'>0.00</td><td class='mono'>0.00</td><td class='mono'>N/A</td><td class='mono'>0</td></tr>
+<tr><td><strong>Unlatch Arbitration</strong></td><td class='mono'>0.00</td><td class='mono'>0.00</td><td class='mono'>0.00</td><td class='mono'>N/A</td><td class='mono'>0</td></tr>
+<tr><td><strong>Protection Battery</strong></td><td class='mono'>42.94</td><td class='mono'>66.17</td><td class='mono'>0.00</td><td class='mono'>64.9%</td><td class='mono'>0</td></tr>
+<tr><td><strong>Ideal Diode Battery</strong></td><td class='mono'>0.00</td><td class='mono'>0.00</td><td class='mono'>0.00</td><td class='mono'>N/A</td><td class='mono'>0</td></tr>
+<tr><td><strong>On Arbitration</strong></td><td class='mono'>0.00</td><td class='mono'>0.00</td><td class='mono'>0.00</td><td class='mono'>N/A</td><td class='mono'>0</td></tr>
+<tr><td><strong>Off Arbitration</strong></td><td class='mono'>0.00</td><td class='mono'>0.00</td><td class='mono'>0.00</td><td class='mono'>N/A</td><td class='mono'>0</td></tr>
+<tr><td><strong>System On Logic</strong></td><td class='mono'>75.98</td><td class='mono'>117.07</td><td class='mono'>0.00</td><td class='mono'>64.9%</td><td class='mono'>0</td></tr>
+<tr><td><strong>Power</strong></td><td class='mono'>92.82</td><td class='mono'>143.02</td><td class='mono'>0.00</td><td class='mono'>64.9%</td><td class='mono'>0</td></tr>
+<tr><td><strong>Trigger IDD</strong></td><td class='mono'>0.00</td><td class='mono'>0.00</td><td class='mono'>0.00</td><td class='mono'>N/A</td><td class='mono'>0</td></tr>
+<tr><td><strong>SWIFT_board</strong></td><td class='mono'>0.00</td><td class='mono'>0.00</td><td class='mono'>0.00</td><td class='mono'>N/A</td><td class='mono'>0</td></tr>
+</tbody></table>
+<h3>Component Actions</h3>
+<table><thead><tr><th>Reference</th><th>Type</th><th>Actual (FIT)</th>
+<th>Budget (FIT)</th><th>Save Needed</th><th>Utilization</th><th>Status</th></tr></thead><tbody>
+<tr><td><strong>C7</strong></td><td>Capacitor</td><td class="mono">0.843</td><td class="mono">1.299</td><td class="mono">0.000</td><td class="mono">64.9%</td><td><span class="badge badge-ok">PASS</span></td></tr>
+<tr><td><strong>R11</strong></td><td>Resistor</td><td class="mono">0.062</td><td class="mono">0.095</td><td class="mono">0.000</td><td class="mono">64.9%</td><td><span class="badge badge-ok">PASS</span></td></tr>
+<tr><td><strong>C3</strong></td><td>Capacitor</td><td class="mono">0.843</td><td class="mono">1.299</td><td class="mono">0.000</td><td class="mono">64.9%</td><td><span class="badge badge-ok">PASS</span></td></tr>
+<tr><td><strong>C11</strong></td><td>Capacitor</td><td class="mono">0.843</td><td class="mono">1.299</td><td class="mono">0.000</td><td class="mono">64.9%</td><td><span class="badge badge-ok">PASS</span></td></tr>
+<tr><td><strong>U2</strong></td><td>Integrated Circuit</td><td class="mono">14.401</td><td class="mono">22.191</td><td class="mono">0.000</td><td class="mono">64.9%</td><td><span class="badge badge-ok">PASS</span></td></tr>
+<tr><td><strong>C9</strong></td><td>Capacitor</td><td class="mono">0.843</td><td class="mono">1.299</td><td class="mono">0.000</td><td class="mono">64.9%</td><td><span class="badge badge-ok">PASS</span></td></tr>
+<tr><td><strong>C5</strong></td><td>Capacitor</td><td class="mono">0.843</td><td class="mono">1.299</td><td class="mono">0.000</td><td class="mono">64.9%</td><td><span class="badge badge-ok">PASS</span></td></tr>
+<tr><td><strong>C2</strong></td><td>Capacitor</td><td class="mono">0.843</td><td class="mono">1.299</td><td class="mono">0.000</td><td class="mono">64.9%</td><td><span class="badge badge-ok">PASS</span></td></tr>
+<tr><td><strong>C8</strong></td><td>Capacitor</td><td class="mono">0.843</td><td class="mono">1.299</td><td class="mono">0.000</td><td class="mono">64.9%</td><td><span class="badge badge-ok">PASS</span></td></tr>
+<tr><td><strong>C6</strong></td><td>Capacitor</td><td class="mono">0.843</td><td class="mono">1.299</td><td class="mono">0.000</td><td class="mono">64.9%</td><td><span class="badge badge-ok">PASS</span></td></tr>
+<tr><td><strong>R9</strong></td><td>Resistor</td><td class="mono">0.062</td><td class="mono">0.095</td><td class="mono">0.000</td><td class="mono">64.9%</td><td><span class="badge badge-ok">PASS</span></td></tr>
+<tr><td><strong>C4</strong></td><td>Capacitor</td><td class="mono">0.843</td><td class="mono">1.299</td><td class="mono">0.000</td><td class="mono">64.9%</td><td><span class="badge badge-ok">PASS</span></td></tr>
+</tbody></table>
+<div class="chart-single"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 400" style="max-width:100%;height:auto;font-family:sans-serif;">
+<rect width="700" height="400" fill="white" rx="8"/>
+<text x="80" y="26" font-size="13" font-weight="bold" fill="#1e293b">Budget Utilization by Component</text>
+<line x1="650" y1="40" x2="650" y2="350" stroke="#e2e8f0" stroke-width="1" stroke-dasharray="4,3"/>
+<rect x="80" y="45" width="570" height="20" fill="#f1f5f9" rx="3"/>
+<rect x="80" y="45" width="369" height="20" fill="#22c55e" rx="3" opacity="0.8"/>
+<text x="75" y="59" font-size="9" text-anchor="end" fill="#374151">C7</text>
+<text x="86" y="59" font-size="9" fill="white" font-weight="bold">64.9%</text>
+<rect x="80" y="70" width="570" height="20" fill="#f1f5f9" rx="3"/>
+<rect x="80" y="70" width="369" height="20" fill="#22c55e" rx="3" opacity="0.8"/>
+<text x="75" y="84" font-size="9" text-anchor="end" fill="#374151">R11</text>
+<text x="86" y="84" font-size="9" fill="white" font-weight="bold">64.9%</text>
+<rect x="80" y="95" width="570" height="20" fill="#f1f5f9" rx="3"/>
+<rect x="80" y="95" width="369" height="20" fill="#22c55e" rx="3" opacity="0.8"/>
+<text x="75" y="109" font-size="9" text-anchor="end" fill="#374151">C3</text>
+<text x="86" y="109" font-size="9" fill="white" font-weight="bold">64.9%</text>
+<rect x="80" y="120" width="570" height="20" fill="#f1f5f9" rx="3"/>
+<rect x="80" y="120" width="369" height="20" fill="#22c55e" rx="3" opacity="0.8"/>
+<text x="75" y="134" font-size="9" text-anchor="end" fill="#374151">C11</text>
+<text x="86" y="134" font-size="9" fill="white" font-weight="bold">64.9%</text>
+<rect x="80" y="145" width="570" height="20" fill="#f1f5f9" rx="3"/>
+<rect x="80" y="145" width="369" height="20" fill="#22c55e" rx="3" opacity="0.8"/>
+<text x="75" y="159" font-size="9" text-anchor="end" fill="#374151">U2</text>
+<text x="86" y="159" font-size="9" fill="white" font-weight="bold">64.9%</text>
+<rect x="80" y="170" width="570" height="20" fill="#f1f5f9" rx="3"/>
+<rect x="80" y="170" width="369" height="20" fill="#22c55e" rx="3" opacity="0.8"/>
+<text x="75" y="184" font-size="9" text-anchor="end" fill="#374151">C9</text>
+<text x="86" y="184" font-size="9" fill="white" font-weight="bold">64.9%</text>
+<rect x="80" y="195" width="570" height="20" fill="#f1f5f9" rx="3"/>
+<rect x="80" y="195" width="369" height="20" fill="#22c55e" rx="3" opacity="0.8"/>
+<text x="75" y="209" font-size="9" text-anchor="end" fill="#374151">C5</text>
+<text x="86" y="209" font-size="9" fill="white" font-weight="bold">64.9%</text>
+<rect x="80" y="220" width="570" height="20" fill="#f1f5f9" rx="3"/>
+<rect x="80" y="220" width="369" height="20" fill="#22c55e" rx="3" opacity="0.8"/>
+<text x="75" y="234" font-size="9" text-anchor="end" fill="#374151">C2</text>
+<text x="86" y="234" font-size="9" fill="white" font-weight="bold">64.9%</text>
+<rect x="80" y="245" width="570" height="20" fill="#f1f5f9" rx="3"/>
+<rect x="80" y="245" width="369" height="20" fill="#22c55e" rx="3" opacity="0.8"/>
+<text x="75" y="259" font-size="9" text-anchor="end" fill="#374151">C8</text>
+<text x="86" y="259" font-size="9" fill="white" font-weight="bold">64.9%</text>
+<rect x="80" y="270" width="570" height="20" fill="#f1f5f9" rx="3"/>
+<rect x="80" y="270" width="369" height="20" fill="#22c55e" rx="3" opacity="0.8"/>
+<text x="75" y="284" font-size="9" text-anchor="end" fill="#374151">C6</text>
+<text x="86" y="284" font-size="9" fill="white" font-weight="bold">64.9%</text>
+<rect x="80" y="295" width="570" height="20" fill="#f1f5f9" rx="3"/>
+<rect x="80" y="295" width="369" height="20" fill="#22c55e" rx="3" opacity="0.8"/>
+<text x="75" y="309" font-size="9" text-anchor="end" fill="#374151">R9</text>
+<text x="86" y="309" font-size="9" fill="white" font-weight="bold">64.9%</text>
+<rect x="80" y="320" width="570" height="20" fill="#f1f5f9" rx="3"/>
+<rect x="80" y="320" width="369" height="20" fill="#22c55e" rx="3" opacity="0.8"/>
+<text x="75" y="334" font-size="9" text-anchor="end" fill="#374151">C4</text>
+<text x="86" y="334" font-size="9" fill="white" font-weight="bold">64.9%</text>
+<text x="80" y="370" font-size="9" text-anchor="middle" fill="#64748b">0%</text>
+<text x="222" y="370" font-size="9" text-anchor="middle" fill="#64748b">25%</text>
+<text x="365" y="370" font-size="9" text-anchor="middle" fill="#64748b">50%</text>
+<text x="507" y="370" font-size="9" text-anchor="middle" fill="#64748b">75%</text>
+<text x="650" y="370" font-size="9" text-anchor="middle" fill="#64748b">100%</text>
+<text x="365" y="395" font-size="10" text-anchor="middle" fill="#64748b">Budget Utilization</text>
+<rect x="470" y="45" width="12" height="12" fill="#22c55e" rx="2" opacity="0.8"/>
+<text x="486" y="55" font-size="9" fill="#475569">Within Budget</text>
+<rect x="470" y="61" width="12" height="12" fill="#ef4444" rx="2" opacity="0.8"/>
+<text x="486" y="71" font-size="9" fill="#475569">Over Budget</text>
+</svg>
+</div><h3>Recommendations</h3><ul style="margin:8px 0 0 16px;color:var(--text2)">
+<li>System meets reliability target with 370.0 FIT margin (35.1% headroom after design margin).</li>
+<li>Sheet 'MCU_C' at inf% of budget (0 components over). Low margin -- monitor closely.</li>
+<li>Sheet 'MCU_B' at inf% of budget (0 components over). Low margin -- monitor closely.</li>
+<li>Sheet 'TRIGGER_LOGIC_B1' at inf% of budget (0 components over). Low margin -- monitor closely.</li>
+<li>Sheet 'TRIGGER_LOGIC_B2' at inf% of budget (0 components over). Low margin -- monitor closely.</li>
+<li>Sheet 'Deploy' at inf% of budget (0 components over). Low margin -- monitor closely.</li>
+<li>Sheet 'Passivate Arbitration' at inf% of budget (0 components over). Low margin -- monitor closely.</li>
+<li>Sheet 'Unlatch Arbitration' at inf% of budget (0 components over). Low margin -- monitor closely.</li>
+<li>Sheet 'Ideal Diode Battery' at inf% of budget (0 components over). Low margin -- monitor closely.</li>
+<li>Sheet 'On Arbitration' at inf% of budget (0 components over). Low margin -- monitor closely.</li>
+<li>Sheet 'Off Arbitration' at inf% of budget (0 components over). Low margin -- monitor closely.</li>
+<li>Sheet 'Trigger IDD' at inf% of budget (0 components over). Low margin -- monitor closely.</li>
+<li>Sheet 'SWIFT_board' at inf% of budget (0 components over). Low margin -- monitor closely.</li>
+</ul>
+</div>
+<div class="card"><h2 id="sec-derating">Derating Guidance</h2>
+<div class="grid">
+<div class="metric"><div class="v">684.00</div><div class="l">Actual System (FIT)</div></div>
+<div class="metric"><div class="v">1054.0</div><div class="l">Target (FIT)</div></div>
+<div class="metric ok"><div class="v">-369.97</div><div class="l">Gap (FIT)</div></div>
+<div class="metric"><div class="v">0</div><div class="l">Feasible Actions</div></div>
+</div>
+<p style="margin-top:12px"><span class="badge badge-ok">Within Target</span>
+Recommendations below show optimization opportunities.</p>
+<table><thead><tr><th>#</th><th>Reference</th><th>Parameter</th>
+<th>Current</th><th>Required</th><th>Change</th><th>FIT Saved</th>
+<th>Feasibility</th><th>Actions</th></tr></thead><tbody>
+<tr><td>1</td><td><strong>L5</strong></td><td>tau_on</td><td class="mono">1.0</td><td class="mono">0.7834375</td><td class="mono">+0.0%</td><td class="mono">0.000</td><td><span class="badge badge-bad">Difficult</span></td><td style="font-size:0.85em">Reduce duty cycle from 1.00 to 0.78; Implement duty-cycle management (time-slicing)</td></tr>
+<tr><td>2</td><td><strong>L5</strong></td><td>power_loss</td><td class="mono">2.7</td><td class="mono">1.906453125</td><td class="mono">+0.0%</td><td class="mono">0.000</td><td><span class="badge badge-bad">Difficult</span></td><td style="font-size:0.85em">Reduce power_loss from 2.7 to 1.906453125</td></tr>
+<tr><td>3</td><td><strong>e1</strong></td><td>n_cycles</td><td class="mono">5256.0</td><td class="mono">3613.8125</td><td class="mono">+0.0%</td><td class="mono">0.000</td><td><span class="badge badge-bad">Infeasible</span></td><td style="font-size:0.85em">Reduce annual thermal cycles from 5256 to 3614; Implement soft-start / gradual power-up sequences</td></tr>
+<tr><td>4</td><td><strong>e2</strong></td><td>n_cycles</td><td class="mono">5256.0</td><td class="mono">3613.8125</td><td class="mono">+0.0%</td><td class="mono">0.000</td><td><span class="badge badge-bad">Infeasible</span></td><td style="font-size:0.85em">Reduce annual thermal cycles from 5256 to 3614; Implement soft-start / gradual power-up sequences</td></tr>
+<tr><td>5</td><td><strong>BT1</strong></td><td>n_cycles</td><td class="mono">5256.0</td><td class="mono">3613.8125</td><td class="mono">+0.0%</td><td class="mono">0.000</td><td><span class="badge badge-bad">Infeasible</span></td><td style="font-size:0.85em">Reduce annual thermal cycles from 5256 to 3614; Implement soft-start / gradual power-up sequences</td></tr>
+<tr><td>6</td><td><strong>e1</strong></td><td>delta_t</td><td class="mono">3.0</td><td class="mono">2.003125</td><td class="mono">+0.0%</td><td class="mono">0.000</td><td><span class="badge badge-bad">Infeasible</span></td><td style="font-size:0.85em">Reduce thermal excursion from 3.0 degC to 2.0 degC; Improve thermal mass near component (copper planes)</td></tr>
+<tr><td>7</td><td><strong>e2</strong></td><td>delta_t</td><td class="mono">3.0</td><td class="mono">2.003125</td><td class="mono">+0.0%</td><td class="mono">0.000</td><td><span class="badge badge-bad">Infeasible</span></td><td style="font-size:0.85em">Reduce thermal excursion from 3.0 degC to 2.0 degC; Improve thermal mass near component (copper planes)</td></tr>
+<tr><td>8</td><td><strong>BT1</strong></td><td>delta_t</td><td class="mono">3.0</td><td class="mono">2.003125</td><td class="mono">+0.0%</td><td class="mono">0.000</td><td><span class="badge badge-bad">Infeasible</span></td><td style="font-size:0.85em">Reduce thermal excursion from 3.0 degC to 2.0 degC; Improve thermal mass near component (copper planes)</td></tr>
+<tr><td>9</td><td><strong>J9</strong></td><td>n_cycles</td><td class="mono">5256.0</td><td class="mono">3613.8125</td><td class="mono">+0.0%</td><td class="mono">0.000</td><td><span class="badge badge-bad">Infeasible</span></td><td style="font-size:0.85em">Reduce annual thermal cycles from 5256 to 3614; Implement soft-start / gradual power-up sequences</td></tr>
+<tr><td>10</td><td><strong>R158</strong></td><td>n_cycles</td><td class="mono">5256.0</td><td class="mono">3613.8125</td><td class="mono">+0.0%</td><td class="mono">0.000</td><td><span class="badge badge-bad">Infeasible</span></td><td style="font-size:0.85em">Reduce annual thermal cycles from 5256 to 3614; Implement soft-start / gradual power-up sequences</td></tr>
+<tr><td>11</td><td><strong>JP2</strong></td><td>n_cycles</td><td class="mono">5256.0</td><td class="mono">3613.8125</td><td class="mono">+0.0%</td><td class="mono">0.000</td><td><span class="badge badge-bad">Infeasible</span></td><td style="font-size:0.85em">Reduce annual thermal cycles from 5256 to 3614; Implement soft-start / gradual power-up sequences</td></tr>
+<tr><td>12</td><td><strong>JP3</strong></td><td>n_cycles</td><td class="mono">5256.0</td><td class="mono">3613.8125</td><td class="mono">+0.0%</td><td class="mono">0.000</td><td><span class="badge badge-bad">Infeasible</span></td><td style="font-size:0.85em">Reduce annual thermal cycles from 5256 to 3614; Implement soft-start / gradual power-up sequences</td></tr>
+<tr><td>13</td><td><strong>JP1</strong></td><td>n_cycles</td><td class="mono">5256.0</td><td class="mono">3613.8125</td><td class="mono">+0.0%</td><td class="mono">0.000</td><td><span class="badge badge-bad">Infeasible</span></td><td style="font-size:0.85em">Reduce annual thermal cycles from 5256 to 3614; Implement soft-start / gradual power-up sequences</td></tr>
+<tr><td>14</td><td><strong>J9</strong></td><td>n_contacts</td><td class="mono">10.0</td><td class="mono">8.7625</td><td class="mono">+0.0%</td><td class="mono">0.000</td><td><span class="badge badge-warn">Moderate</span></td><td style="font-size:0.85em">Reduce n_contacts from 10.0 to 8.7625</td></tr>
+<tr><td>15</td><td><strong>R158</strong></td><td>n_contacts</td><td class="mono">10.0</td><td class="mono">8.7625</td><td class="mono">+0.0%</td><td class="mono">0.000</td><td><span class="badge badge-warn">Moderate</span></td><td style="font-size:0.85em">Reduce n_contacts from 10.0 to 8.7625</td></tr>
+<tr><td>16</td><td><strong>JP2</strong></td><td>n_contacts</td><td class="mono">10.0</td><td class="mono">8.7625</td><td class="mono">+0.0%</td><td class="mono">0.000</td><td><span class="badge badge-warn">Moderate</span></td><td style="font-size:0.85em">Reduce n_contacts from 10.0 to 8.7625</td></tr>
+<tr><td>17</td><td><strong>JP3</strong></td><td>n_contacts</td><td class="mono">10.0</td><td class="mono">8.7625</td><td class="mono">+0.0%</td><td class="mono">0.000</td><td><span class="badge badge-warn">Moderate</span></td><td style="font-size:0.85em">Reduce n_contacts from 10.0 to 8.7625</td></tr>
+<tr><td>18</td><td><strong>JP1</strong></td><td>n_contacts</td><td class="mono">10.0</td><td class="mono">8.7625</td><td class="mono">+0.0%</td><td class="mono">0.000</td><td><span class="badge badge-warn">Moderate</span></td><td style="font-size:0.85em">Reduce n_contacts from 10.0 to 8.7625</td></tr>
+<tr><td>19</td><td><strong>J9</strong></td><td>delta_t</td><td class="mono">3.0</td><td class="mono">2.003125</td><td class="mono">+0.0%</td><td class="mono">0.000</td><td><span class="badge badge-bad">Infeasible</span></td><td style="font-size:0.85em">Reduce thermal excursion from 3.0 degC to 2.0 degC; Improve thermal mass near component (copper planes)</td></tr>
+<tr><td>20</td><td><strong>R158</strong></td><td>delta_t</td><td class="mono">3.0</td><td class="mono">2.003125</td><td class="mono">+0.0%</td><td class="mono">0.000</td><td><span class="badge badge-bad">Infeasible</span></td><td style="font-size:0.85em">Reduce thermal excursion from 3.0 degC to 2.0 degC; Improve thermal mass near component (copper planes)</td></tr>
+</tbody></table>
+</div>
+<div class="card"><h2 id="sec-swap">Component Swap Analysis</h2>
+<p>Analyzed 0 possible swaps across all components.</p>
+</div>
+<div class="card"><h2 id="sec-contributions">Failure Rate Contributions</h2>
+<table><thead><tr><th>Sheet</th><th>Lambda (FIT)</th><th>Contribution</th><th>Cumulative</th><th></th></tr></thead><tbody>
+<tr><td>LDO_3v3_bat</td><td class="mono">121.31</td><td>17.7%</td><td>17.7%</td><td style="width:120px"><div style="height:8px;background:#e2e8f0;border-radius:4px;overflow:hidden"><div style="height:100%;width:17.734976765147294%;background:linear-gradient(90deg,#3b82f6,#60a5fa);border-radius:4px"></div></div></td></tr>
+<tr><td>Buck</td><td class="mono">119.40</td><td>17.5%</td><td>35.2%</td><td style="width:120px"><div style="height:8px;background:#e2e8f0;border-radius:4px;overflow:hidden"><div style="height:100%;width:17.455738973985042%;background:linear-gradient(90deg,#3b82f6,#60a5fa);border-radius:4px"></div></div></td></tr>
+<tr><td>Power</td><td class="mono">92.82</td><td>13.6%</td><td>48.8%</td><td style="width:120px"><div style="height:8px;background:#e2e8f0;border-radius:4px;overflow:hidden"><div style="height:100%;width:13.570042108236091%;background:linear-gradient(90deg,#3b82f6,#60a5fa);border-radius:4px"></div></div></td></tr>
+<tr><td>LDO_3v3_sat</td><td class="mono">76.82</td><td>11.2%</td><td>60.0%</td><td style="width:120px"><div style="height:8px;background:#e2e8f0;border-radius:4px;overflow:hidden"><div style="height:100%;width:11.230779876322048%;background:linear-gradient(90deg,#3b82f6,#60a5fa);border-radius:4px"></div></div></td></tr>
+<tr><td>System On Logic</td><td class="mono">75.98</td><td>11.1%</td><td>71.1%</td><td style="width:120px"><div style="height:8px;background:#e2e8f0;border-radius:4px;overflow:hidden"><div style="height:100%;width:11.107866117042768%;background:linear-gradient(90deg,#3b82f6,#60a5fa);border-radius:4px"></div></div></td></tr>
+<tr><td>MCU_A</td><td class="mono">72.75</td><td>10.6%</td><td>81.7%</td><td style="width:120px"><div style="height:8px;background:#e2e8f0;border-radius:4px;overflow:hidden"><div style="height:100%;width:10.635913739874743%;background:linear-gradient(90deg,#3b82f6,#60a5fa);border-radius:4px"></div></div></td></tr>
+<tr><td>Protection Satellite 24V</td><td class="mono">42.94</td><td>6.3%</td><td>88.0%</td><td style="width:120px"><div style="height:8px;background:#e2e8f0;border-radius:4px;overflow:hidden"><div style="height:100%;width:6.277950110655279%;background:linear-gradient(90deg,#3b82f6,#60a5fa);border-radius:4px"></div></div></td></tr>
+<tr><td>Protection Battery</td><td class="mono">42.94</td><td>6.3%</td><td>94.3%</td><td style="width:120px"><div style="height:8px;background:#e2e8f0;border-radius:4px;overflow:hidden"><div style="height:100%;width:6.277950110655279%;background:linear-gradient(90deg,#3b82f6,#60a5fa);border-radius:4px"></div></div></td></tr>
+<tr><td>TRIGGER_LOGIC_B3</td><td class="mono">18.01</td><td>2.6%</td><td>96.9%</td><td style="width:120px"><div style="height:8px;background:#e2e8f0;border-radius:4px;overflow:hidden"><div style="height:100%;width:2.633271634971378%;background:linear-gradient(90deg,#3b82f6,#60a5fa);border-radius:4px"></div></div></td></tr>
+<tr><td>Passivate Memory</td><td class="mono">10.77</td><td>1.6%</td><td>98.5%</td><td style="width:120px"><div style="height:8px;background:#e2e8f0;border-radius:4px;overflow:hidden"><div style="height:100%;width:1.5738468972617632%;background:linear-gradient(90deg,#3b82f6,#60a5fa);border-radius:4px"></div></div></td></tr>
+<tr><td>Ideal Diode Satellite</td><td class="mono">10.27</td><td>1.5%</td><td>100.0%</td><td style="width:120px"><div style="height:8px;background:#e2e8f0;border-radius:4px;overflow:hidden"><div style="height:100%;width:1.501663665848299%;background:linear-gradient(90deg,#3b82f6,#60a5fa);border-radius:4px"></div></div></td></tr>
+</tbody></table>
+<div class="chart-single"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 400" style="max-width:100%;height:auto;font-family:sans-serif;">
+<rect width="600" height="400" fill="white" rx="8"/>
+<text x="120" y="24" font-size="13" font-weight="bold" fill="#1e293b">Relative Contributions</text>
+<line x1="120" y1="40" x2="120" y2="350" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="232" y1="40" x2="232" y2="350" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="345" y1="40" x2="345" y2="350" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="457" y1="40" x2="457" y2="350" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="570" y1="40" x2="570" y2="350" stroke="#f1f5f9" stroke-width="1"/>
+<rect x="120" y="45" width="79" height="22" fill="#3b82f6" rx="3"/>
+<text x="115" y="60" font-size="9" text-anchor="end" fill="#374151">LDO_3v3_bat</text>
+<text x="126" y="60" font-size="9" fill="white">0.177</text>
+<rect x="120" y="72" width="78" height="22" fill="#10b981" rx="3"/>
+<text x="115" y="87" font-size="9" text-anchor="end" fill="#374151">Buck</text>
+<text x="126" y="87" font-size="9" fill="white">0.175</text>
+<rect x="120" y="99" width="61" height="22" fill="#f59e0b" rx="3"/>
+<text x="115" y="114" font-size="9" text-anchor="end" fill="#374151">Power</text>
+<text x="126" y="114" font-size="9" fill="white">0.136</text>
+<rect x="120" y="126" width="50" height="22" fill="#ef4444" rx="3"/>
+<text x="115" y="141" font-size="9" text-anchor="end" fill="#374151">LDO_3v3_sat</text>
+<text x="176" y="141" font-size="9" fill="#374151">0.112</text>
+<rect x="120" y="153" width="49" height="22" fill="#8b5cf6" rx="3"/>
+<text x="115" y="168" font-size="9" text-anchor="end" fill="#374151">System On Logic</text>
+<text x="175" y="168" font-size="9" fill="#374151">0.111</text>
+<rect x="120" y="180" width="47" height="22" fill="#ec4899" rx="3"/>
+<text x="115" y="195" font-size="9" text-anchor="end" fill="#374151">MCU_A</text>
+<text x="173" y="195" font-size="9" fill="#374151">0.106</text>
+<rect x="120" y="207" width="28" height="22" fill="#14b8a6" rx="3"/>
+<text x="115" y="222" font-size="9" text-anchor="end" fill="#374151">Protection Satellite</text>
+<text x="154" y="222" font-size="9" fill="#374151">0.063</text>
+<rect x="120" y="234" width="28" height="22" fill="#f97316" rx="3"/>
+<text x="115" y="249" font-size="9" text-anchor="end" fill="#374151">Protection Battery</text>
+<text x="154" y="249" font-size="9" fill="#374151">0.063</text>
+<rect x="120" y="261" width="11" height="22" fill="#6366f1" rx="3"/>
+<text x="115" y="276" font-size="9" text-anchor="end" fill="#374151">TRIGGER_LOGIC_B3</text>
+<text x="137" y="276" font-size="9" fill="#374151">0.026</text>
+<rect x="120" y="288" width="7" height="22" fill="#06b6d4" rx="3"/>
+<text x="115" y="303" font-size="9" text-anchor="end" fill="#374151">Passivate Memory</text>
+<text x="133" y="303" font-size="9" fill="#374151">0.016</text>
+<rect x="120" y="315" width="6" height="22" fill="#84cc16" rx="3"/>
+<text x="115" y="330" font-size="9" text-anchor="end" fill="#374151">Ideal Diode Satellit</text>
+<text x="132" y="330" font-size="9" fill="#374151">0.015</text>
+<text x="120" y="370" font-size="9" text-anchor="middle" fill="#64748b">0.00</text>
+<text x="232" y="370" font-size="9" text-anchor="middle" fill="#64748b">0.25</text>
+<text x="345" y="370" font-size="9" text-anchor="middle" fill="#64748b">0.50</text>
+<text x="457" y="370" font-size="9" text-anchor="middle" fill="#64748b">0.75</text>
+<text x="570" y="370" font-size="9" text-anchor="middle" fill="#64748b">1.00</text>
+<text x="345" y="395" font-size="10" text-anchor="middle" fill="#64748b">Fraction</text>
+</svg>
+</div></div>
+<div class="card"><h2 id="sec-sheets">Component Details by Sheet</h2>
+<h3>SWIFT_board</h3>
+<p style="color:var(--text2);margin-bottom:10px">Path: <code>/SWIFT_board/</code> | lambda = 0.00 FIT | R = 1.000000 | 0 components</p>
+<table><thead><tr><th>Ref</th><th>Value</th><th>Type</th><th>Lambda (FIT)</th><th>R</th><th>Source</th></tr></thead><tbody>
+</tbody></table>
+<h3>MCU_A</h3>
+<p style="color:var(--text2);margin-bottom:10px">Path: <code>/SWIFT_board/Project Architecture/Control/MCU_A/</code> | lambda = 72.75 FIT | R = 0.996819 | 15 components</p>
+<table><thead><tr><th>Ref</th><th>Value</th><th>Type</th><th>Lambda (FIT)</th><th>R</th><th>Source</th></tr></thead><tbody>
+<tr><td><strong>C7</strong></td><td>1uF - 50V X7R</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>R11</strong></td><td>10k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>C3</strong></td><td>0.1uF - 50V X7R</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>C11</strong></td><td>1uF - 50V X7R</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>U2</strong></td><td>MAX13431EETB+T</td><td>Integrated Circuit</td><td class="mono">14.40</td><td class="mono">0.999369</td><td>Calculated</td></tr>
+<tr><td><strong>C9</strong></td><td>0.1uF - 50V X7R</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>C5</strong></td><td>0.1uF - 50V X7R</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>C2</strong></td><td>1uF - 50V X7R</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>C8</strong></td><td>1uF - 50V X7R</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>C6</strong></td><td>1uF - 50V X7R</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>R9</strong></td><td>100k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>J9</strong></td><td>ML6</td><td>Connector</td><td class="mono">35.39</td><td class="mono">0.998451</td><td>Calculated</td></tr>
+<tr><td><strong>C4</strong></td><td>0.1uF - 50V X7R</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>U3</strong></td><td>SN65HVD233</td><td>Integrated Circuit</td><td class="mono">14.40</td><td class="mono">0.999369</td><td>Calculated</td></tr>
+<tr><td><strong>C10</strong></td><td>0.1uF - 50V X7R</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+</tbody></table>
+<h3>MCU_B</h3>
+<p style="color:var(--text2);margin-bottom:10px">Path: <code>/SWIFT_board/Project Architecture/Control/MCU_B/</code> | lambda = 0.00 FIT | R = 0.996818 | 0 components</p>
+<table><thead><tr><th>Ref</th><th>Value</th><th>Type</th><th>Lambda (FIT)</th><th>R</th><th>Source</th></tr></thead><tbody>
+</tbody></table>
+<h3>MCU_C</h3>
+<p style="color:var(--text2);margin-bottom:10px">Path: <code>/SWIFT_board/Project Architecture/Control/MCU_C/</code> | lambda = 0.00 FIT | R = 0.996819 | 0 components</p>
+<table><thead><tr><th>Ref</th><th>Value</th><th>Type</th><th>Lambda (FIT)</th><th>R</th><th>Source</th></tr></thead><tbody>
+</tbody></table>
+<h3>Power</h3>
+<p style="color:var(--text2);margin-bottom:10px">Path: <code>/SWIFT_board/Project Architecture/Power/</code> | lambda = 92.82 FIT | R = 0.995943 | 11 components</p>
+<table><thead><tr><th>Ref</th><th>Value</th><th>Type</th><th>Lambda (FIT)</th><th>R</th><th>Source</th></tr></thead><tbody>
+<tr><td><strong>BT1</strong></td><td>Battery</td><td>Miscellaneous</td><td class="mono">52.59</td><td class="mono">0.997699</td><td>Calculated</td></tr>
+<tr><td><strong>R2</strong></td><td>1k 1%</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999998</td><td>Calculated</td></tr>
+<tr><td><strong>R124</strong></td><td>2k7</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>D13</strong></td><td>LED</td><td>Diode</td><td class="mono">4.35</td><td class="mono">0.999809</td><td>Calculated</td></tr>
+<tr><td><strong>R73</strong></td><td>10k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>JP1</strong></td><td>BAT_ON</td><td>Connector</td><td class="mono">35.39</td><td class="mono">0.998451</td><td>Calculated</td></tr>
+<tr><td><strong>R70</strong></td><td>1k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>R126</strong></td><td>100k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>R71</strong></td><td>100k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>R127</strong></td><td>10k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>R125</strong></td><td>100k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+</tbody></table>
+<h3>Deploy</h3>
+<p style="color:var(--text2);margin-bottom:10px">Path: <code>/SWIFT_board/Project Architecture/Power/Deploy/</code> | lambda = 0.00 FIT | R = 1.000000 | 0 components</p>
+<table><thead><tr><th>Ref</th><th>Value</th><th>Type</th><th>Lambda (FIT)</th><th>R</th><th>Source</th></tr></thead><tbody>
+</tbody></table>
+<h3>TRIGGER_LOGIC_B1</h3>
+<p style="color:var(--text2);margin-bottom:10px">Path: <code>/SWIFT_board/Project Architecture/Power/Deploy/Boost/TRIGGER_LOGIC_B1/</code> | lambda = 0.00 FIT | R = 0.999211 | 0 components</p>
+<table><thead><tr><th>Ref</th><th>Value</th><th>Type</th><th>Lambda (FIT)</th><th>R</th><th>Source</th></tr></thead><tbody>
+</tbody></table>
+<h3>TRIGGER_LOGIC_B2</h3>
+<p style="color:var(--text2);margin-bottom:10px">Path: <code>/SWIFT_board/Project Architecture/Power/Deploy/Boost/TRIGGER_LOGIC_B2/</code> | lambda = 0.00 FIT | R = 0.999211 | 0 components</p>
+<table><thead><tr><th>Ref</th><th>Value</th><th>Type</th><th>Lambda (FIT)</th><th>R</th><th>Source</th></tr></thead><tbody>
+</tbody></table>
+<h3>Buck</h3>
+<p style="color:var(--text2);margin-bottom:10px">Path: <code>/SWIFT_board/Project Architecture/Power/Deploy/Buck/</code> | lambda = 119.40 FIT | R = 0.994784 | 14 components</p>
+<table><thead><tr><th>Ref</th><th>Value</th><th>Type</th><th>Lambda (FIT)</th><th>R</th><th>Source</th></tr></thead><tbody>
+<tr><td><strong>C117</strong></td><td>330uF - 10V</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>L5</strong></td><td>15uH</td><td>Inductor/Transformer</td><td class="mono">99.57</td><td class="mono">0.995649</td><td>Calculated</td></tr>
+<tr><td><strong>R131</strong></td><td>100k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>U41</strong></td><td>TPS5450MDDAREP</td><td>Integrated Circuit</td><td class="mono">14.40</td><td class="mono">0.999369</td><td>Calculated</td></tr>
+<tr><td><strong>R133</strong></td><td>10k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>R174</strong></td><td>3k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>C119</strong></td><td>0.01uF</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>R130</strong></td><td>2k7</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>C60</strong></td><td>4.7u - 50V X7R</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>R132</strong></td><td>100k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>C116</strong></td><td>0.01uF - 50V X7R</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>C115</strong></td><td>0.1uF - 50V X7R</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>C62</strong></td><td>4.7u - 50V X7R</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>R173</strong></td><td>10k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+</tbody></table>
+<h3>TRIGGER_LOGIC_B3</h3>
+<p style="color:var(--text2);margin-bottom:10px">Path: <code>/SWIFT_board/Project Architecture/Power/Deploy/Buck/TRIGGER_LOGIC_B3/</code> | lambda = 18.01 FIT | R = 0.999211 | 9 components</p>
+<table><thead><tr><th>Ref</th><th>Value</th><th>Type</th><th>Lambda (FIT)</th><th>R</th><th>Source</th></tr></thead><tbody>
+<tr><td><strong>C35</strong></td><td>1uF</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>R25</strong></td><td>10k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>C34</strong></td><td>0.1uF</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>U14</strong></td><td>CD4051BPWR</td><td>Integrated Circuit</td><td class="mono">14.40</td><td class="mono">0.999369</td><td>Calculated</td></tr>
+<tr><td><strong>R24</strong></td><td>10k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>C36</strong></td><td>0.1uF - 50V X7R</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>C37</strong></td><td>1uF - 50V X7R</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>R22</strong></td><td>10k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999998</td><td>Calculated</td></tr>
+<tr><td><strong>R23</strong></td><td>10k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999998</td><td>Calculated</td></tr>
+</tbody></table>
+<h3>Ideal Diode Battery</h3>
+<p style="color:var(--text2);margin-bottom:10px">Path: <code>/SWIFT_board/Project Architecture/Power/Ideal Diode Battery/</code> | lambda = 0.00 FIT | R = 0.999550 | 0 components</p>
+<table><thead><tr><th>Ref</th><th>Value</th><th>Type</th><th>Lambda (FIT)</th><th>R</th><th>Source</th></tr></thead><tbody>
+</tbody></table>
+<h3>Ideal Diode Satellite</h3>
+<p style="color:var(--text2);margin-bottom:10px">Path: <code>/SWIFT_board/Project Architecture/Power/Ideal Diode Satellite/</code> | lambda = 10.27 FIT | R = 0.999550 | 4 components</p>
+<table><thead><tr><th>Ref</th><th>Value</th><th>Type</th><th>Lambda (FIT)</th><th>R</th><th>Source</th></tr></thead><tbody>
+<tr><td><strong>R120</strong></td><td>10k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>R121</strong></td><td>10k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>Q19</strong></td><td>FMMT591</td><td>Transistor</td><td class="mono">5.07</td><td class="mono">0.999778</td><td>Calculated</td></tr>
+<tr><td><strong>Q18</strong></td><td>DMP3099L</td><td>Transistor</td><td class="mono">5.07</td><td class="mono">0.999778</td><td>Calculated</td></tr>
+</tbody></table>
+<h3>LDO_3v3_bat</h3>
+<p style="color:var(--text2);margin-bottom:10px">Path: <code>/SWIFT_board/Project Architecture/Power/LDO_3v3_bat/</code> | lambda = 121.31 FIT | R = 0.994701 | 16 components</p>
+<table><thead><tr><th>Ref</th><th>Value</th><th>Type</th><th>Lambda (FIT)</th><th>R</th><th>Source</th></tr></thead><tbody>
+<tr><td><strong>R157</strong></td><td>500</td><td>Relay</td><td class="mono">9.22</td><td class="mono">0.999596</td><td>Calculated</td></tr>
+<tr><td><strong>C114</strong></td><td>1uF</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>C113</strong></td><td>0.1uF</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>e2</strong></td><td>500</td><td>Miscellaneous</td><td class="mono">52.59</td><td class="mono">0.997699</td><td>Calculated</td></tr>
+<tr><td><strong>C111</strong></td><td>0.1uF - 50V X7R</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>D10</strong></td><td>1N4148WQ</td><td>Diode</td><td class="mono">4.35</td><td class="mono">0.999809</td><td>Calculated</td></tr>
+<tr><td><strong>U42</strong></td><td>LM317KTTR</td><td>Integrated Circuit</td><td class="mono">14.40</td><td class="mono">0.999369</td><td>Calculated</td></tr>
+<tr><td><strong>R159</strong></td><td>820</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999998</td><td>Calculated</td></tr>
+<tr><td><strong>R154</strong></td><td>820</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>C112</strong></td><td>1uF - 50V</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>R158</strong></td><td>820</td><td>Connector</td><td class="mono">35.39</td><td class="mono">0.998451</td><td>Calculated</td></tr>
+<tr><td><strong>R160</strong></td><td>500</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999998</td><td>Calculated</td></tr>
+<tr><td><strong>Cw3</strong></td><td>10uF - 50V</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>R156</strong></td><td>500</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>Cw4</strong></td><td>10uF</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>R155</strong></td><td>820</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+</tbody></table>
+<h3>LDO_3v3_sat</h3>
+<p style="color:var(--text2);margin-bottom:10px">Path: <code>/SWIFT_board/Project Architecture/Power/LDO_3v3_sat/</code> | lambda = 76.82 FIT | R = 0.996641 | 16 components</p>
+<table><thead><tr><th>Ref</th><th>Value</th><th>Type</th><th>Lambda (FIT)</th><th>R</th><th>Source</th></tr></thead><tbody>
+<tr><td><strong>C86</strong></td><td>0.1uF - 50V X7R</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>R111</strong></td><td>820</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>R115</strong></td><td>820</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999998</td><td>Calculated</td></tr>
+<tr><td><strong>R114</strong></td><td>500</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>e1</strong></td><td>500</td><td>Miscellaneous</td><td class="mono">52.59</td><td class="mono">0.997699</td><td>Calculated</td></tr>
+<tr><td><strong>U32</strong></td><td>LM317KTTR</td><td>Integrated Circuit</td><td class="mono">14.40</td><td class="mono">0.999369</td><td>Calculated</td></tr>
+<tr><td><strong>C87</strong></td><td>1uF - 50V</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>R113</strong></td><td>500</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>C89</strong></td><td>1uF</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>R117</strong></td><td>500</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999998</td><td>Calculated</td></tr>
+<tr><td><strong>R112</strong></td><td>820</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>R116</strong></td><td>820</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999998</td><td>Calculated</td></tr>
+<tr><td><strong>C88</strong></td><td>0.1uF</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>Cw1</strong></td><td>10uF - 50V</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>Cw2</strong></td><td>10uF</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>D8</strong></td><td>1N4148WQ</td><td>Diode</td><td class="mono">4.35</td><td class="mono">0.999809</td><td>Calculated</td></tr>
+</tbody></table>
+<h3>Passivate Arbitration</h3>
+<p style="color:var(--text2);margin-bottom:10px">Path: <code>/SWIFT_board/Project Architecture/Power/Passivate Arbitration/</code> | lambda = 0.00 FIT | R = 0.999211 | 0 components</p>
+<table><thead><tr><th>Ref</th><th>Value</th><th>Type</th><th>Lambda (FIT)</th><th>R</th><th>Source</th></tr></thead><tbody>
+</tbody></table>
+<h3>Passivate Memory</h3>
+<p style="color:var(--text2);margin-bottom:10px">Path: <code>/SWIFT_board/Project Architecture/Power/Passivate Memory/</code> | lambda = 10.77 FIT | R = 0.999529 | 12 components</p>
+<table><thead><tr><th>Ref</th><th>Value</th><th>Type</th><th>Lambda (FIT)</th><th>R</th><th>Source</th></tr></thead><tbody>
+<tr><td><strong>R88</strong></td><td>1k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>R86</strong></td><td>10k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>R92</strong></td><td>12k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>R87</strong></td><td>100k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>R89</strong></td><td>51k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>R90</strong></td><td>51k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>Q10</strong></td><td>FMMT591</td><td>Transistor</td><td class="mono">5.07</td><td class="mono">0.999778</td><td>Calculated</td></tr>
+<tr><td><strong>R85</strong></td><td>100k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>R84</strong></td><td>100k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>Q11</strong></td><td>DMP3099L</td><td>Transistor</td><td class="mono">5.07</td><td class="mono">0.999778</td><td>Calculated</td></tr>
+<tr><td><strong>R83</strong></td><td>12k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>R91</strong></td><td>100k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+</tbody></table>
+<h3>Protection Battery</h3>
+<p style="color:var(--text2);margin-bottom:10px">Path: <code>/SWIFT_board/Project Architecture/Power/Protection Battery/</code> | lambda = 42.94 FIT | R = 0.998121 | 18 components</p>
+<table><thead><tr><th>Ref</th><th>Value</th><th>Type</th><th>Lambda (FIT)</th><th>R</th><th>Source</th></tr></thead><tbody>
+<tr><td><strong>C42</strong></td><td>1uF - 50V X7R</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>Q3</strong></td><td>DMP3099L</td><td>Transistor</td><td class="mono">5.07</td><td class="mono">0.999778</td><td>Calculated</td></tr>
+<tr><td><strong>C44</strong></td><td>100nF - 50V X7R</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>R40</strong></td><td>80k6</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>C43</strong></td><td>1nF - 50V X7R</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>C45</strong></td><td>100nF - 50V X7R</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>U19</strong></td><td>ADM1270ARQZ</td><td>Integrated Circuit</td><td class="mono">14.40</td><td class="mono">0.999369</td><td>Calculated</td></tr>
+<tr><td><strong>R37</strong></td><td>187k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>R39</strong></td><td>12k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>R38</strong></td><td>11k3</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>R43</strong></td><td>25m</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>R41</strong></td><td>100k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>R46</strong></td><td>3k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>R42</strong></td><td>332k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>R44</strong></td><td>36k5</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>U18</strong></td><td>~</td><td>Integrated Circuit</td><td class="mono">14.40</td><td class="mono">0.999369</td><td>Calculated</td></tr>
+<tr><td><strong>Q4</strong></td><td>DMP3099L</td><td>Transistor</td><td class="mono">5.07</td><td class="mono">0.999778</td><td>Calculated</td></tr>
+<tr><td><strong>R45</strong></td><td>1k3</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+</tbody></table>
+<h3>Protection Satellite 24V</h3>
+<p style="color:var(--text2);margin-bottom:10px">Path: <code>/SWIFT_board/Project Architecture/Power/Protection Satellite 24V/</code> | lambda = 42.94 FIT | R = 0.998121 | 18 components</p>
+<table><thead><tr><th>Ref</th><th>Value</th><th>Type</th><th>Lambda (FIT)</th><th>R</th><th>Source</th></tr></thead><tbody>
+<tr><td><strong>C41</strong></td><td>100nF - 50V X7R</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>R32</strong></td><td>332k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>R36</strong></td><td>4k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>R33</strong></td><td>25m</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>C38</strong></td><td>1uF - 50V X7R</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>U17</strong></td><td>ADM1270ARQZ</td><td>Integrated Circuit</td><td class="mono">14.40</td><td class="mono">0.999369</td><td>Calculated</td></tr>
+<tr><td><strong>R29</strong></td><td>10k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>Q2</strong></td><td>DMP3099L</td><td>Transistor</td><td class="mono">5.07</td><td class="mono">0.999778</td><td>Calculated</td></tr>
+<tr><td><strong>Q1</strong></td><td>DMP3099L</td><td>Transistor</td><td class="mono">5.07</td><td class="mono">0.999778</td><td>Calculated</td></tr>
+<tr><td><strong>R28</strong></td><td>4k99</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>U16</strong></td><td>TPS7H2140-SEP</td><td>Integrated Circuit</td><td class="mono">14.40</td><td class="mono">0.999369</td><td>Calculated</td></tr>
+<tr><td><strong>C39</strong></td><td>1nF - 50V X7R</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+<tr><td><strong>R31</strong></td><td>100k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>R35</strong></td><td>174</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>R27</strong></td><td>287k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>R30</strong></td><td>80k6</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>R34</strong></td><td>90k9</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>C40</strong></td><td>100nF - 50V X7R</td><td>Capacitor</td><td class="mono">0.84</td><td class="mono">0.999963</td><td>Calculated</td></tr>
+</tbody></table>
+<h3>System On Logic</h3>
+<p style="color:var(--text2);margin-bottom:10px">Path: <code>/SWIFT_board/Project Architecture/Power/System On Logic/</code> | lambda = 75.98 FIT | R = 0.996678 | 5 components</p>
+<table><thead><tr><th>Ref</th><th>Value</th><th>Type</th><th>Lambda (FIT)</th><th>R</th><th>Source</th></tr></thead><tbody>
+<tr><td><strong>JP2</strong></td><td>MEMORY_CONFIG</td><td>Connector</td><td class="mono">35.39</td><td class="mono">0.998451</td><td>Calculated</td></tr>
+<tr><td><strong>JP3</strong></td><td>DOA_DETECT</td><td>Connector</td><td class="mono">35.39</td><td class="mono">0.998451</td><td>Calculated</td></tr>
+<tr><td><strong>R74</strong></td><td>100k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>R72</strong></td><td>10k</td><td>Resistor</td><td class="mono">0.06</td><td class="mono">0.999997</td><td>Calculated</td></tr>
+<tr><td><strong>Q8</strong></td><td>DMP3099L</td><td>Transistor</td><td class="mono">5.07</td><td class="mono">0.999778</td><td>Calculated</td></tr>
+</tbody></table>
+<h3>Off Arbitration</h3>
+<p style="color:var(--text2);margin-bottom:10px">Path: <code>/SWIFT_board/Project Architecture/Power/System On Logic/Off Arbitration/</code> | lambda = 0.00 FIT | R = 0.999211 | 0 components</p>
+<table><thead><tr><th>Ref</th><th>Value</th><th>Type</th><th>Lambda (FIT)</th><th>R</th><th>Source</th></tr></thead><tbody>
+</tbody></table>
+<h3>On Arbitration</h3>
+<p style="color:var(--text2);margin-bottom:10px">Path: <code>/SWIFT_board/Project Architecture/Power/System On Logic/On Arbitration/</code> | lambda = 0.00 FIT | R = 0.999211 | 0 components</p>
+<table><thead><tr><th>Ref</th><th>Value</th><th>Type</th><th>Lambda (FIT)</th><th>R</th><th>Source</th></tr></thead><tbody>
+</tbody></table>
+<h3>Unlatch Arbitration</h3>
+<p style="color:var(--text2);margin-bottom:10px">Path: <code>/SWIFT_board/Project Architecture/Power/Unlatch Arbitration/</code> | lambda = 0.00 FIT | R = 0.999211 | 0 components</p>
+<table><thead><tr><th>Ref</th><th>Value</th><th>Type</th><th>Lambda (FIT)</th><th>R</th><th>Source</th></tr></thead><tbody>
+</tbody></table>
+<h3>Trigger IDD</h3>
+<p style="color:var(--text2);margin-bottom:10px">Path: <code>/SWIFT_board/Project Architecture/Trigger IDD/</code> | lambda = 0.00 FIT | R = 0.999211 | 0 components</p>
+<table><thead><tr><th>Ref</th><th>Value</th><th>Type</th><th>Lambda (FIT)</th><th>R</th><th>Source</th></tr></thead><tbody>
+</tbody></table>
+</div>
+<div class="card"><h2 id="sec-glossary">Glossary</h2>
+<table class="tbl" style="width:100%"><tbody>
+<tr><td style="font-weight:bold;white-space:nowrap;vertical-align:top"><a id="gl-fit">FIT</a></td><td style="vertical-align:top"><strong>Failure In Time</strong><br><span style="color:#555">Unit of failure rate: 1 FIT = 1 failure per 10<sup>9</sup> device-hours. Widely used in reliability engineering per IEC 61709 and IEC TR 62380.</span></td></tr>
+<tr><td style="font-weight:bold;white-space:nowrap;vertical-align:top"><a id="gl-rt">R(t)</a></td><td style="vertical-align:top"><strong>Reliability Function</strong><br><span style="color:#555">Probability that a system survives to time <em>t</em> without failure. For constant failure rate: R(t) = exp(&minus;&lambda; &times; t).</span></td></tr>
+<tr><td style="font-weight:bold;white-space:nowrap;vertical-align:top"><a id="gl-mttf">MTTF</a></td><td style="vertical-align:top"><strong>Mean Time To Failure</strong><br><span style="color:#555">Expected operating time before the first failure: MTTF = 1/&lambda;. For space systems, typically expressed in years.</span></td></tr>
+<tr><td style="font-weight:bold;white-space:nowrap;vertical-align:top"><a id="gl-lambda">&lambda;</a></td><td style="vertical-align:top"><strong>Failure Rate</strong><br><span style="color:#555">Instantaneous failure rate in failures per hour. Related to FIT by &lambda; = FIT &times; 10<sup>&minus;9</sup>.</span></td></tr>
+<tr><td style="font-weight:bold;white-space:nowrap;vertical-align:top"><a id="gl-ci">CI</a></td><td style="vertical-align:top"><strong>Confidence Interval</strong><br><span style="color:#555">Range of values that contains the true parameter with a given probability. A 90% CI means 90% of Monte Carlo samples fall within the bounds.</span></td></tr>
+<tr><td style="font-weight:bold;white-space:nowrap;vertical-align:top"><a id="gl-monte carlo">Monte Carlo</a></td><td style="vertical-align:top"><strong>Monte Carlo Simulation</strong><br><span style="color:#555">Statistical technique that propagates parameter uncertainty through repeated random sampling. Each sample draws parameters from their uncertainty distributions and recomputes the system failure rate.</span></td></tr>
+<tr><td style="font-weight:bold;white-space:nowrap;vertical-align:top"><a id="gl-pert">PERT</a></td><td style="vertical-align:top"><strong>Program Evaluation and Review Technique</strong><br><span style="color:#555">Three-point estimation distribution (min, mode, max) using a scaled Beta distribution. More peaked than Uniform, suitable for expert-elicited uncertainty bounds.</span></td></tr>
+<tr><td style="font-weight:bold;white-space:nowrap;vertical-align:top"><a id="gl-oat">OAT</a></td><td style="vertical-align:top"><strong>One-At-a-Time Sensitivity</strong><br><span style="color:#555">Deterministic method that perturbs one parameter at a time while holding others at their nominal values. Used in Tornado charts.</span></td></tr>
+<tr><td style="font-weight:bold;white-space:nowrap;vertical-align:top"><a id="gl-tornado chart">Tornado Chart</a></td><td style="vertical-align:top"><strong>Tornado Sensitivity Chart</strong><br><span style="color:#555">Horizontal bar chart showing the system FIT swing caused by each parameter's perturbation, ordered by impact magnitude.</span></td></tr>
+<tr><td style="font-weight:bold;white-space:nowrap;vertical-align:top"><a id="gl-srrc">SRRC</a></td><td style="vertical-align:top"><strong>Standardized Rank Regression Coefficient</strong><br><span style="color:#555">Sensitivity measure from Monte Carlo: the standardized regression coefficient of the rank-transformed output on rank-transformed inputs. SRRC and SRRC&sup2; are used here as relative importance indicators for monotonic screening.</span></td></tr>
+<tr><td style="font-weight:bold;white-space:nowrap;vertical-align:top"><a id="gl-elasticity">Elasticity</a></td><td style="vertical-align:top"><strong>Normalized Sensitivity</strong><br><span style="color:#555">Dimensionless measure: (dY/Y) / (dX/X). An elasticity of 0.5 means a 1% change in parameter X causes a 0.5% change in output Y.</span></td></tr>
+<tr><td style="font-weight:bold;white-space:nowrap;vertical-align:top"><a id="gl-arrhenius">Arrhenius</a></td><td style="vertical-align:top"><strong>Arrhenius Acceleration</strong><br><span style="color:#555">Temperature-dependent failure acceleration: &pi;<sub>T</sub> = exp(E<sub>a</sub>/k &times; (1/T<sub>ref</sub> &minus; 1/T)). Higher junction temperature exponentially increases failure rate.</span></td></tr>
+<tr><td style="font-weight:bold;white-space:nowrap;vertical-align:top"><a id="gl-coffin-manson">Coffin-Manson</a></td><td style="vertical-align:top"><strong>Coffin-Manson Fatigue</strong><br><span style="color:#555">Thermal cycling fatigue model: failure rate contribution proportional to N<sup>0.76</sup> &times; &Delta;T<sup>0.68</sup>. Drives package/solder stress.</span></td></tr>
+<tr><td style="font-weight:bold;white-space:nowrap;vertical-align:top"><a id="gl-derating">Derating</a></td><td style="vertical-align:top"><strong>Electrical Derating</strong><br><span style="color:#555">Operating components below their rated limits (voltage, power, current) to reduce stress and improve reliability. A standard practice in high-reliability design.</span></td></tr>
+<tr><td style="font-weight:bold;white-space:nowrap;vertical-align:top"><a id="gl-jensen's inequality">Jensen's Inequality</a></td><td style="vertical-align:top"><strong>Jensen Diagnostic</strong><br><span style="color:#555">For the convex function R(t) = exp(&minus;&lambda;t), Jensen's inequality gives E[R(t)] &ge; R(E[&lambda;],t). The report uses this as a consistency check against the Monte Carlo sample mean, not as a claim about the nominal design point.</span></td></tr>
+</tbody></table></div>
+
+<div class="footer">
+<p>Designed and developed by Eliot Abramo | KiCad Reliability Plugin v3.3.0 | IEC TR 62380:2004</p>
+<p>This report is for engineering reference. Verify critical calculations independently.</p>
+</div></div></body></html>

@@ -12,7 +12,7 @@ import wx
 
 
 IS_WINDOWS = sys.platform.startswith("win")
-WINDOWS_FONT_POINT_DELTA = -3
+WINDOWS_FONT_POINT_DELTA = -2
 
 
 def _colour_to_rgb(colour: wx.Colour) -> tuple[int, int, int]:
@@ -73,7 +73,7 @@ def _theme_mode() -> str:
     if mode:
         return mode
     if IS_WINDOWS:
-        return "dark"
+        return "light"
     return "dark"
 
 
@@ -113,7 +113,14 @@ def tuned_font(
     minimum: int = 8,
 ) -> wx.Font:
     font = _base_font_for(window)
-    font.SetPointSize(max(minimum, font.GetPointSize() + relative + (WINDOWS_FONT_POINT_DELTA if IS_WINDOWS else 0)))
+    font.SetPointSize(
+        max(
+            minimum,
+            font.GetPointSize()
+            + relative
+            + (WINDOWS_FONT_POINT_DELTA if IS_WINDOWS else 0),
+        )
+    )
     if family is not None:
         font.SetFamily(family)
     if style is not None:
@@ -154,7 +161,9 @@ def ui_font(
     )
 
 
-def apply_compact_fonts(window: wx.Window | None, delta: int | None = None, minimum: int = 8) -> None:
+def apply_compact_fonts(
+    window: wx.Window | None, delta: int | None = None, minimum: int = 8
+) -> None:
     if not window or not IS_WINDOWS:
         return
 
@@ -195,7 +204,10 @@ def dip_size(window: wx.Window, width: int, height: int = -1) -> wx.Size:
 def _same_colour(lhs: wx.Colour, rhs: wx.Colour, tolerance: int = 10) -> bool:
     if not lhs or not rhs or not lhs.IsOk() or not rhs.IsOk():
         return False
-    return all(abs(a - b) <= tolerance for a, b in zip(_colour_to_rgb(lhs), _colour_to_rgb(rhs)))
+    return all(
+        abs(a - b) <= tolerance
+        for a, b in zip(_colour_to_rgb(lhs), _colour_to_rgb(rhs))
+    )
 
 
 def _is_native_light_surface(colour: wx.Colour) -> bool:
@@ -213,7 +225,11 @@ def _is_native_light_surface(colour: wx.Colour) -> bool:
     return _luminance(colour) > 0.80
 
 
-def _set_surface(window: wx.Window, background: wx.Colour | None = None, foreground: wx.Colour | None = None) -> None:
+def _set_surface(
+    window: wx.Window,
+    background: wx.Colour | None = None,
+    foreground: wx.Colour | None = None,
+) -> None:
     if foreground is not None:
         try:
             window.SetForegroundColour(foreground)
@@ -262,7 +278,11 @@ def build_palette() -> Palette:
     prefers_dark = True if theme_mode == "dark" else _system_prefers_dark()
     if theme_mode == "light":
         prefers_dark = False
-    dark_like = prefers_dark or _luminance(sys_window) < 0.35 or _contrast_ratio(sys_text, sys_window) < 4.5
+    dark_like = (
+        prefers_dark
+        or _luminance(sys_window) < 0.35
+        or _contrast_ratio(sys_text, sys_window) < 4.5
+    )
 
     if dark_like:
         background = wx.Colour(31, 36, 46)
@@ -305,7 +325,9 @@ def build_palette() -> Palette:
     if _contrast_ratio(text, card_bg) < 5.0:
         text = _pick_text(card_bg, wx.Colour(255, 255, 255), wx.Colour(22, 28, 37))
     if _contrast_ratio(text_muted, card_bg) < 3.5:
-        text_muted = _pick_text(card_bg, wx.Colour(228, 232, 238), wx.Colour(84, 96, 112))
+        text_muted = _pick_text(
+            card_bg, wx.Colour(228, 232, 238), wx.Colour(84, 96, 112)
+        )
 
     return Palette(
         background=background,
