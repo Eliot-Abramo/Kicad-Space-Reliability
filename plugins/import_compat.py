@@ -1,5 +1,6 @@
 """
 Helpers for loading sibling plugin modules in package or flat-module mode.
+Author:  Eliot Abramo
 """
 
 from __future__ import annotations

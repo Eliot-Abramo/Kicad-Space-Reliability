@@ -2,6 +2,7 @@
 Reliability Calculator UI Panels
 ================================
 Sheet panel, mission settings, component list, and mission phase dialog.
+Author:  Eliot Abramo
 """
 
 from typing import List
@@ -111,7 +112,7 @@ class MissionPhaseDialog(wx.Dialog):
     """Dialog for editing a single mission phase."""
 
     def __init__(self, parent, phase: MissionPhase = None, title="Edit Mission Phase"):
-        super().__init__(parent, title=title, size=(380, 320),
+        super().__init__(parent, title=title,
                          style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         style_panel(self, Colors.PANEL_BG)
         self.SetSize(dip_size(self, 380, 320))

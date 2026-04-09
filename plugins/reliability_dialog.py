@@ -2,6 +2,7 @@
 Main Reliability Calculator Dialog
 ===================================
 Primary UI integrating all IEC TR 62380 features with block diagram editor.
+Author:  Eliot Abramo
 """
 
 import json
@@ -41,14 +42,14 @@ from .mission_profile import MissionProfile
 
 try:
     from .ui.panels import Colors, SheetPanel, SettingsPanel, ComponentPanel
-    from .ui.theme import apply_compact_fonts, apply_theme_recursively, dip_size, style_panel, style_text_like, ui_font
+    from .ui.theme import IS_WINDOWS, apply_compact_fonts, apply_theme_recursively, dip_px, dip_size, style_panel, style_text_like, ui_font
     from .ui.windowing import center_dialog, get_display_client_area
 except ImportError:
     from import_compat import ensure_plugin_paths
 
     ensure_plugin_paths()
     from panels import Colors, SheetPanel, SettingsPanel, ComponentPanel
-    from theme import apply_compact_fonts, apply_theme_recursively, dip_size, style_panel, style_text_like, ui_font
+    from theme import IS_WINDOWS, apply_compact_fonts, apply_theme_recursively, dip_px, dip_size, style_panel, style_text_like, ui_font
     from windowing import center_dialog, get_display_client_area
 
 
@@ -87,17 +88,29 @@ class ReliabilityMainDialog(wx.Dialog):
             self._load_test_data()
 
         wx.CallAfter(center_dialog, self, parent)
+        def _force_hdr():
+            self._header.SetOwnForegroundColour(wx.Colour(255, 255, 255))
+            for child in self._header.GetChildren():
+                if isinstance(child, wx.StaticText):
+                    child.SetOwnForegroundColour(wx.Colour(255, 255, 255))
+            self._header.Refresh()
+        wx.CallAfter(_force_hdr)
+        wx.CallLater(150, _force_hdr)
+        wx.CallLater(500, _force_hdr)
 
     def _create_ui(self):
         root = wx.BoxSizer(wx.VERTICAL)
 
         # Header
         header = wx.Panel(self)
+        self._header = header
         style_panel(header, Colors.HEADER_BG)
+        header.SetOwnForegroundColour(wx.Colour(255, 255, 255))
         header_sizer = wx.BoxSizer(wx.HORIZONTAL)
         title = wx.StaticText(header, label="[Z] Reliability Calculator")
         title.SetFont(ui_font(header, role="title", weight=wx.FONTWEIGHT_BOLD))
-        title.SetForegroundColour(Colors.HEADER_FG)
+        title.SetOwnForegroundColour(wx.Colour(255, 255, 255))
+        title.SetName("_hdr")
         header_sizer.Add(title, 1, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 12)
         self.project_badge = wx.StaticText(header, label="(no project)")
         self.project_badge.SetForegroundColour(Colors.TEXT_SECONDARY)
@@ -111,7 +124,7 @@ class ReliabilityMainDialog(wx.Dialog):
 
         # Main content
         splitter = wx.SplitterWindow(self, style=wx.SP_LIVE_UPDATE | wx.BORDER_NONE)
-        splitter.SetMinimumPaneSize(220)
+        splitter.SetMinimumPaneSize(dip_px(self, 370))
 
         # Left panel
         left = wx.Panel(splitter)
@@ -125,7 +138,7 @@ class ReliabilityMainDialog(wx.Dialog):
 
         # Right panel
         right = wx.SplitterWindow(splitter, style=wx.SP_LIVE_UPDATE | wx.BORDER_NONE)
-        right.SetMinimumPaneSize(280)
+        right.SetMinimumPaneSize(dip_px(self, 430))
 
         # Editor panel
         editor_panel = wx.Panel(right)
@@ -140,7 +153,7 @@ class ReliabilityMainDialog(wx.Dialog):
 
         # Bottom panel
         bottom = wx.SplitterWindow(right, style=wx.SP_LIVE_UPDATE | wx.BORDER_NONE)
-        bottom.SetMinimumPaneSize(220)
+        bottom.SetMinimumPaneSize(dip_px(self, 370))
 
         self.comp_panel = ComponentPanel(bottom)
 
@@ -161,9 +174,9 @@ class ReliabilityMainDialog(wx.Dialog):
         results_sizer.Add(btn_calc, 0, wx.EXPAND | wx.ALL, 10)
         results_panel.SetSizer(results_sizer)
 
-        bottom.SplitVertically(self.comp_panel, results_panel, 420)
-        right.SplitHorizontally(editor_panel, bottom, 380)
-        splitter.SplitVertically(left, right, 280)
+        bottom.SplitVertically(self.comp_panel, results_panel, dip_px(self, 570))
+        right.SplitHorizontally(editor_panel, bottom, dip_px(self, 590))
+        splitter.SplitVertically(left, right, dip_px(self, 490))
 
         root.Add(splitter, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
 
@@ -181,6 +194,11 @@ class ReliabilityMainDialog(wx.Dialog):
         apply_compact_fonts(self)
         apply_theme_recursively(self, background=Colors.BACKGROUND)
         self.Layout()
+        if IS_WINDOWS:
+            header.SetOwnForegroundColour(wx.Colour(255, 255, 255))
+            for child in header.GetChildren():
+                if isinstance(child, wx.StaticText):
+                    child.SetOwnForegroundColour(wx.Colour(255, 255, 255))
 
     def _create_toolbar(self) -> wx.Panel:
         panel = wx.Panel(self)

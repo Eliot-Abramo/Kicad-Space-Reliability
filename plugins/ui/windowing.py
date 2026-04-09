@@ -1,4 +1,7 @@
-"""Window placement helpers for wx dialogs."""
+"""
+Window placement helpers for wx dialogs.
+Author:  Eliot Abramo
+"""
 
 import wx
 

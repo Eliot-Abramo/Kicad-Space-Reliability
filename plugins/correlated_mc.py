@@ -3,6 +3,7 @@
 """
 Correlated Monte Carlo Module (DEPRECATED)
 Replaced by shared-parameter mechanism in monte_carlo.py v4.
+Author:  Eliot Abramo
 """
 
 import warnings

@@ -55,14 +55,14 @@ from .growth_tracking import (
 )
 try:
     from .ui.book import SegmentedBook
-    from .ui.theme import PALETTE, apply_compact_fonts, apply_theme_recursively, dip_px, dip_size, platform_point_size, style_text_like, style_list_ctrl, ui_font
+    from .ui.theme import PALETTE, IS_WINDOWS, apply_compact_fonts, apply_theme_recursively, dip_px, dip_size, platform_point_size, style_text_like, style_list_ctrl, ui_font
     from .ui.windowing import center_dialog, get_display_client_area
 except ImportError:
     from import_compat import ensure_plugin_paths
 
     ensure_plugin_paths()
     from book import SegmentedBook
-    from theme import PALETTE, apply_compact_fonts, apply_theme_recursively, dip_px, dip_size, platform_point_size, style_text_like, style_list_ctrl, ui_font
+    from theme import PALETTE, IS_WINDOWS, apply_compact_fonts, apply_theme_recursively, dip_px, dip_size, platform_point_size, style_text_like, style_list_ctrl, ui_font
     from windowing import center_dialog, get_display_client_area
 
 
@@ -87,10 +87,15 @@ class C:
     ROW_ALT  = PALETTE.row_alt
     FIELD_BG = PALETTE.field_bg
     INFO_BG  = PALETTE.info_bg
-    BAR = [wx.Colour(59, 130, 246), wx.Colour(14, 165, 142), wx.Colour(245, 158, 11),
-           wx.Colour(239, 68, 68), wx.Colour(99, 102, 241), wx.Colour(20, 184, 166),
-           wx.Colour(168, 85, 247), wx.Colour(249, 115, 22)]
 
+    if PALETTE.is_dark:
+        BAR = [wx.Colour(59, 130, 246), wx.Colour(14, 165, 142), wx.Colour(245, 158, 11),
+            wx.Colour(239, 68, 68), wx.Colour(99, 102, 241), wx.Colour(20, 184, 166),
+            wx.Colour(168, 85, 247), wx.Colour(249, 115, 22)]
+    else:
+        BAR = [wx.Colour(37, 99, 235), wx.Colour(5, 150, 105), wx.Colour(234, 138, 0),
+            wx.Colour(220, 38, 38), wx.Colour(79, 70, 229), wx.Colour(13, 148, 136),
+            wx.Colour(147, 51, 234), wx.Colour(234, 88, 12)]
 
 # =====================================================================
 # Chart Panels
@@ -111,8 +116,8 @@ class HistogramPanel(wx.Panel):
     """Reliability distribution histogram with CI shading."""
 
     def __init__(self, parent, title="Distribution"):
-        super().__init__(parent, size=(-1, 300))
-        self.SetMinSize((400, 250))
+        super().__init__(parent, size=dip_size(parent, -1, 300))
+        self.SetMinSize(dip_size(self, 550, 400))
         self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
         self.title = title
         self.samples = None
@@ -253,8 +258,8 @@ class HBarPanel(wx.Panel):
     """Horizontal bar chart with proper label handling."""
 
     def __init__(self, parent, title="Chart"):
-        super().__init__(parent, size=(-1, 350))
-        self.SetMinSize((350, 200))
+        super().__init__(parent, size=dip_size(parent, -1, 350))
+        self.SetMinSize(dip_size(self, 450, 300))
         self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
         self.title = title
         self.data = []
@@ -346,8 +351,8 @@ class ConvergencePanel(wx.Panel):
     """Running mean convergence plot."""
 
     def __init__(self, parent, title="Mean Convergence"):
-        super().__init__(parent, size=(-1, 180))
-        self.SetMinSize((300, 140))
+        super().__init__(parent, size=dip_size(parent, -1, 180))
+        self.SetMinSize(dip_size(self, 450, 290))
         self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
         self.title = title
         self.history = []
@@ -628,6 +633,8 @@ class AnalysisDialog(wx.Dialog):
         super().__init__(parent, title=title, size=(w, h),
                          style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER | wx.MAXIMIZE_BOX)
         self.SetMinSize(dip_size(self, 1000, 700))
+        if IS_WINDOWS:
+            self.Maximize()
         self.SetBackgroundColour(C.BG)
 
         self.system_lambda = system_lambda
@@ -670,12 +677,22 @@ class AnalysisDialog(wx.Dialog):
         self._build_ui()
         apply_compact_fonts(self)
         apply_theme_recursively(self, background=C.BG)
+        self._fix_header_colors()
         self._load_persisted_state()
         self._on_load_history(None)
         self.Bind(wx.EVT_SHOW, self._on_dialog_show)
         wx.CallAfter(self._refresh_dialog_layout, True)
         wx.CallLater(120, self._refresh_dialog_layout, True)
         wx.CallLater(320, self._refresh_dialog_layout, True)
+        wx.CallLater(500, self._fix_header_colors)
+
+    def _fix_header_colors(self):
+        """Re-apply header text colors after theme recursion overwrites them."""
+        self._hdr.SetOwnForegroundColour(wx.Colour(255, 255, 255))
+        for child in self._hdr.GetChildren():
+            if isinstance(child, wx.StaticText):
+                child.SetOwnForegroundColour(wx.Colour(255, 255, 255))
+        self._hdr.Refresh()
 
     # =================================================================
     # Persistence: save/load analysis state
@@ -1085,10 +1102,12 @@ class AnalysisDialog(wx.Dialog):
         # Header
         hdr = wx.Panel(self)
         hdr.SetBackgroundColour(C.HEADER)
+        hdr.SetOwnForegroundColour(wx.Colour(255, 255, 255))
         hs = wx.BoxSizer(wx.HORIZONTAL)
         t = wx.StaticText(hdr, label="Reliability Analysis Suite")
         t.SetFont(ui_font(hdr, role="title", weight=wx.FONTWEIGHT_BOLD))
-        t.SetForegroundColour(wx.WHITE)
+        t.SetOwnForegroundColour(wx.Colour(255, 255, 255))
+        t.SetName("_hdr")
         hs.Add(t, 1, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 12)
         r = self._sys_r()
         yrs = self.mission_hours / 8760
@@ -1097,8 +1116,12 @@ class AnalysisDialog(wx.Dialog):
                 f"{len(self._active_data)} sheets")
         il = wx.StaticText(hdr, label=info)
         il.SetFont(ui_font(hdr, role="small"))
-        il.SetForegroundColour(wx.Colour(200, 215, 240))
+        il.SetOwnForegroundColour(wx.Colour(255, 255, 255))
+        il.SetName("_hdr")
         hs.Add(il, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 12)
+
+        self._hdr_title = t
+        self._hdr_info = il
 
         btn_clear = wx.Button(hdr, label="Clear All")
         _style_button(btn_clear, "warning")
@@ -1114,7 +1137,11 @@ class AnalysisDialog(wx.Dialog):
 
         hdr.SetSizer(hs)
         sizer.Add(hdr, 0, wx.EXPAND)
-
+        self._hdr = hdr
+        if IS_WINDOWS:
+            for child in self._hdr.GetChildren():
+                if isinstance(child, wx.StaticText):
+                    child.SetForegroundColour(wx.WHITE)
         # Notebook
         self.nb = SegmentedBook(
             self,
@@ -1151,6 +1178,7 @@ class AnalysisDialog(wx.Dialog):
     def _refresh_dialog_layout(self, recenter=False):
         try:
             apply_theme_recursively(self, background=C.BG)
+            self._fix_header_colors()
             self.Layout()
             if hasattr(self, "nb"):
                 apply_theme_recursively(self.nb, background=C.BG)
@@ -1160,6 +1188,7 @@ class AnalysisDialog(wx.Dialog):
                     if not page:
                         continue
                     apply_theme_recursively(page, background=C.BG)
+
                     page.Layout()
                     if isinstance(page, scrolled.ScrolledPanel):
                         page.SetupScrolling(scroll_x=False, scrollToTop=False)
@@ -1539,19 +1568,19 @@ class AnalysisDialog(wx.Dialog):
         self.pert_list = _make_list(panel,
             ["Parameter", "Low (-)", "High (+)", "Unit", "Enabled"],
             [180, 100, 100, 100, 90])
-        self.pert_list.SetMinSize((-1, 160))
+        self.pert_list.SetMinSize(dip_size(self.pert_list, -1, 160))
         self._populate_pert_table()
         self.pert_list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self._on_edit_pert)
         main.Add(self.pert_list, 0, wx.EXPAND | wx.ALL, 6)
 
         self.tornado_chart = HBarPanel(panel, "Tornado: System FIT Swing")
-        self.tornado_chart.SetMinSize((-1, 280))
+        self.tornado_chart.SetMinSize(dip_size(self.tornado_chart, -1, 280))
         main.Add(self.tornado_chart, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 6)
 
         self.tornado_table = _make_list(panel,
             ["Parameter", "Low FIT", "Base FIT", "High FIT", "Swing", "Perturbation"],
             [220, 110, 110, 110, 110, 220])
-        self.tornado_table.SetMinSize((-1, 160))
+        self.tornado_table.SetMinSize(dip_size(self.tornado_table, -1, 160))
         main.Add(self.tornado_table, 0, wx.EXPAND | wx.ALL, 6)
         self.tornado_interpretation = wx.StaticText(
             panel,
@@ -1592,7 +1621,7 @@ class AnalysisDialog(wx.Dialog):
         self.crit_table = _make_list(panel,
             ["Reference", "Type", "\u03BB (FIT)", "Top Parameter", "Elasticity", "Impact %"],
             [130, 200, 110, 220, 110, 110])
-        self.crit_table.SetMinSize((-1, 240))
+        self.crit_table.SetMinSize(dip_size(self.crit_table, -1, 240))
         main.Add(self.crit_table, 0, wx.EXPAND | wx.ALL, 6)
         self.crit_interpretation = wx.StaticText(
             panel,
@@ -2025,7 +2054,7 @@ class AnalysisDialog(wx.Dialog):
             ["#", "Parameter", "Score", "FIT Gain", "Suggestion",
              "Components", "Source"],
             [40, 160, 90, 100, 350, 140, 150])
-        self.smart_list.SetMinSize((-1, 220))
+        self.smart_list.SetMinSize(dip_size(self.smart_list, -1, 220))
         main.Add(self.smart_list, 0, wx.EXPAND | wx.ALL, 6)
 
         self.smart_detail = wx.StaticText(panel, label="")
@@ -2084,7 +2113,7 @@ class AnalysisDialog(wx.Dialog):
         self.whatif_table = _make_list(panel,
             ["Scenario", "Description", "\u03BB (FIT)", "R(t)", "\u0394\u03BB %", "\u0394R"],
             [180, 360, 110, 120, 100, 110])
-        self.whatif_table.SetMinSize((-1, 240))
+        self.whatif_table.SetMinSize(dip_size(self.whatif_table, -1, 240))
         main.Add(self.whatif_table, 0, wx.EXPAND | wx.ALL, 6)
 
         # --- Section 2: Budget allocation ---
@@ -2146,13 +2175,13 @@ class AnalysisDialog(wx.Dialog):
         self.budget_sheet_list = _make_list(panel,
             ["Sheet", "Actual FIT", "Budget FIT", "Gap To Close", "Util %", "Hotspots"],
             [180, 110, 110, 120, 100, 120])
-        self.budget_sheet_list.SetMinSize((-1, 140))
+        self.budget_sheet_list.SetMinSize(dip_size(self.budget_sheet_list, -1, 140))
         main.Add(self.budget_sheet_list, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
 
         self.budget_list = _make_list(panel,
             ["Reference", "Type", "Actual FIT", "Budget FIT", "Save Needed", "Util %", "Status", "Why"],
             [120, 180, 100, 100, 110, 90, 80, 240])
-        self.budget_list.SetMinSize((-1, 260))
+        self.budget_list.SetMinSize(dip_size(self.budget_list, -1, 260))
         main.Add(self.budget_list, 0, wx.EXPAND | wx.ALL, 6)
 
         # --- Section 3: Improvements ---
@@ -2175,7 +2204,7 @@ class AnalysisDialog(wx.Dialog):
             ["#", "Reference", "Type", "Action", "Current", "Proposed",
              "FIT Saved", "Feasibility"],
             [40, 120, 180, 180, 120, 150, 100, 100])
-        self.improve_list.SetMinSize((-1, 280))
+        self.improve_list.SetMinSize(dip_size(self.improve_list, -1, 280))
         main.Add(self.improve_list, 0, wx.EXPAND | wx.ALL, 6)
 
         # --- Section 4: Parameter What-If (bidirectional) ---
@@ -2257,7 +2286,7 @@ class AnalysisDialog(wx.Dialog):
             ["Version", "Date", "System FIT", "R(t)", "Components", "Notes"],
             [130, 170, 110, 120, 110, 280])
         self.history_list.Bind(wx.EVT_LIST_ITEM_SELECTED, self._on_history_selected)
-        self.history_list.SetMinSize((-1, 180))
+        self.history_list.SetMinSize(dip_size(self.history_list, -1, 180))
         main.Add(self.history_list, 0, wx.EXPAND | wx.ALL, 6)
 
         self.history_summary = wx.StaticText(panel, label="Save a snapshot to start a design history.")
@@ -2269,7 +2298,7 @@ class AnalysisDialog(wx.Dialog):
         )
         self.history_detail.SetFont(ui_font(panel, role="mono"))
         style_text_like(self.history_detail, read_only=True)
-        self.history_detail.SetMinSize((-1, 150))
+        self.history_detail.SetMinSize(dip_size(self.history_detail, -1, 150))
         main.Add(self.history_detail, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
         panel.SetSizer(main)

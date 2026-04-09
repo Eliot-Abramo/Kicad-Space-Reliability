@@ -182,7 +182,7 @@ class ComponentEditorDialog(wx.Dialog):
     
     def __init__(self, parent, component: ComponentData, mission_hours: float = 43800):
         super().__init__(parent, title=f"Edit: {component.reference}",
-                        size=(520, 650), style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+                        style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         self.component = component
         self.mission_hours = mission_hours
         self.result_fields = None
@@ -343,12 +343,12 @@ class BatchComponentEditorDialog(wx.Dialog):
     
     def __init__(self, parent, components: List[ComponentData], mission_hours: float = 43800):
         super().__init__(parent, title="Batch Component Editor",
-                        size=(950, 700), style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+                        style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         self.components = components
         self.mission_hours = mission_hours
         self.results = {}
         style_panel(self, PALETTE.panel_bg)
-        self.SetSize(dip_size(self, 950, 700))
+        self.SetSize(dip_size(self, 1000, 700))
         self._create_ui()
         apply_compact_fonts(self)
         apply_theme_recursively(self, background=PALETTE.panel_bg)
@@ -376,10 +376,10 @@ class BatchComponentEditorDialog(wx.Dialog):
         style_list_ctrl(self.list)
         self.list.InsertColumn(0, "Ref", width=dip_px(left, 68))
         self.list.InsertColumn(1, "Value", width=dip_px(left, 96))
-        self.list.InsertColumn(2, "Type", width=dip_px(left, 138))
+        self.list.InsertColumn(2, "Type", width=dip_px(left, 115))
         self.list.InsertColumn(3, "Lambda (FIT)", width=dip_px(left, 96))
-        self.list.InsertColumn(4, "Status", width=dip_px(left, 108))
-        self.list.InsertColumn(5, "Why", width=dip_px(left, 280))
+        self.list.InsertColumn(4, "Status", width=dip_px(left, 90))
+        self.list.InsertColumn(5, "Why", width=dip_px(left, 110))
 
         for i, comp in enumerate(self.components):
             self._refresh_row(i, comp)
@@ -674,7 +674,7 @@ class QuickReferenceDialog(wx.Dialog):
     
     def __init__(self, parent):
         super().__init__(parent, title="IEC TR 62380 Quick Reference",
-                        size=(650, 550), style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+                        style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         self.SetSize(dip_size(self, 650, 550))
         style_panel(self, PALETTE.panel_bg)
         

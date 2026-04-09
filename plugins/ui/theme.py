@@ -1,5 +1,6 @@
 """
 Adaptive theme helpers for KiCad wx dialogs.
+Author:  Eliot Abramo
 """
 
 from __future__ import annotations
@@ -113,14 +114,7 @@ def tuned_font(
     minimum: int = 8,
 ) -> wx.Font:
     font = _base_font_for(window)
-    font.SetPointSize(
-        max(
-            minimum,
-            font.GetPointSize()
-            + relative
-            + (WINDOWS_FONT_POINT_DELTA if IS_WINDOWS else 0),
-        )
-    )
+    font.SetPointSize(max(minimum, font.GetPointSize() + relative + (WINDOWS_FONT_POINT_DELTA if IS_WINDOWS else 0)))
     if family is not None:
         font.SetFamily(family)
     if style is not None:
@@ -161,9 +155,7 @@ def ui_font(
     )
 
 
-def apply_compact_fonts(
-    window: wx.Window | None, delta: int | None = None, minimum: int = 8
-) -> None:
+def apply_compact_fonts(window: wx.Window | None, delta: int | None = None, minimum: int = 8) -> None:
     if not window or not IS_WINDOWS:
         return
 
@@ -197,6 +189,20 @@ def dip_px(window: wx.Window, value: int) -> int:
         return value
 
 
+def screen_dip(value: int) -> int:
+    """DPI-scale a pixel value using screen DPI — works before window creation."""
+    if value < 0:
+        return value
+    if not IS_WINDOWS:
+        return value
+    try:
+        dc = wx.ScreenDC()
+        scale = dc.GetPPI()[0] /150.0
+        return int(value * scale)
+    except Exception:
+        return value
+
+
 def dip_size(window: wx.Window, width: int, height: int = -1) -> wx.Size:
     return wx.Size(dip_px(window, width), dip_px(window, height))
 
@@ -204,10 +210,7 @@ def dip_size(window: wx.Window, width: int, height: int = -1) -> wx.Size:
 def _same_colour(lhs: wx.Colour, rhs: wx.Colour, tolerance: int = 10) -> bool:
     if not lhs or not rhs or not lhs.IsOk() or not rhs.IsOk():
         return False
-    return all(
-        abs(a - b) <= tolerance
-        for a, b in zip(_colour_to_rgb(lhs), _colour_to_rgb(rhs))
-    )
+    return all(abs(a - b) <= tolerance for a, b in zip(_colour_to_rgb(lhs), _colour_to_rgb(rhs)))
 
 
 def _is_native_light_surface(colour: wx.Colour) -> bool:
@@ -225,11 +228,7 @@ def _is_native_light_surface(colour: wx.Colour) -> bool:
     return _luminance(colour) > 0.80
 
 
-def _set_surface(
-    window: wx.Window,
-    background: wx.Colour | None = None,
-    foreground: wx.Colour | None = None,
-) -> None:
+def _set_surface(window: wx.Window, background: wx.Colour | None = None, foreground: wx.Colour | None = None) -> None:
     if foreground is not None:
         try:
             window.SetForegroundColour(foreground)
@@ -278,11 +277,7 @@ def build_palette() -> Palette:
     prefers_dark = True if theme_mode == "dark" else _system_prefers_dark()
     if theme_mode == "light":
         prefers_dark = False
-    dark_like = (
-        prefers_dark
-        or _luminance(sys_window) < 0.35
-        or _contrast_ratio(sys_text, sys_window) < 4.5
-    )
+    dark_like = prefers_dark or _luminance(sys_window) < 0.35 or _contrast_ratio(sys_text, sys_window) < 4.5
 
     if dark_like:
         background = wx.Colour(31, 36, 46)
@@ -311,7 +306,7 @@ def build_palette() -> Palette:
         border = wx.Colour(209, 219, 231)
         grid = wx.Colour(226, 233, 241)
         text = _pick_text(card_bg, wx.Colour(255, 255, 255), wx.Colour(27, 34, 45))
-        text_muted = wx.Colour(88, 102, 122)
+        text_muted = wx.Colour(122, 122, 122)
         text_soft = wx.Colour(120, 133, 150)
         primary = wx.Colour(36, 99, 190)
         accent = wx.Colour(16, 126, 103)
@@ -325,9 +320,7 @@ def build_palette() -> Palette:
     if _contrast_ratio(text, card_bg) < 5.0:
         text = _pick_text(card_bg, wx.Colour(255, 255, 255), wx.Colour(22, 28, 37))
     if _contrast_ratio(text_muted, card_bg) < 3.5:
-        text_muted = _pick_text(
-            card_bg, wx.Colour(228, 232, 238), wx.Colour(84, 96, 112)
-        )
+        text_muted = _pick_text(card_bg, wx.Colour(228, 232, 238), wx.Colour(84, 96, 112))
 
     return Palette(
         background=background,
@@ -366,6 +359,17 @@ def style_text_like(ctrl: wx.Window, read_only: bool = False) -> None:
 def style_list_ctrl(ctrl: wx.ListCtrl) -> None:
     _set_surface(ctrl, PALETTE.card_bg, PALETTE.text)
 
+def _is_on_dark_header(node: wx.Window) -> bool:
+    """Skip recoloring text that was explicitly set on a dark header."""
+    try:
+        parent = node.GetParent()
+        if parent:
+            bg = parent.GetBackgroundColour()
+            if bg.IsOk() and _luminance(bg) < 0.15:
+                return True
+    except Exception:
+        pass
+    return False
 
 def apply_theme_recursively(
     window: wx.Window | None,
@@ -416,8 +420,8 @@ def apply_theme_recursively(
         elif isinstance(node, wx.StaticBox):
             _set_surface(node, foreground=PALETTE.text)
         elif isinstance(node, wx.StaticText):
-            _set_surface(node, foreground=PALETTE.text)
-
+            if not IS_WINDOWS:
+                _set_surface(node, foreground=PALETTE.text)
         try:
             children = list(node.GetChildren())
         except Exception:

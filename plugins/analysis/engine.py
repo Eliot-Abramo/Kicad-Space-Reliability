@@ -4,6 +4,8 @@ Unified Sensitivity & Uncertainty Analysis Engine
 Monte Carlo, Sobol (parameter & component-level), and user-defined what-if.
 Uses block structure (series/parallel/K-of-N). This module contains
 production utilities plus exploratory global-sensitivity helpers.
+
+Author:  Eliot Abramo
 """
 
 import math

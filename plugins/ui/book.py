@@ -1,4 +1,7 @@
-"""Generic themed tabbed page container for wx dialogs."""
+"""
+Generic themed tabbed page container for wx dialogs.
+Author:  Eliot Abramo
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,7 @@
-"""Unified Sensitivity & Uncertainty Analysis."""
+"""
+Unified Sensitivity & Uncertainty Analysis.
+Author:  Eliot Abramo
+"""
 
 from .engine import (
     run_monte_carlo,

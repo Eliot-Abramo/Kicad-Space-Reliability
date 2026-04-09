@@ -1,5 +1,6 @@
 """
 Pure component classification helpers.
+Author:  Eliot Abramo
 """
 
 from __future__ import annotations
