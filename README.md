@@ -1,3 +1,5 @@
+# Kicad Space Reliability Calculator
+
 <p align="center">
   <img src="plugins/icon.png" alt="KiCad Reliability Calculator logo" width="400" />
 </p>
@@ -10,11 +12,6 @@
   <strong>Version:</strong> 3.3.0
 </p>
 
-<p align="center">
-  IEC TR 62380 reliability engineering for KiCad projects, from component stress modeling to system-level design closure.
-</p>
-
-**Version:** 3.3.0
 
 <p align="center">
   <img alt="Version 3.3.0" src="https://img.shields.io/badge/version-3.3.0-0f766e" />
@@ -23,6 +20,26 @@
   <img alt="KiCad plugin" src="https://img.shields.io/badge/KiCad-plugin-f97316" />
   <img alt="License MIT" src="https://img.shields.io/badge/license-MIT-16a34a" />
 </p>
+A KiCad Action Plugin that estimates electronic space reliability from a KiCad schematic and block diagram, using IEC TR 62380 component stress modeling, uncertainty propagation, and system-level closure tools.
+
+
+## Table of Contents
+- [Why This Exists](#why-this-exists)
+- [Features](#features)
+- [What The Plugin Is Really Doing](#what-the-plugin-is-really-doing)
+- [Typical Engineering Loop](#typical-engineering-loop)
+- [Documentation Map](#documentation-map)
+- [Installation](#installation)
+  - [How to use after installing](#how-to-use-after-installing)
+  - [Cross-platform UI validation](#cross-platform-ui-validation)
+- [Report Outputs](#report-outputs)
+- [Assumptions And Limits](#assumptions-and-limits)
+- [Why This Exists](#why-this-exists)
+- [License](#license)
+
+---
+
+## Why This Exists
 
 Reliability Calculator is a KiCad plugin that turns a schematic and block diagram into a reliability model. It estimates failure rate at the component level with IEC TR 62380, rolls those results up to the system level, and then gives you a practical way to inspect uncertainty, sensitivity, dominant contributors, and likely improvement paths.
 
@@ -58,16 +75,21 @@ The project is deliberately opinionated about engineering communication. It trie
 
 At a high level, the workflow looks like this:
 
-```text
-KiCad schematic data
--> component classification + IEC parameters
--> component lambda_i
--> sheet-level aggregation
--> block-diagram composition
--> mission reliability metrics
--> uncertainty / sensitivity / closure analyses
--> exportable engineering report
+At a high level, the workflow looks like this:
+
+```mermaid
+flowchart TD
+  A[KiCad schematic data] --> B[Component classification + IEC parameters]
+  B --> C[Component λ_i]
+  C --> D[Sheet-level aggregation]
+  D --> E[Block-diagram composition]
+  E --> F[Mission reliability metrics]
+  F --> G[Uncertainty / sensitivity / closure analyses]
+  G --> H[Exportable engineering report]
 ```
+
+That matters because the tool is not just decorating a BOM with handbook values.
+It is coupling component stress modeling, mission assumptions, and explicit system topology in one place.
 
 That matters because the tool is not just decorating a BOM with handbook values.
 It is coupling component stress modeling, mission assumptions, and explicit system topology in one place.
