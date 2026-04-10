@@ -1,4 +1,5 @@
 {
+    "icon": "icon.png",
     "$schema": "https://go.kicad.org/pcm/schemas/v1",
     "name": "Reliability Calculator",
     "description": "IEC TR 62380 reliability analysis for KiCad projects with block modeling, Monte Carlo uncertainty, tornado sensitivity, and report export.",

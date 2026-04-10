@@ -16,7 +16,6 @@ from pathlib import Path
 import base64
 
 PLUGIN_VERSION = "3.3.0"
-REPORT_PREPARED_BY = "Eliot Abramo"
 
 
 def _fmt_percent(value: float, decimals: int = 1, fallback: str = "N/A") -> str:
@@ -32,6 +31,7 @@ def _fmt_percent(value: float, decimals: int = 1, fallback: str = "N/A") -> str:
 @dataclass
 class ReportData:
     """Container for all report data."""
+
     project_name: str
     mission_hours: float
     mission_years: float
@@ -70,10 +70,19 @@ class ReportData:
 
 # === SVG Chart Generators ===
 
-def _svg_histogram(samples: list, mean: float, p5: float, p95: float,
-                   width: int = 600, height: int = 300, title: str = "Distribution",
-                   ci_lower: float = None, ci_upper: float = None,
-                   ci_label: str = "90% CI") -> str:
+
+def _svg_histogram(
+    samples: list,
+    mean: float,
+    p5: float,
+    p95: float,
+    width: int = 600,
+    height: int = 300,
+    title: str = "Distribution",
+    ci_lower: float = None,
+    ci_upper: float = None,
+    ci_label: str = "90% CI",
+) -> str:
     if not samples or len(samples) < 2:
         return ""
     n_bins = 35
@@ -142,14 +151,17 @@ def _svg_histogram(samples: list, mean: float, p5: float, p95: float,
         x = ml + cw * i // 4
         svg += f'<text x="{x}" y="{mt+ch+20}" font-size="9" text-anchor="middle" fill="#64748b">{val:.4f}</text>\n'
     svg += f'<text x="{ml+cw//2}" y="{height-5}" font-size="10" text-anchor="middle" fill="#64748b">Reliability R(t)</text>\n'
-    svg += '</svg>\n'
+    svg += "</svg>\n"
     return svg
 
 
-def _svg_convergence(samples: list, width: int = 600, height: int = 300, title: str = "Convergence") -> str:
+def _svg_convergence(
+    samples: list, width: int = 600, height: int = 300, title: str = "Convergence"
+) -> str:
     if not samples or len(samples) < 10:
         return ""
     import numpy as np
+
     arr = np.array(samples)
     cumsum = np.cumsum(arr)
     running_mean = cumsum / np.arange(1, len(arr) + 1)
@@ -186,18 +198,35 @@ def _svg_convergence(samples: list, width: int = 600, height: int = 300, title: 
     fy = mt + ch - ((running_mean[-1] - v_min) / vr) * ch
     svg += f'<line x1="{ml}" y1="{fy:.1f}" x2="{ml+cw}" y2="{fy:.1f}" stroke="#22c55e" stroke-width="1" stroke-dasharray="5,3"/>\n'
     svg += f'<text x="{ml+cw//2}" y="{height-5}" font-size="10" text-anchor="middle" fill="#64748b">Simulations</text>\n'
-    svg += '</svg>\n'
+    svg += "</svg>\n"
     return svg
 
 
-def _svg_bar_chart(data: list, width: int = 600, height: int = 400, title: str = "Chart",
-                   x_label: str = "Value", max_value: float = None,
-                   colors: list = None) -> str:
+def _svg_bar_chart(
+    data: list,
+    width: int = 600,
+    height: int = 400,
+    title: str = "Chart",
+    x_label: str = "Value",
+    max_value: float = None,
+    colors: list = None,
+) -> str:
     if not data:
         return ""
-    default_colors = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6",
-                       "#ec4899", "#14b8a6", "#f97316", "#6366f1", "#06b6d4",
-                       "#84cc16", "#d946ef"]
+    default_colors = [
+        "#3b82f6",
+        "#10b981",
+        "#f59e0b",
+        "#ef4444",
+        "#8b5cf6",
+        "#ec4899",
+        "#14b8a6",
+        "#f97316",
+        "#6366f1",
+        "#06b6d4",
+        "#84cc16",
+        "#d946ef",
+    ]
     colors = colors or default_colors
     mv = max_value or max(abs(v) for _, v in data) or 1
     ml, mr, mt, mb = 120, 30, 40, 50
@@ -215,7 +244,9 @@ def _svg_bar_chart(data: list, width: int = 600, height: int = 400, title: str =
         y = mt + sp + i * (bh + sp)
         bw = max(2, int((abs(val) / mv) * cw))
         c = colors[i % len(colors)]
-        svg += f'<rect x="{ml}" y="{y}" width="{bw}" height="{bh}" fill="{c}" rx="3"/>\n'
+        svg += (
+            f'<rect x="{ml}" y="{y}" width="{bw}" height="{bh}" fill="{c}" rx="3"/>\n'
+        )
         dn = name[:20]
         svg += f'<text x="{ml-5}" y="{y+bh//2+4}" font-size="9" text-anchor="end" fill="#374151">{dn}</text>\n'
         vt = f"{val:.3f}" if abs(val) < 10 else f"{val:.1f}"
@@ -228,12 +259,17 @@ def _svg_bar_chart(data: list, width: int = 600, height: int = 400, title: str =
         x = ml + cw * i // 4
         svg += f'<text x="{x}" y="{mt+ch+20}" font-size="9" text-anchor="middle" fill="#64748b">{val:.2f}</text>\n'
     svg += f'<text x="{ml+cw//2}" y="{height-5}" font-size="10" text-anchor="middle" fill="#64748b">{x_label}</text>\n'
-    svg += '</svg>\n'
+    svg += "</svg>\n"
     return svg
 
 
-def _svg_tornado(entries: list, base_value: float, width: int = 700, height: int = 400,
-                 title: str = "Tornado Sensitivity") -> str:
+def _svg_tornado(
+    entries: list,
+    base_value: float,
+    width: int = 700,
+    height: int = 400,
+    title: str = "Tornado Sensitivity",
+) -> str:
     """Generate SVG tornado chart."""
     if not entries:
         return ""
@@ -243,7 +279,10 @@ def _svg_tornado(entries: list, base_value: float, width: int = 700, height: int
     bh = min(24, max(14, (ch - 10) // n))
     sp = max(3, (ch - n * bh) // (n + 1))
 
-    max_swing = max(max(abs(e.get("delta_low", 0)), abs(e.get("delta_high", 0))) for e in entries[:n])
+    max_swing = max(
+        max(abs(e.get("delta_low", 0)), abs(e.get("delta_high", 0)))
+        for e in entries[:n]
+    )
     if max_swing < 1e-9:
         max_swing = 1.0
     center_x = ml + cw // 2
@@ -280,7 +319,11 @@ def _svg_tornado(entries: list, base_value: float, width: int = 700, height: int
         svg += f'<text x="{center_x + int((abs(dh)/max_swing)*(cw/2)) + 5}" y="{y+bh//2+4}" font-size="8" fill="#64748b">{swing:.1f}</text>\n'
 
     # X-axis labels
-    for sign, label_text in [(-1, f"-{max_swing:.1f}"), (0, f"Base: {base_value:.1f}"), (1, f"+{max_swing:.1f}")]:
+    for sign, label_text in [
+        (-1, f"-{max_swing:.1f}"),
+        (0, f"Base: {base_value:.1f}"),
+        (1, f"+{max_swing:.1f}"),
+    ]:
         x = center_x + sign * (cw // 2)
         svg += f'<text x="{x}" y="{mt+ch+20}" font-size="9" text-anchor="middle" fill="#64748b">{label_text}</text>\n'
 
@@ -292,13 +335,17 @@ def _svg_tornado(entries: list, base_value: float, width: int = 700, height: int
     svg += f'<text x="{lx+16}" y="{mt+28}" font-size="9" fill="#475569">Degradation (higher FIT)</text>\n'
 
     svg += f'<text x="{ml+cw//2}" y="{height-5}" font-size="10" text-anchor="middle" fill="#64748b">System Failure Rate Impact (FIT)</text>\n'
-    svg += '</svg>\n'
+    svg += "</svg>\n"
     return svg
 
 
-def _svg_growth_timeline(snapshots: list, target_fit: float = None,
-                         width: int = 700, height: int = 350,
-                         title: str = "Reliability Growth Timeline") -> str:
+def _svg_growth_timeline(
+    snapshots: list,
+    target_fit: float = None,
+    width: int = 700,
+    height: int = 350,
+    title: str = "Reliability Growth Timeline",
+) -> str:
     """Generate SVG line chart showing system FIT across design revisions."""
     if not snapshots or len(snapshots) < 2:
         return ""
@@ -372,12 +419,16 @@ def _svg_growth_timeline(snapshots: list, target_fit: float = None,
         svg += f'<line x1="{lx}" y1="{ly+22}" x2="{lx+20}" y2="{ly+22}" stroke="#22c55e" stroke-width="2" stroke-dasharray="6,4"/>\n'
         svg += f'<text x="{lx+25}" y="{ly+26}" font-size="10" fill="#475569">Target FIT</text>\n'
 
-    svg += '</svg>\n'
+    svg += "</svg>\n"
     return svg
 
 
-def _svg_budget_utilization(components: list, width: int = 700, height: int = 400,
-                            title: str = "Budget Utilization by Component") -> str:
+def _svg_budget_utilization(
+    components: list,
+    width: int = 700,
+    height: int = 400,
+    title: str = "Budget Utilization by Component",
+) -> str:
     """Generate SVG horizontal bar chart showing budget utilization per component."""
     if not components:
         return ""
@@ -405,7 +456,9 @@ def _svg_budget_utilization(components: list, width: int = 700, height: int = 40
         svg += f'<rect x="{ml}" y="{y}" width="{cw}" height="{bh}" fill="#f1f5f9" rx="3"/>\n'
 
         # Utilization bar
-        bar_w = min(cw, max(0, int((max(0.0, util) / 100.0) * cw))) if budget_defined else 0
+        bar_w = (
+            min(cw, max(0, int((max(0.0, util) / 100.0) * cw))) if budget_defined else 0
+        )
         color = "#22c55e" if passed else "#ef4444"
         if bar_w > 0:
             svg += f'<rect x="{ml}" y="{y}" width="{bar_w}" height="{bh}" fill="{color}" rx="3" opacity="0.8"/>\n'
@@ -434,13 +487,14 @@ def _svg_budget_utilization(components: list, width: int = 700, height: int = 40
     svg += f'<rect x="{lx}" y="{ly+16}" width="12" height="12" fill="#ef4444" rx="2" opacity="0.8"/>\n'
     svg += f'<text x="{lx+16}" y="{ly+26}" font-size="9" fill="#475569">Over Budget</text>\n'
 
-    svg += '</svg>\n'
+    svg += "</svg>\n"
     return svg
 
 
 # =============================================================================
 # Report Generator
 # =============================================================================
+
 
 class ReportGenerator:
     """Generate professional reliability reports with embedded SVG charts."""
@@ -449,6 +503,7 @@ class ReportGenerator:
         self.logo_path = logo_path
         self.logo_mime = logo_mime or "image/png"
         self.logo_base64 = self._encode_logo() if logo_path else None
+        self.icon_base64 = self._encode_icon()
 
     def _encode_logo(self) -> Optional[str]:
         try:
@@ -456,13 +511,30 @@ class ReportGenerator:
             if p and p.exists():
                 # Detect MIME from extension if not provided
                 ext = p.suffix.lower()
-                mime_map = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-                            ".svg": "image/svg+xml", ".bmp": "image/bmp", ".gif": "image/gif"}
+                mime_map = {
+                    ".png": "image/png",
+                    ".jpg": "image/jpeg",
+                    ".jpeg": "image/jpeg",
+                    ".svg": "image/svg+xml",
+                    ".bmp": "image/bmp",
+                    ".gif": "image/gif",
+                }
                 self.logo_mime = mime_map.get(ext, "image/png")
-                with open(p, 'rb') as f:
-                    return base64.b64encode(f.read()).decode('utf-8')
+                with open(p, "rb") as f:
+                    return base64.b64encode(f.read()).decode("utf-8")
         except Exception as e:
             print(f"[ReportGenerator] Logo encoding failed: {e}")
+        return None
+
+    def _encode_icon(self) -> Optional[str]:
+        """Encode icon.png from the plugin directory as base64."""
+        try:
+            icon_path = Path(__file__).parent / "icon.png"
+            if icon_path.exists():
+                with open(icon_path, "rb") as f:
+                    return base64.b64encode(f.read()).decode("utf-8")
+        except Exception as e:
+            print(f"[ReportGenerator] Icon encoding failed: {e}")
         return None
 
     def _css(self) -> str:
@@ -479,7 +551,7 @@ class ReportGenerator:
                   display:flex; align-items:center; justify-content:space-between; }
         .header h1 { font-size:2em; margin-bottom:6px; }
         .header .sub { opacity:0.9; font-size:0.95em; }
-        .header-logo { max-height:70px; max-width:160px; margin-left:20px; object-fit:contain; }
+        .header-logo { max-height:400px; max-width:400px; margin-left:20px; object-fit:contain; }
         .card { background:var(--card); border-radius:10px; padding:24px;
                 margin-bottom:20px; box-shadow:0 1px 4px rgba(0,0,0,0.06); }
         .card h2 { color:var(--primary); margin-bottom:14px; font-size:1.3em;
@@ -511,8 +583,16 @@ class ReportGenerator:
 
     def generate_html(self, data: ReportData) -> str:
         fit = data.system_lambda * 1e9
-        mttf_years = data.system_mttf_hours / 8760 if data.system_mttf_hours < float('inf') else float('inf')
-        sc = "ok" if data.system_reliability >= 0.85 else "warn" if data.system_reliability >= 0.75 else "bad"
+        mttf_years = (
+            data.system_mttf_hours / 8760
+            if data.system_mttf_hours < float("inf")
+            else float("inf")
+        )
+        sc = (
+            "ok"
+            if data.system_reliability >= 0.85
+            else "warn" if data.system_reliability >= 0.75 else "bad"
+        )
         st = {"ok": "Excellent", "warn": "Acceptable", "bad": "Review Required"}[sc]
 
         html = f"""<!DOCTYPE html>
@@ -524,7 +604,7 @@ class ReportGenerator:
 <div class="header"><div>
 <h1>Reliability Analysis Report</h1>
 <div class="sub">Project: <strong>{data.project_name}</strong> | {datetime.fromisoformat(data.generated_at).strftime('%Y-%m-%d %H:%M')} | IEC TR 62380:2004</div>
-<div class="sub" style="margin-top:4px">Prepared by <strong>{REPORT_PREPARED_BY}</strong></div>
+<div class="sub" style="margin-top:4px">Prepared by <strong>Eliot Abramo</strong></div>
 </div>"""
         if self.logo_base64:
             html += f'<img src="data:{self.logo_mime};base64,{self.logo_base64}" alt="Logo" class="header-logo">'
@@ -532,6 +612,16 @@ class ReportGenerator:
 
 {self._toc(data)}
 
+"""
+        if self.icon_base64:
+            html += (
+                '<div style="text-align:center;margin-bottom:20px">'
+                f'<img src="data:image/png;base64,{self.icon_base64}" '
+                'alt="Plugin Icon" style="max-height:400px;object-fit:contain">'
+                "</div>\n"
+            )
+
+        html += f"""
 {self._intro_section(data)}
 
 <div class="card"><h2 id="sec-summary">System Summary</h2>
@@ -558,8 +648,6 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
             html += self._design_margin_section(data.design_margin)
         if data.sensitivity:
             html += self._sensitivity_section(data.sensitivity)
-        if data.criticality:
-            html += self._criticality_section(data.criticality)
 
         # Co-design sections
         if data.mission_profile:
@@ -575,12 +663,18 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
         if data.correlated_mc:
             html += self._correlated_mc_section(data.correlated_mc)
 
+        # Note: component/table dumps moved to Annex at end of report to keep summary pages concise
+        html += self._glossary()
+
+        # Annex: Place verbose component dumps after glossary
+        html += '<div class="card"><h2 id="sec-annex">Annex: Component Dumps</h2><p style="color:var(--text2)">Detailed per-sheet and per-component tables are collected here to keep the main report focused on findings and graphs.</p></div>'
         html += self._contributions_section(data.sheets)
         if data.sheet_mc:
             html += self._sheet_mc_section(data.sheet_mc)
         html += self._sheets_section(data.sheets)
 
-        html += self._glossary()
+        if data.criticality:
+            html += self._criticality_section(data.criticality)
 
         html += f"""
 <div class="footer">
@@ -603,17 +697,18 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
             entries.append(("sec-tornado", "Tornado Sensitivity"))
         if data.design_margin:
             entries.append(("sec-whatif", "What-If Scenarios"))
+        if data.derating:
+            entries.append(("sec-derating", "Derating Guidance"))
         if data.criticality:
             entries.append(("sec-criticality", "Component Criticality"))
         if data.budget:
             entries.append(("sec-budget", "Budget Allocation"))
-        if data.derating:
-            entries.append(("sec-derating", "Derating Guidance"))
         if data.swap_analysis:
             entries.append(("sec-swap", "Swap Analysis"))
-        entries.append(("sec-contributions", "FIT Contributions"))
-        entries.append(("sec-sheets", "Sheet Details"))
+        # Place glossary before verbose annex entries
         entries.append(("sec-glossary", "Glossary"))
+        entries.append(("sec-contributions", "FIT Contributions (Annex)"))
+        entries.append(("sec-sheets", "Sheet Details (Annex)"))
 
         links = " &middot; ".join(
             f'<a href="#{eid}" style="color:#2563eb;text-decoration:none">{label}</a>'
@@ -621,10 +716,10 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
         )
         return (
             '<div class="card" style="position:sticky;top:0;z-index:100;'
-            'background:#fff;border-bottom:2px solid #2563eb;padding:8px 18px;'
+            "background:#fff;border-bottom:2px solid #2563eb;padding:8px 18px;"
             'font-size:0.85rem">'
-            f'<strong>Contents:</strong> {links}'
-            '</div>\n'
+            f"<strong>Contents:</strong> {links}"
+            "</div>\n"
         )
 
     def _intro_section(self, data: ReportData) -> str:
@@ -637,8 +732,8 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
         note = (
             f"Component classification provenance: {high} high-confidence auto-classified, "
             f"{explicit} explicit from fields, {manual} manually reviewed, {review} flagged for review."
-            if total else
-            "Component classification provenance was not available in this report build."
+            if total
+            else "Component classification provenance was not available in this report build."
         )
         return f"""<div class="card"><h2 id="sec-intro">What This Tool Does And What This Report Communicates</h2>
 <p>This plugin turns your KiCad design into a reliability model. It reads the component set, applies the IEC TR 62380 failure-rate model to each part, combines those part-level rates into a system result, and then adds uncertainty and sensitivity views so you can see what is solid, what is assumption-driven, and what is worth fixing first.</p>
@@ -650,55 +745,100 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
     def _glossary(self) -> str:
         """Generate a glossary section with definitions."""
         terms = [
-            ("FIT", "Failure In Time",
-             "Unit of failure rate: 1 FIT = 1 failure per 10<sup>9</sup> device-hours. "
-             "Widely used in reliability engineering per IEC 61709 and IEC TR 62380."),
-            ("R(t)", "Reliability Function",
-             "Probability that a system survives to time <em>t</em> without failure. "
-             "For constant failure rate: R(t) = exp(&minus;&lambda; &times; t)."),
-            ("MTTF", "Mean Time To Failure",
-             "Expected operating time before the first failure: MTTF = 1/&lambda;. "
-             "For space systems, typically expressed in years."),
-            ("&lambda;", "Failure Rate",
-             "Instantaneous failure rate in failures per hour. "
-             "Related to FIT by &lambda; = FIT &times; 10<sup>&minus;9</sup>."),
-            ("CI", "Confidence Interval",
-             "Range of values that contains the true parameter with a given probability. "
-             "A 90% CI means 90% of Monte Carlo samples fall within the bounds."),
-            ("Monte Carlo", "Monte Carlo Simulation",
-             "Statistical technique that propagates parameter uncertainty through repeated "
-             "random sampling. Each sample draws parameters from their uncertainty distributions "
-             "and recomputes the system failure rate."),
-            ("PERT", "Program Evaluation and Review Technique",
-             "Three-point estimation distribution (min, mode, max) using a scaled Beta distribution. "
-             "More peaked than Uniform, suitable for expert-elicited uncertainty bounds."),
-            ("OAT", "One-At-a-Time Sensitivity",
-             "Deterministic method that perturbs one parameter at a time while holding others "
-             "at their nominal values. Used in Tornado charts."),
-            ("Tornado Chart", "Tornado Sensitivity Chart",
-             "Horizontal bar chart showing the system FIT swing caused by each parameter's "
-             "perturbation, ordered by impact magnitude."),
-            ("SRRC", "Standardized Rank Regression Coefficient",
-             "Sensitivity measure from Monte Carlo: the standardized regression coefficient "
-             "of the rank-transformed output on rank-transformed inputs. SRRC and SRRC&sup2; "
-             "are used here as relative importance indicators for monotonic screening."),
-            ("Elasticity", "Normalized Sensitivity",
-             "Dimensionless measure: (dY/Y) / (dX/X). An elasticity of 0.5 means a 1% change "
-             "in parameter X causes a 0.5% change in output Y."),
-            ("Arrhenius", "Arrhenius Acceleration",
-             "Temperature-dependent failure acceleration: &pi;<sub>T</sub> = exp(E<sub>a</sub>/k "
-             "&times; (1/T<sub>ref</sub> &minus; 1/T)). Higher junction temperature exponentially "
-             "increases failure rate."),
-            ("Coffin-Manson", "Coffin-Manson Fatigue",
-             "Thermal cycling fatigue model: failure rate contribution proportional to "
-             "N<sup>0.76</sup> &times; &Delta;T<sup>0.68</sup>. Drives package/solder stress."),
-            ("Derating", "Electrical Derating",
-             "Operating components below their rated limits (voltage, power, current) to reduce "
-             "stress and improve reliability. A standard practice in high-reliability design."),
-            ("Jensen's Inequality", "Jensen Diagnostic",
-             "For the convex function R(t) = exp(&minus;&lambda;t), Jensen's inequality gives "
-             "E[R(t)] &ge; R(E[&lambda;],t). The report uses this as a consistency check against "
-             "the Monte Carlo sample mean, not as a claim about the nominal design point."),
+            (
+                "FIT",
+                "Failure In Time",
+                "Unit of failure rate: 1 FIT = 1 failure per 10<sup>9</sup> device-hours. "
+                "Widely used in reliability engineering per IEC 61709 and IEC TR 62380.",
+            ),
+            (
+                "R(t)",
+                "Reliability Function",
+                "Probability that a system survives to time <em>t</em> without failure. "
+                "For constant failure rate: R(t) = exp(&minus;&lambda; &times; t).",
+            ),
+            (
+                "MTTF",
+                "Mean Time To Failure",
+                "Expected operating time before the first failure: MTTF = 1/&lambda;. "
+                "For space systems, typically expressed in years.",
+            ),
+            (
+                "&lambda;",
+                "Failure Rate",
+                "Instantaneous failure rate in failures per hour. "
+                "Related to FIT by &lambda; = FIT &times; 10<sup>&minus;9</sup>.",
+            ),
+            (
+                "CI",
+                "Confidence Interval",
+                "Range of values that contains the true parameter with a given probability. "
+                "A 90% CI means 90% of Monte Carlo samples fall within the bounds.",
+            ),
+            (
+                "Monte Carlo",
+                "Monte Carlo Simulation",
+                "Statistical technique that propagates parameter uncertainty through repeated "
+                "random sampling. Each sample draws parameters from their uncertainty distributions "
+                "and recomputes the system failure rate.",
+            ),
+            (
+                "PERT",
+                "Program Evaluation and Review Technique",
+                "Three-point estimation distribution (min, mode, max) using a scaled Beta distribution. "
+                "More peaked than Uniform, suitable for expert-elicited uncertainty bounds.",
+            ),
+            (
+                "OAT",
+                "One-At-a-Time Sensitivity",
+                "Deterministic method that perturbs one parameter at a time while holding others "
+                "at their nominal values. Used in Tornado charts.",
+            ),
+            (
+                "Tornado Chart",
+                "Tornado Sensitivity Chart",
+                "Horizontal bar chart showing the system FIT swing caused by each parameter's "
+                "perturbation, ordered by impact magnitude.",
+            ),
+            (
+                "SRRC",
+                "Standardized Rank Regression Coefficient",
+                "Sensitivity measure from Monte Carlo: the standardized regression coefficient "
+                "of the rank-transformed output on rank-transformed inputs. SRRC and SRRC&sup2; "
+                "are used here as relative importance indicators for monotonic screening.",
+            ),
+            (
+                "Elasticity",
+                "Normalized Sensitivity",
+                "Dimensionless measure: (dY/Y) / (dX/X). An elasticity of 0.5 means a 1% change "
+                "in parameter X causes a 0.5% change in output Y.",
+            ),
+            (
+                "Arrhenius",
+                "Arrhenius Acceleration",
+                "Temperature-dependent failure acceleration: &pi;<sub>T</sub> = exp(E<sub>a</sub>/k "
+                "&times; (1/T<sub>ref</sub> &minus; 1/T)). Higher junction temperature exponentially "
+                "increases failure rate.",
+            ),
+            (
+                "Coffin-Manson",
+                "Coffin-Manson Fatigue",
+                "Thermal cycling fatigue model: failure rate contribution proportional to "
+                "N<sup>0.76</sup> &times; &Delta;T<sup>0.68</sup>. Drives package/solder stress.",
+            ),
+            (
+                "Derating",
+                "Electrical Derating",
+                "Operating components below their rated limits (voltage, power, current) to reduce "
+                "stress and improve reliability. A standard practice in high-reliability design.",
+            ),
+            (
+                "Jensen's Inequality",
+                "Jensen Diagnostic",
+                "For the convex function R(t) = exp(&minus;&lambda;t), Jensen's inequality gives "
+                "E[R(t)] &ge; R(E[&lambda;],t). The report uses this as a consistency check against "
+                "the Monte Carlo sample mean, not as a claim about the nominal design point.",
+            ),
         ]
 
         rows = ""
@@ -706,7 +846,7 @@ Mission: {data.n_cycles} cycles/yr, dT = {data.delta_t} degC</p></div>
             rows += (
                 f'<tr><td style="font-weight:bold;white-space:nowrap;vertical-align:top">'
                 f'<a id="gl-{abbr.lower().replace("(", "").replace(")", "").replace("&lambda;","lambda")}">'
-                f'{abbr}</a></td>'
+                f"{abbr}</a></td>"
                 f'<td style="vertical-align:top"><strong>{full}</strong><br>'
                 f'<span style="color:#555">{desc}</span></td></tr>\n'
             )
@@ -795,8 +935,9 @@ that answer is, and the design-action sections if you need to close a gap agains
 </div>
 """
 
-    def _executive_summary(self, data: ReportData, sc: str, fit: float,
-                              mttf_years: float) -> str:
+    def _executive_summary(
+        self, data: ReportData, sc: str, fit: float, mttf_years: float
+    ) -> str:
         """Generate an executive summary with key findings and recommendations."""
         findings = []
         recommendations = []
@@ -805,13 +946,19 @@ that answer is, and the design-action sections if you need to close a gap agains
 
         # Overall assessment
         if sc == "ok":
-            findings.append("System reliability meets the 0.99 threshold -- design is robust.")
+            findings.append(
+                "System reliability meets the 0.99 threshold -- design is robust."
+            )
         elif sc == "warn":
-            findings.append(f"System reliability ({data.system_reliability:.4f}) is between "
-                            "0.95 and 0.99 -- some improvement may be needed.")
+            findings.append(
+                f"System reliability ({data.system_reliability:.4f}) is between "
+                "0.95 and 0.99 -- some improvement may be needed."
+            )
         else:
-            findings.append(f"System reliability ({data.system_reliability:.4f}) is below 0.95 "
-                            "-- design review is strongly recommended.")
+            findings.append(
+                f"System reliability ({data.system_reliability:.4f}) is below 0.95 "
+                "-- design review is strongly recommended."
+            )
 
         # MC findings
         if data.monte_carlo:
@@ -819,28 +966,35 @@ that answer is, and the design-action sections if you need to close a gap agains
             ci_lo = mc.get("ci_lower", 0)
             ci_hi = mc.get("ci_upper", 1)
             ci_span = max(0.0, ci_hi - ci_lo)
-            findings.append(f"Monte Carlo analysis ({mc.get('n_simulations', 0):,} samples) "
-                            f"gives {mc.get('confidence_level', 0.90)*100:.0f}% CI: "
-                            f"[{ci_lo:.6f}, {ci_hi:.6f}].")
+            findings.append(
+                f"Monte Carlo analysis ({mc.get('n_simulations', 0):,} samples) "
+                f"gives {mc.get('confidence_level', 0.90)*100:.0f}% CI: "
+                f"[{ci_lo:.6f}, {ci_hi:.6f}]."
+            )
             findings.append(
                 f"That uncertainty window spans {ci_span:.6f} reliability points across the current assumptions."
             )
             jn = mc.get("jensen_note", "")
             if "warning" in jn.lower():
-                findings.append("Jensen diagnostic warning: the Monte Carlo summary should be reviewed "
-                                "before the result is used in a release report.")
+                findings.append(
+                    "Jensen diagnostic warning: the Monte Carlo summary should be reviewed "
+                    "before the result is used in a release report."
+                )
 
         # Tornado findings
         if data.tornado:
             entries = data.tornado.get("entries", [])
             if entries:
                 top = entries[0]
-                findings.append(f"Highest-leverage parameter: {top['name']} "
-                                f"(FIT swing: {top['swing']:.1f}).")
+                findings.append(
+                    f"Highest-leverage parameter: {top['name']} "
+                    f"(FIT swing: {top['swing']:.1f})."
+                )
                 if len(entries) >= 3:
                     recommendations.append(
                         f"Focus design effort on the top 3 parameters: "
-                        f"{entries[0]['name']}, {entries[1]['name']}, {entries[2]['name']}.")
+                        f"{entries[0]['name']}, {entries[1]['name']}, {entries[2]['name']}."
+                    )
                 action_focus.append(
                     f"The fastest sensitivity lever right now is {top['name']}."
                 )
@@ -852,7 +1006,8 @@ that answer is, and the design-action sections if you need to close a gap agains
             if over > 0:
                 recommendations.append(
                     f"{over} component(s) exceed their FIT budget -- "
-                    "consider derating or higher-reliability parts.")
+                    "consider derating or higher-reliability parts."
+                )
                 action_focus.append(
                     f"The current design is {gap:.2f} FIT over the effective target budget."
                 )
@@ -872,14 +1027,16 @@ that answer is, and the design-action sections if you need to close a gap agains
                     )
 
         if not recommendations and sc != "ok":
-            recommendations.append("Run tornado and criticality analyses to identify "
-                                   "improvement opportunities.")
+            recommendations.append(
+                "Run tornado and criticality analyses to identify "
+                "improvement opportunities."
+            )
 
         html = '<div class="card"><h2 id="sec-executive">Executive Summary</h2>'
         html += (
             '<p style="margin-bottom:14px">This is the short version for a design review: '
-            'how the design is performing now, how stable that answer looks, and what the next '
-            'useful engineering actions are.</p>'
+            "how the design is performing now, how stable that answer looks, and what the next "
+            "useful engineering actions are.</p>"
         )
         html += '<div class="grid">'
         html += f'<div class="metric {sc}"><div class="v">{data.system_reliability:.6f}</div><div class="l">Mission Reliability</div></div>'
@@ -890,35 +1047,35 @@ that answer is, and the design-action sections if you need to close a gap agains
                 f'<div class="metric"><div class="v">{data.budget.get("fit_gap_to_close", 0):.2f}</div>'
                 '<div class="l">FIT Gap To Close</div></div>'
             )
-        html += '</div>'
+        html += "</div>"
         html += '<h3 style="margin-top:0">Key Findings</h3><ul>'
         for f in findings:
-            html += f'<li>{f}</li>'
-        html += '</ul>'
+            html += f"<li>{f}</li>"
+        html += "</ul>"
         if action_focus:
-            html += '<h3>What Deserves Attention First</h3><ul>'
+            html += "<h3>What Deserves Attention First</h3><ul>"
             for item in action_focus[:3]:
-                html += f'<li>{item}</li>'
-            html += '</ul>'
+                html += f"<li>{item}</li>"
+            html += "</ul>"
         if recommendations:
-            html += '<h3>Recommendations</h3><ol>'
+            html += "<h3>Recommendations</h3><ol>"
             for r in recommendations:
-                html += f'<li>{r}</li>'
-            html += '</ol>'
-        html += '</div>\n'
+                html += f"<li>{r}</li>"
+            html += "</ol>"
+        html += "</div>\n"
         return html
 
     def _mc_section(self, mc: Dict) -> str:
-        samples = mc.get('samples', [])
-        mean = mc.get('mean', 0)
-        p5 = mc.get('percentile_5', 0)
-        p95 = mc.get('percentile_95', 0)
-        std = mc.get('std', 0)
-        n = mc.get('n_simulations', 0)
-        conv = mc.get('converged', False)
-        cl = mc.get('confidence_level', 0.90)
-        ci_lo = mc.get('ci_lower', p5)
-        ci_hi = mc.get('ci_upper', p95)
+        samples = mc.get("samples", [])
+        mean = mc.get("mean", 0)
+        p5 = mc.get("percentile_5", 0)
+        p95 = mc.get("percentile_95", 0)
+        std = mc.get("std", 0)
+        n = mc.get("n_simulations", 0)
+        conv = mc.get("converged", False)
+        cl = mc.get("confidence_level", 0.90)
+        ci_lo = mc.get("ci_lower", p5)
+        ci_hi = mc.get("ci_upper", p95)
         cl_pct = cl * 100
 
         html = f"""<div class="card"><h2 id="sec-mc">Monte Carlo Uncertainty Analysis</h2>
@@ -933,19 +1090,27 @@ that answer is, and the design-action sections if you need to close a gap agains
         if isinstance(samples, list) and len(samples) > 10:
             ci_label = f"{cl_pct:.0f}% CI"
             html += '<div class="chart-row">'
-            html += _svg_histogram(samples, mean, p5, p95, title="Reliability Distribution",
-                                   ci_lower=ci_lo, ci_upper=ci_hi, ci_label=ci_label)
+            html += _svg_histogram(
+                samples,
+                mean,
+                p5,
+                p95,
+                title="Reliability Distribution",
+                ci_lower=ci_lo,
+                ci_upper=ci_hi,
+                ci_label=ci_label,
+            )
             html += _svg_convergence(samples, title="Mean Convergence")
-            html += '</div>'
+            html += "</div>"
 
         # Parameter importance (SRRC)
-        importance = mc.get('parameter_importance', [])
+        importance = mc.get("parameter_importance", [])
         if importance:
-            html += '<h3>Parameter Importance (SRRC)</h3>'
+            html += "<h3>Parameter Importance (SRRC)</h3>"
             html += '<p style="color:var(--text2)">Standardised Rank Regression Coefficients '
-            html += 'measure which uncertain parameters most influence system reliability.</p>'
-            html += '<table><thead><tr><th>Rank</th><th>Parameter</th><th>Mode</th>'
-            html += '<th>SRRC</th><th>SRRC&sup2;</th><th>Variance %</th></tr></thead><tbody>\n'
+            html += "measure which uncertain parameters most influence system reliability.</p>"
+            html += "<table><thead><tr><th>Rank</th><th>Parameter</th><th>Mode</th>"
+            html += "<th>SRRC</th><th>SRRC&sup2;</th><th>Variance %</th></tr></thead><tbody>\n"
             for p in importance[:15]:
                 mode = "Shared" if p.get("shared") else "Indep."
                 vf = p.get("variance_fraction", 0) * 100
@@ -953,22 +1118,27 @@ that answer is, and the design-action sections if you need to close a gap agains
                 html += f'<td>{mode}</td><td class="mono">{p["srrc"]:.4f}</td>'
                 html += f'<td class="mono">{p["srrc_sq"]:.4f}</td>'
                 html += f'<td class="mono">{vf:.1f}%</td></tr>\n'
-            html += '</tbody></table>\n'
+            html += "</tbody></table>\n"
 
             # Bar chart for top parameters
-            top_data = [(p["name"], p["srrc_sq"]) for p in importance[:10] if p["srrc_sq"] > 0]
+            top_data = [
+                (p["name"], p["srrc_sq"]) for p in importance[:10] if p["srrc_sq"] > 0
+            ]
             if top_data:
                 html += '<div class="chart-single">'
-                html += _svg_bar_chart(top_data, title="Parameter Importance (SRRC\u00B2)",
-                                       x_label="SRRC\u00B2")
-                html += '</div>'
+                html += _svg_bar_chart(
+                    top_data,
+                    title="Parameter Importance (SRRC\u00b2)",
+                    x_label="SRRC\u00b2",
+                )
+                html += "</div>"
 
         # Jensen's inequality note
-        jn = mc.get('jensen_note', '')
+        jn = mc.get("jensen_note", "")
         if jn:
             html += f'<p style="color:var(--text2);font-style:italic;margin-top:12px">{jn}</p>'
 
-        html += '</div>\n'
+        html += "</div>\n"
         return html
 
     def _tornado_section(self, tornado: Dict) -> str:
@@ -982,15 +1152,19 @@ that answer is, and the design-action sections if you need to close a gap agains
 <p>One-at-a-time perturbation of +/-{pct:.0f}% showing system failure rate impact.</p>
 """
         html += '<div class="chart-single">'
-        html += _svg_tornado(entries, base, title=f"System FIT Sensitivity (+/-{pct:.0f}%)")
-        html += '</div>'
+        html += _svg_tornado(
+            entries, base, title=f"System FIT Sensitivity (+/-{pct:.0f}%)"
+        )
+        html += "</div>"
 
-        html += '<table><thead><tr><th>Parameter</th><th>Base (FIT)</th><th>Low (FIT)</th><th>High (FIT)</th><th>Swing (FIT)</th></tr></thead><tbody>\n'
+        html += "<table><thead><tr><th>Parameter</th><th>Base (FIT)</th><th>Low (FIT)</th><th>High (FIT)</th><th>Swing (FIT)</th></tr></thead><tbody>\n"
         for e in entries[:15]:
-            html += f'<tr><td>{e["name"]}</td><td class="mono">{e["base_value"]:.2f}</td>'
+            html += (
+                f'<tr><td>{e["name"]}</td><td class="mono">{e["base_value"]:.2f}</td>'
+            )
             html += f'<td class="mono">{e["low_value"]:.2f}</td><td class="mono">{e["high_value"]:.2f}</td>'
             html += f'<td class="mono">{e["swing"]:.2f}</td></tr>\n'
-        html += '</tbody></table></div>\n'
+        html += "</tbody></table></div>\n"
         return html
 
     def _design_margin_section(self, dm: Dict) -> str:
@@ -1008,12 +1182,14 @@ that answer is, and the design-action sections if you need to close a gap agains
             dp = s.get("delta_lambda_pct", 0)
             dr = s.get("delta_reliability", 0)
             cls = "badge-bad" if dp > 5 else "badge-warn" if dp > 0 else "badge-ok"
-            html += f'<tr><td><strong>{s["name"]}</strong></td><td>{s["description"]}</td>'
+            html += (
+                f'<tr><td><strong>{s["name"]}</strong></td><td>{s["description"]}</td>'
+            )
             html += f'<td class="mono">{s["lambda_fit"]:.2f}</td><td class="mono">{s["reliability"]:.6f}</td>'
             html += f'<td><span class="badge {cls}">{dp:+.1f}%</span></td>'
             html += f'<td class="mono">{dr:+.6f}</td></tr>\n'
 
-        html += '</tbody></table>\n'
+        html += "</tbody></table>\n"
         html += f'<p style="color:var(--text2);margin-top:8px">Baseline: {bl:.2f} FIT, R = {br:.6f}</p></div>\n'
         return html
 
@@ -1030,22 +1206,44 @@ that answer is, and the design-action sections if you need to close a gap agains
         for name, sf, st_val in ranked[:15]:
             interact = st_val - sf
             inf = "High" if st_val > 0.3 else "Medium" if st_val > 0.1 else "Low"
-            ic = "badge-bad" if st_val > 0.3 else "badge-warn" if st_val > 0.1 else "badge-ok"
+            ic = (
+                "badge-bad"
+                if st_val > 0.3
+                else "badge-warn" if st_val > 0.1 else "badge-ok"
+            )
             html += f'<tr><td>{name}</td><td class="mono">{sf:.4f}</td><td class="mono">{st_val:.4f}</td>'
             html += f'<td class="mono">{interact:.4f}</td><td><span class="badge {ic}">{inf}</span></td></tr>\n'
-        html += '</tbody></table>\n'
+        html += "</tbody></table>\n"
         first_data = [(n, sf) for n, sf, _ in ranked[:12]]
         total_data = [(n, st_val) for n, _, st_val in ranked[:12]]
         html += '<div class="chart-row">'
-        html += _svg_bar_chart(first_data, title="First-Order (S1)", x_label="S", max_value=1.0)
-        html += _svg_bar_chart(total_data, title="Total-Order (ST)", x_label="S", max_value=1.0,
-                               colors=["#10b981","#14b8a6","#06b6d4","#0ea5e9","#3b82f6","#6366f1","#8b5cf6","#a855f7","#d946ef","#ec4899"])
-        html += '</div></div>\n'
+        html += _svg_bar_chart(
+            first_data, title="First-Order (S1)", x_label="S", max_value=1.0
+        )
+        html += _svg_bar_chart(
+            total_data,
+            title="Total-Order (ST)",
+            x_label="S",
+            max_value=1.0,
+            colors=[
+                "#10b981",
+                "#14b8a6",
+                "#06b6d4",
+                "#0ea5e9",
+                "#3b82f6",
+                "#6366f1",
+                "#8b5cf6",
+                "#a855f7",
+                "#d946ef",
+                "#ec4899",
+            ],
+        )
+        html += "</div></div>\n"
         return html
 
     def _criticality_section(self, criticality: List) -> str:
         html = '<div class="card"><h2 id="sec-criticality">Component Parameter Criticality</h2>\n'
-        html += '<p>Parameter sensitivity showing which inputs most influence each component\'s failure rate.</p>\n'
+        html += "<p>Parameter sensitivity showing which inputs most influence each component's failure rate.</p>\n"
         for entry in criticality:
             ref = entry.get("reference", "?")
             comp_type = entry.get("component_type", "Unknown")
@@ -1053,16 +1251,22 @@ that answer is, and the design-action sections if you need to close a gap agains
             fields = entry.get("fields", [])
             if not fields:
                 continue
-            html += f'<h3>{ref} ({comp_type}) -- Base: {base_fit:.2f} FIT</h3>\n'
-            html += '<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>\n'
+            html += f"<h3>{ref} ({comp_type}) -- Base: {base_fit:.2f} FIT</h3>\n"
+            html += "<table><thead><tr><th>Parameter</th><th>Value</th><th>Elasticity</th><th>Impact (%)</th><th>Direction</th></tr></thead><tbody>\n"
             for f in fields:
                 elast = f.get("elasticity", 0)
                 impact = f.get("impact_pct", 0)
-                d = "increases lambda" if elast > 0 else "decreases lambda" if elast < 0 else "--"
+                d = (
+                    "increases lambda"
+                    if elast > 0
+                    else "decreases lambda" if elast < 0 else "--"
+                )
                 html += f'<tr><td>{f.get("name","")}</td><td>{f.get("value","")}</td>'
-                html += f'<td>{elast:+.3f}</td><td>{impact:.1f}%</td><td>{d}</td></tr>\n'
-            html += '</tbody></table>\n'
-        html += '</div>\n'
+                html += (
+                    f"<td>{elast:+.3f}</td><td>{impact:.1f}%</td><td>{d}</td></tr>\n"
+                )
+            html += "</tbody></table>\n"
+        html += "</div>\n"
         return html
 
     # === Co-Design Report Sections ===
@@ -1081,7 +1285,11 @@ that answer is, and the design-action sections if you need to close a gap agains
         html = f"""<div class="card"><h2>Mission Profile Analysis</h2>
 <p>Profile: <strong>{profile_name}</strong> | Mission Duration: {mission_years:.1f} years | {len(phases)} phases</p>
 """
-        if phased_lambda is not None and single_lambda is not None and delta_pct is not None:
+        if (
+            phased_lambda is not None
+            and single_lambda is not None
+            and delta_pct is not None
+        ):
             cls = "badge-warn" if delta_pct > 2 else "badge-ok"
             html += f"""<div class="grid">
 <div class="metric"><div class="v">{phased_lambda:.2f}</div><div class="l">Phased Model (FIT)</div></div>
@@ -1100,7 +1308,7 @@ that answer is, and the design-action sections if you need to close a gap agains
             html += f'<td class="mono">{p.get("n_cycles",0)}</td>'
             html += f'<td class="mono">{p.get("delta_t",0):.1f}</td>'
             html += f'<td class="mono">{p.get("tau_on",1.0):.2f}</td></tr>\n'
-        html += '</tbody></table></div>\n'
+        html += "</tbody></table></div>\n"
         return html
 
     def _budget_section(self, budget: Dict) -> str:
@@ -1117,7 +1325,9 @@ that answer is, and the design-action sections if you need to close a gap agains
         top_offenders = budget.get("top_offenders", [])
 
         status_cls = "ok" if gap_fit <= 0 else "bad"
-        status_txt = "Within Planning Budget" if gap_fit <= 0 else f"{gap_fit:.1f} FIT To Close"
+        status_txt = (
+            "Within Planning Budget" if gap_fit <= 0 else f"{gap_fit:.1f} FIT To Close"
+        )
 
         html = f"""<div class="card"><h2 id="sec-budget">Reliability Target Closure Planning</h2>
 <div class="grid">
@@ -1135,7 +1345,9 @@ that answer is, and the design-action sections if you need to close a gap agains
 <table><thead><tr><th>Sheet</th><th>Actual (FIT)</th><th>Budget (FIT)</th><th>Gap To Close</th><th>Utilization</th><th>Over Budget</th></tr></thead><tbody>
 """
         for sb in sheets:
-            util_text = sb.get("utilization_label") or _fmt_percent(sb.get("utilization_pct", 0))
+            util_text = sb.get("utilization_label") or _fmt_percent(
+                sb.get("utilization_pct", 0)
+            )
             html += f"<tr><td><strong>{sb.get('sheet_name','')}</strong></td>"
             html += f"<td class='mono'>{sb.get('actual_fit',0):.2f}</td>"
             html += f"<td class='mono'>{sb.get('budget_fit',0):.2f}</td>"
@@ -1162,21 +1374,21 @@ that answer is, and the design-action sections if you need to close a gap agains
                 html += f'<td class="mono">{cb.get("required_savings_fit",0):.3f}</td>'
                 html += f'<td class="mono">{util_text}</td>'
                 html += f'<td><span class="badge {badge}">{status}</span></td></tr>\n'
-            html += '</tbody></table>\n'
+            html += "</tbody></table>\n"
 
             html += '<div class="chart-single">'
             html += _svg_budget_utilization(top_offenders[:15])
-            html += '</div>'
+            html += "</div>"
 
         # Recommendations
         recs = budget.get("recommendations", [])
         if recs:
             html += '<h3>Recommendations</h3><ul style="margin:8px 0 0 16px;color:var(--text2)">\n'
             for rec in recs:
-                html += f'<li>{rec}</li>\n'
-            html += '</ul>\n'
+                html += f"<li>{rec}</li>\n"
+            html += "</ul>\n"
 
-        html += '</div>\n'
+        html += "</div>\n"
         return html
 
     def _derating_section(self, derating: Dict) -> str:
@@ -1207,8 +1419,12 @@ that answer is, and the design-action sections if you need to close a gap agains
 """
             for i, r in enumerate(recs[:20], 1):
                 feas = r.get("feasibility", "unknown")
-                feas_cls = {"easy": "badge-ok", "moderate": "badge-warn",
-                            "difficult": "badge-bad", "infeasible": "badge-bad"}.get(feas, "")
+                feas_cls = {
+                    "easy": "badge-ok",
+                    "moderate": "badge-warn",
+                    "difficult": "badge-bad",
+                    "infeasible": "badge-bad",
+                }.get(feas, "")
                 actions = "; ".join(r.get("actions", [])[:2])
                 html += f'<tr><td>{i}</td><td><strong>{r.get("reference","?")}</strong></td>'
                 html += f'<td>{r.get("parameter","")}</td>'
@@ -1218,8 +1434,8 @@ that answer is, and the design-action sections if you need to close a gap agains
                 html += f'<td class="mono">{r.get("fit_saved",0):.3f}</td>'
                 html += f'<td><span class="badge {feas_cls}">{feas.title()}</span></td>'
                 html += f'<td style="font-size:0.85em">{actions}</td></tr>\n'
-            html += '</tbody></table>\n'
-        html += '</div>\n'
+            html += "</tbody></table>\n"
+        html += "</div>\n"
         return html
 
     def _swap_section(self, swap: Dict) -> str:
@@ -1246,7 +1462,9 @@ that answer is, and the design-action sections if you need to close a gap agains
             for i, imp in enumerate(improvements[:20], 1):
                 delta_pct = imp.get("delta_percent", 0)
                 cls = "badge-ok" if delta_pct < 0 else "badge-bad"
-                html += f'<tr><td>{i}</td><td><strong>{imp.get("ref","?")}</strong></td>'
+                html += (
+                    f'<tr><td>{i}</td><td><strong>{imp.get("ref","?")}</strong></td>'
+                )
                 html += f'<td>{imp.get("component_type","")}</td>'
                 html += f'<td>{imp.get("param_name","")}</td>'
                 html += f'<td>{imp.get("new_value","")}</td>'
@@ -1254,8 +1472,8 @@ that answer is, and the design-action sections if you need to close a gap agains
                 html += f'<td class="mono">{imp.get("fit_after",0):.2f}</td>'
                 html += f'<td><span class="badge {cls}">{delta_pct:+.1f}%</span></td>'
                 html += f'<td class="mono">{imp.get("delta_system_fit",0):+.2f} FIT</td></tr>\n'
-            html += '</tbody></table>\n'
-        html += '</div>\n'
+            html += "</tbody></table>\n"
+        html += "</div>\n"
         return html
 
     def _growth_section(self, growth: Dict) -> str:
@@ -1269,7 +1487,7 @@ that answer is, and the design-action sections if you need to close a gap agains
         if len(snapshots) >= 2:
             html += '<div class="chart-single">'
             html += _svg_growth_timeline(snapshots, target_fit=target_fit)
-            html += '</div>'
+            html += "</div>"
 
         if snapshots:
             html += """<table><thead><tr><th>Version</th><th>Date</th><th>Components</th>
@@ -1282,7 +1500,7 @@ that answer is, and the design-action sections if you need to close a gap agains
                 html += f'<td class="mono">{s.get("system_fit",0):.2f}</td>'
                 html += f'<td class="mono">{s.get("system_reliability",0):.6f}</td>'
                 html += f'<td>{s.get("notes","")}</td></tr>\n'
-            html += '</tbody></table>\n'
+            html += "</tbody></table>\n"
 
         # Latest comparison
         if comparisons:
@@ -1297,13 +1515,13 @@ that answer is, and the design-action sections if you need to close a gap agains
 """
             changes = latest.get("top_changes", [])
             if changes:
-                html += '<table><thead><tr><th>Component</th><th>Change</th><th>FIT Delta</th></tr></thead><tbody>\n'
+                html += "<table><thead><tr><th>Component</th><th>Change</th><th>FIT Delta</th></tr></thead><tbody>\n"
                 for c in changes[:10]:
                     html += f'<tr><td>{c.get("ref","?")}</td><td>{c.get("change_type","")}</td>'
                     html += f'<td class="mono">{c.get("delta_fit",0):+.3f}</td></tr>\n'
-                html += '</tbody></table>\n'
+                html += "</tbody></table>\n"
 
-        html += '</div>\n'
+        html += "</div>\n"
         return html
 
     def _correlated_mc_section(self, cmc: Dict) -> str:
@@ -1318,8 +1536,12 @@ that answer is, and the design-action sections if you need to close a gap agains
         variance_impact = cmc.get("variance_impact", "comparable")
         groups = cmc.get("groups", [])
 
-        impact_cls = {"narrower": "badge-ok", "comparable": "badge-ok",
-                      "wider": "badge-warn", "much wider": "badge-bad"}.get(variance_impact, "")
+        impact_cls = {
+            "narrower": "badge-ok",
+            "comparable": "badge-ok",
+            "wider": "badge-warn",
+            "much wider": "badge-bad",
+        }.get(variance_impact, "")
 
         html = f"""<div class="card"><h2>Correlated Monte Carlo Analysis</h2>
 <p>Correlation-aware uncertainty propagation with {n_groups} group(s), {n_sims:,} simulations.</p>
@@ -1336,25 +1558,25 @@ that answer is, and the design-action sections if you need to close a gap agains
 """
         if std_ratio > 1.05:
             html += '<p style="margin-top:12px;color:var(--text2)">Correlation increases uncertainty bounds. '
-            html += 'Independent Monte Carlo underestimates tail risk for this design.</p>\n'
+            html += "Independent Monte Carlo underestimates tail risk for this design.</p>\n"
         elif std_ratio < 0.95:
             html += '<p style="margin-top:12px;color:var(--text2)">Correlation reduces uncertainty. '
-            html += 'Independent Monte Carlo overestimates variability for this design.</p>\n'
+            html += "Independent Monte Carlo overestimates variability for this design.</p>\n"
         else:
             html += '<p style="margin-top:12px;color:var(--text2)">Correlation has minimal impact on uncertainty bounds.</p>\n'
 
         if groups:
-            html += '<h3>Correlation Groups</h3>\n'
-            html += '<table><thead><tr><th>Group</th><th>Components</th><th>rho</th><th>Description</th></tr></thead><tbody>\n'
+            html += "<h3>Correlation Groups</h3>\n"
+            html += "<table><thead><tr><th>Group</th><th>Components</th><th>rho</th><th>Description</th></tr></thead><tbody>\n"
             for g in groups:
                 members = ", ".join(g.get("component_refs", [])[:8])
                 if len(g.get("component_refs", [])) > 8:
                     members += f" (+{len(g['component_refs'])-8} more)"
                 html += f'<tr><td><strong>{g.get("name","?")}</strong></td>'
-                html += f'<td>{members}</td>'
+                html += f"<td>{members}</td>"
                 html += f'<td class="mono">{g.get("rho",0):.2f}</td>'
                 html += f'<td>{g.get("description","")}</td></tr>\n'
-            html += '</tbody></table>\n'
+            html += "</tbody></table>\n"
 
         # Confidence intervals comparison
         ci_indep_lo = cmc.get("independent_ci_lower", 0)
@@ -1362,26 +1584,26 @@ that answer is, and the design-action sections if you need to close a gap agains
         ci_corr_lo = cmc.get("correlated_ci_lower", 0)
         ci_corr_hi = cmc.get("correlated_ci_upper", 0)
         if ci_indep_lo and ci_corr_lo:
-            html += '<h3>Confidence Interval Comparison</h3>\n'
-            html += '<table><thead><tr><th>Model</th><th>5th %ile</th><th>Mean</th><th>95th %ile</th><th>Width</th></tr></thead><tbody>\n'
+            html += "<h3>Confidence Interval Comparison</h3>\n"
+            html += "<table><thead><tr><th>Model</th><th>5th %ile</th><th>Mean</th><th>95th %ile</th><th>Width</th></tr></thead><tbody>\n"
             html += f'<tr><td>Independent</td><td class="mono">{ci_indep_lo:.6f}</td>'
             html += f'<td class="mono">{indep_mean:.6f}</td><td class="mono">{ci_indep_hi:.6f}</td>'
             html += f'<td class="mono">{ci_indep_hi - ci_indep_lo:.6f}</td></tr>\n'
             html += f'<tr><td>Correlated</td><td class="mono">{ci_corr_lo:.6f}</td>'
             html += f'<td class="mono">{corr_mean:.6f}</td><td class="mono">{ci_corr_hi:.6f}</td>'
             html += f'<td class="mono">{ci_corr_hi - ci_corr_lo:.6f}</td></tr>\n'
-            html += '</tbody></table>\n'
+            html += "</tbody></table>\n"
 
-        html += '</div>\n'
+        html += "</div>\n"
         return html
 
     def _contributions_section(self, sheets: Dict) -> str:
         contribs = []
         total_lam = 0
         for path, data in sheets.items():
-            lam = data.get('lambda', 0)
+            lam = data.get("lambda", 0)
             if lam > 0:
-                contribs.append((path.rstrip('/').split('/')[-1] or 'Root', lam, path))
+                contribs.append((path.rstrip("/").split("/")[-1] or "Root", lam, path))
                 total_lam += lam
         if total_lam == 0:
             return ""
@@ -1396,11 +1618,16 @@ that answer is, and the design-action sections if you need to close a gap agains
             html += f'<tr><td>{name}</td><td class="mono">{lam*1e9:.2f}</td><td>{pct:.1f}%</td><td>{cum:.1f}%</td>'
             html += '<td style="width:120px"><div style="height:8px;background:#e2e8f0;border-radius:4px;overflow:hidden">'
             html += f'<div style="height:100%;width:{min(100,pct)}%;background:linear-gradient(90deg,#3b82f6,#60a5fa);border-radius:4px"></div></div></td></tr>\n'
-        html += '</tbody></table>\n'
+        html += "</tbody></table>\n"
         chart_data = [(name, lam / total_lam) for name, lam, _ in contribs[:12]]
         html += '<div class="chart-single">'
-        html += _svg_bar_chart(chart_data, title="Relative Contributions", x_label="Fraction", max_value=1.0)
-        html += '</div></div>\n'
+        html += _svg_bar_chart(
+            chart_data,
+            title="Relative Contributions",
+            x_label="Fraction",
+            max_value=1.0,
+        )
+        html += "</div></div>\n"
         return html
 
     def _sheet_mc_section(self, sheet_mc: Dict) -> str:
@@ -1411,13 +1638,13 @@ that answer is, and the design-action sections if you need to close a gap agains
 """
         for path, result in sorted(sheet_mc.items()):
             mc = result if isinstance(result, dict) else {}
-            name = path.rstrip('/').split('/')[-1] or 'Root'
+            name = path.rstrip("/").split("/")[-1] or "Root"
             html += f'<tr><td>{name}</td><td class="mono">{mc.get("mean",0):.6f}</td>'
             html += f'<td class="mono">{mc.get("std",0):.6f}</td>'
             html += f'<td class="mono">{mc.get("ci_lower", mc.get("percentile_5",0)):.6f}</td>'
             html += f'<td class="mono">{mc.get("ci_upper", mc.get("percentile_95",0)):.6f}</td>'
             html += f'<td>{mc.get("n_simulations",0):,}</td></tr>\n'
-        html += '</tbody></table></div>\n'
+        html += "</tbody></table></div>\n"
         return html
 
     def _sheets_section(self, sheets: Dict) -> str:
@@ -1427,32 +1654,35 @@ that answer is, and the design-action sections if you need to close a gap agains
             sr = sheet_data.get("r", 1.0)
             components = sheet_data.get("components", [])
             sn = path.rstrip("/").split("/")[-1] or "Root"
-            html += f'<h3>{sn}</h3>\n'
+            html += f"<h3>{sn}</h3>\n"
             html += f'<p style="color:var(--text2);margin-bottom:10px">Path: <code>{path}</code> | lambda = {sf:.2f} FIT | R = {sr:.6f} | {len(components)} components</p>\n'
-            html += '<table><thead><tr><th>Ref</th><th>Value</th><th>Type</th><th>Lambda (FIT)</th><th>R</th><th>Source</th></tr></thead><tbody>\n'
+            html += "<table><thead><tr><th>Ref</th><th>Value</th><th>Type</th><th>Lambda (FIT)</th><th>R</th><th>Source</th></tr></thead><tbody>\n"
             for comp in components:
                 cf = comp.get("lambda", 0) * 1e9
                 cr = comp.get("r", 1.0)
                 override = comp.get("override_lambda")
-                src = '<span class="badge badge-override">Override</span>' if override is not None else "Calculated"
+                src = (
+                    '<span class="badge badge-override">Override</span>'
+                    if override is not None
+                    else "Calculated"
+                )
                 html += f'<tr><td><strong>{comp.get("ref","?")}</strong></td>'
                 html += f'<td>{comp.get("value","")}</td><td>{comp.get("class","Unknown")}</td>'
                 html += f'<td class="mono">{cf:.2f}</td><td class="mono">{cr:.6f}</td><td>{src}</td></tr>\n'
-            html += '</tbody></table>\n'
-        html += '</div>\n'
+            html += "</tbody></table>\n"
+        html += "</div>\n"
         return html
 
     # Other formats
 
     def generate_markdown(self, data: ReportData) -> str:
         fit = data.system_lambda * 1e9
-        mttf_years = data.system_mttf_hours / 8760 if data.system_mttf_hours < float('inf') else float('inf')
+        mttf_years = (
+            data.system_mttf_hours / 8760
+            if data.system_mttf_hours < float("inf")
+            else float("inf")
+        )
         md = f"""# Reliability Analysis Report
-
-**Project:** {data.project_name}
-**Prepared by:** {REPORT_PREPARED_BY}
-**Generated:** {datetime.fromisoformat(data.generated_at).strftime('%Y-%m-%d %H:%M')}
-**Standard:** IEC TR 62380:2004
 
 ## What This Report Means
 
@@ -1499,7 +1729,7 @@ For methodology, assumptions, and interpretation limits, see `docs/METHODOLOGY.m
         )
         if data.monte_carlo:
             mc = data.monte_carlo
-            cl = mc.get('confidence_level', 0.90) * 100
+            cl = mc.get("confidence_level", 0.90) * 100
             md += f"""## Monte Carlo Analysis
 
 | Metric | Value |
@@ -1546,7 +1776,9 @@ For methodology, assumptions, and interpretation limits, see `docs/METHODOLOGY.m
             md += "| Ref | Type | Actual (FIT) | Budget (FIT) | Save Needed | Utilization | Status |\n|---|---|---|---|---|---|---|\n"
             for cb in b.get("top_offenders", []):
                 st = cb.get("status", "PASS")
-                util_text = cb.get("utilization_label") or _fmt_percent(cb.get("utilization_pct", 0))
+                util_text = cb.get("utilization_label") or _fmt_percent(
+                    cb.get("utilization_pct", 0)
+                )
                 md += f"| {cb.get('reference', cb.get('ref',''))} | {cb.get('component_type','')} | {cb.get('actual_fit',0):.3f} | {cb.get('budget_fit',0):.3f} | {cb.get('required_savings_fit',0):.3f} | {util_text} | {st} |\n"
             md += "\n"
 
@@ -1583,9 +1815,9 @@ For methodology, assumptions, and interpretation limits, see `docs/METHODOLOGY.m
             md += f"\nStd Ratio: {cm.get('std_ratio',1):.3f}x | Variance Impact: {cm.get('variance_impact','comparable')}\n\n"
 
         for path, sd in sorted(data.sheets.items()):
-            name = path.rstrip('/').split('/')[-1] or 'Root'
+            name = path.rstrip("/").split("/")[-1] or "Root"
             md += f"### {name}\n\n| Ref | Value | Type | Lambda (FIT) | R |\n|---|---|---|---|---|\n"
-            for c in sd.get('components',[])[:20]:
+            for c in sd.get("components", [])[:20]:
                 md += f"| {c.get('ref','?')} | {c.get('value','')} | {c.get('class','')} | {c.get('lambda',0)*1e9:.2f} | {c.get('r',1):.6f} |\n"
             md += "\n"
         md += f"\n---\n*Designed and developed by Eliot Abramo | KiCad Reliability Plugin v{PLUGIN_VERSION}*\n"
@@ -1595,20 +1827,41 @@ For methodology, assumptions, and interpretation limits, see `docs/METHODOLOGY.m
         lines = ["Sheet,Reference,Value,Type,Lambda_FIT,Reliability,Source"]
         for path, sd in sorted(data.sheets.items()):
             for c in sd.get("components", []):
-                src = "override" if c.get("override_lambda") is not None else "calculated"
-                lines.append(f'"{path}","{c.get("ref","")}","{c.get("value","")}","{c.get("class","")}",{c.get("lambda",0)*1e9:.4f},{c.get("r",1):.8f},{src}')
+                src = (
+                    "override" if c.get("override_lambda") is not None else "calculated"
+                )
+                lines.append(
+                    f'"{path}","{c.get("ref","")}","{c.get("value","")}","{c.get("class","")}",{c.get("lambda",0)*1e9:.4f},{c.get("r",1):.8f},{src}'
+                )
         return "\n".join(lines)
 
     def generate_json(self, data: ReportData) -> str:
         output = {
-            "meta": {"project": data.project_name, "generated": data.generated_at, "standard": "IEC TR 62380:2004"},
-            "mission": {"hours": data.mission_hours, "years": data.mission_years, "thermal_cycles": data.n_cycles, "delta_t": data.delta_t},
-            "system": {"reliability": data.system_reliability, "lambda": data.system_lambda, "lambda_fit": data.system_lambda*1e9, "mttf_hours": data.system_mttf_hours},
-            "sheets": {p: {k: v for k, v in sd.items() if k != 'components'} for p, sd in data.sheets.items()},
+            "meta": {
+                "project": data.project_name,
+                "generated": data.generated_at,
+                "standard": "IEC TR 62380:2004",
+            },
+            "mission": {
+                "hours": data.mission_hours,
+                "years": data.mission_years,
+                "thermal_cycles": data.n_cycles,
+                "delta_t": data.delta_t,
+            },
+            "system": {
+                "reliability": data.system_reliability,
+                "lambda": data.system_lambda,
+                "lambda_fit": data.system_lambda * 1e9,
+                "mttf_hours": data.system_mttf_hours,
+            },
+            "sheets": {
+                p: {k: v for k, v in sd.items() if k != "components"}
+                for p, sd in data.sheets.items()
+            },
         }
         if data.monte_carlo:
             mc = dict(data.monte_carlo)
-            mc.pop('samples', None)
+            mc.pop("samples", None)
             output["monte_carlo"] = mc
         if data.sensitivity:
             output["sensitivity"] = data.sensitivity
@@ -1639,9 +1892,13 @@ For methodology, assumptions, and interpretation limits, see `docs/METHODOLOGY.m
         return json.dumps(output, indent=2, default=str)
 
     def generate(self, data: ReportData, format: str = "html") -> str:
-        return {"html": self.generate_html, "markdown": self.generate_markdown,
-                "md": self.generate_markdown, "csv": self.generate_csv,
-                "json": self.generate_json}.get(format.lower(), self.generate_html)(data)
+        return {
+            "html": self.generate_html,
+            "markdown": self.generate_markdown,
+            "md": self.generate_markdown,
+            "csv": self.generate_csv,
+            "json": self.generate_json,
+        }.get(format.lower(), self.generate_html)(data)
 
     @staticmethod
     def html_to_pdf(html_content: str, output_path: str):
@@ -1654,6 +1911,7 @@ For methodology, assumptions, and interpretation limits, see `docs/METHODOLOGY.m
         # Strategy 1: Try weasyprint for high-fidelity HTML->PDF
         try:
             from weasyprint import HTML as WeasyprintHTML
+
             WeasyprintHTML(string=html_content).write_pdf(output_path)
             return
         except ImportError:
@@ -1666,8 +1924,12 @@ For methodology, assumptions, and interpretation limits, see `docs/METHODOLOGY.m
             from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
             from reportlab.lib.colors import HexColor
             from reportlab.platypus import (
-                SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-                HRFlowable
+                SimpleDocTemplate,
+                Paragraph,
+                Spacer,
+                Table,
+                TableStyle,
+                HRFlowable,
             )
             from reportlab.lib.enums import TA_CENTER
         except ImportError as exc:
@@ -1677,38 +1939,67 @@ For methodology, assumptions, and interpretation limits, see `docs/METHODOLOGY.m
             ) from exc
 
         doc = SimpleDocTemplate(
-            output_path, pagesize=A4,
-            leftMargin=20*mm, rightMargin=20*mm,
-            topMargin=20*mm, bottomMargin=20*mm
+            output_path,
+            pagesize=A4,
+            leftMargin=20 * mm,
+            rightMargin=20 * mm,
+            topMargin=20 * mm,
+            bottomMargin=20 * mm,
         )
 
         styles = getSampleStyleSheet()
-        styles.add(ParagraphStyle(
-            'ReportTitle', parent=styles['Title'],
-            fontSize=18, spaceAfter=6, textColor=HexColor('#1e40af')
-        ))
-        styles.add(ParagraphStyle(
-            'SectionHead', parent=styles['Heading2'],
-            fontSize=13, spaceBefore=14, spaceAfter=6,
-            textColor=HexColor('#2563eb'),
-            borderWidth=0, borderPadding=0,
-        ))
-        styles.add(ParagraphStyle(
-            'MetricLabel', parent=styles['Normal'],
-            fontSize=8, textColor=HexColor('#64748b'), alignment=TA_CENTER
-        ))
-        styles.add(ParagraphStyle(
-            'MetricValue', parent=styles['Normal'],
-            fontSize=14, textColor=HexColor('#2563eb'),
-            alignment=TA_CENTER, fontName='Helvetica-Bold'
-        ))
-        styles.add(ParagraphStyle(
-            'TableCell', parent=styles['Normal'], fontSize=8, leading=10
-        ))
-        styles.add(ParagraphStyle(
-            'FooterStyle', parent=styles['Normal'],
-            fontSize=7, textColor=HexColor('#64748b'), alignment=TA_CENTER
-        ))
+        styles.add(
+            ParagraphStyle(
+                "ReportTitle",
+                parent=styles["Title"],
+                fontSize=18,
+                spaceAfter=6,
+                textColor=HexColor("#1e40af"),
+            )
+        )
+        styles.add(
+            ParagraphStyle(
+                "SectionHead",
+                parent=styles["Heading2"],
+                fontSize=13,
+                spaceBefore=14,
+                spaceAfter=6,
+                textColor=HexColor("#2563eb"),
+                borderWidth=0,
+                borderPadding=0,
+            )
+        )
+        styles.add(
+            ParagraphStyle(
+                "MetricLabel",
+                parent=styles["Normal"],
+                fontSize=8,
+                textColor=HexColor("#64748b"),
+                alignment=TA_CENTER,
+            )
+        )
+        styles.add(
+            ParagraphStyle(
+                "MetricValue",
+                parent=styles["Normal"],
+                fontSize=14,
+                textColor=HexColor("#2563eb"),
+                alignment=TA_CENTER,
+                fontName="Helvetica-Bold",
+            )
+        )
+        styles.add(
+            ParagraphStyle("TableCell", parent=styles["Normal"], fontSize=8, leading=10)
+        )
+        styles.add(
+            ParagraphStyle(
+                "FooterStyle",
+                parent=styles["Normal"],
+                fontSize=7,
+                textColor=HexColor("#64748b"),
+                alignment=TA_CENTER,
+            )
+        )
 
         story = []
 
@@ -1719,64 +2010,84 @@ For methodology, assumptions, and interpretation limits, see `docs/METHODOLOGY.m
             m = re.search(pattern, text, re.DOTALL)
             return m.group(1).strip() if m else default
 
-        project = _extract_text(r'Project:\s*<strong>(.*?)</strong>', html_content, "Reliability Report")
-        date_str = _extract_text(r'</strong>\s*\|\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})', html_content, "")
+        project = _extract_text(
+            r"Project:\s*<strong>(.*?)</strong>", html_content, "Reliability Report"
+        )
+        date_str = _extract_text(
+            r"</strong>\s*\|\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})", html_content, ""
+        )
 
         # Title
-        story.append(Paragraph("Reliability Analysis Report", styles['ReportTitle']))
-        story.append(Paragraph(
-            f"Project: <b>{project}</b> | {date_str} | IEC TR 62380:2004",
-            styles['Normal']
-        ))
-        story.append(Spacer(1, 8*mm))
+        story.append(Paragraph("Reliability Analysis Report", styles["ReportTitle"]))
+        story.append(
+            Paragraph(
+                f"Project: <b>{project}</b> | {date_str} | IEC TR 62380:2004",
+                styles["Normal"],
+            )
+        )
+        story.append(Spacer(1, 8 * mm))
 
         # Extract metric values from HTML
         metric_pattern = r'<div class="v">(.*?)</div>\s*<div class="l">(.*?)</div>'
         metrics = re.findall(metric_pattern, html_content)
 
         if metrics:
-            story.append(Paragraph("System Summary", styles['SectionHead']))
+            story.append(Paragraph("System Summary", styles["SectionHead"]))
             metric_data = []
             metric_labels = []
             for val, label in metrics[:4]:
-                metric_data.append(Paragraph(f'<b>{val}</b>', styles['MetricValue']))
-                metric_labels.append(Paragraph(label, styles['MetricLabel']))
+                metric_data.append(Paragraph(f"<b>{val}</b>", styles["MetricValue"]))
+                metric_labels.append(Paragraph(label, styles["MetricLabel"]))
             if metric_data:
-                t = Table([metric_data, metric_labels], colWidths=[doc.width/len(metric_data)]*len(metric_data))
-                t.setStyle(TableStyle([
-                    ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-                    ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                    ('BACKGROUND', (0,0), (-1,0), HexColor('#f1f5f9')),
-                    ('TOPPADDING', (0,0), (-1,-1), 8),
-                    ('BOTTOMPADDING', (0,0), (-1,-1), 8),
-                    ('BOX', (0,0), (-1,-1), 0.5, HexColor('#e2e8f0')),
-                ]))
+                t = Table(
+                    [metric_data, metric_labels],
+                    colWidths=[doc.width / len(metric_data)] * len(metric_data),
+                )
+                t.setStyle(
+                    TableStyle(
+                        [
+                            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                            ("BACKGROUND", (0, 0), (-1, 0), HexColor("#f1f5f9")),
+                            ("TOPPADDING", (0, 0), (-1, -1), 8),
+                            ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+                            ("BOX", (0, 0), (-1, -1), 0.5, HexColor("#e2e8f0")),
+                        ]
+                    )
+                )
                 story.append(t)
-                story.append(Spacer(1, 4*mm))
+                story.append(Spacer(1, 4 * mm))
 
         # Extract tables from HTML
-        table_pattern = r'<h2>(.*?)</h2>.*?<table>(.*?)</table>'
+        table_pattern = r"<h2>(.*?)</h2>.*?<table>(.*?)</table>"
         tables = re.findall(table_pattern, html_content, re.DOTALL)
 
         for title, table_html in tables:
-            title_clean = re.sub(r'<[^>]+>', '', title)
-            story.append(Paragraph(title_clean, styles['SectionHead']))
+            title_clean = re.sub(r"<[^>]+>", "", title)
+            story.append(Paragraph(title_clean, styles["SectionHead"]))
 
             # Parse rows
-            header_match = re.findall(r'<th[^>]*>(.*?)</th>', table_html, re.DOTALL)
-            headers = [re.sub(r'<[^>]+>', '', h).strip() for h in header_match]
+            header_match = re.findall(r"<th[^>]*>(.*?)</th>", table_html, re.DOTALL)
+            headers = [re.sub(r"<[^>]+>", "", h).strip() for h in header_match]
 
-            row_pattern = r'<tr>(.*?)</tr>'
+            row_pattern = r"<tr>(.*?)</tr>"
             rows_html = re.findall(row_pattern, table_html, re.DOTALL)
 
             all_rows = []
             if headers:
-                all_rows.append([Paragraph(f'<b>{h}</b>', styles['TableCell']) for h in headers])
+                all_rows.append(
+                    [Paragraph(f"<b>{h}</b>", styles["TableCell"]) for h in headers]
+                )
 
             for row_html in rows_html:
-                cells = re.findall(r'<td[^>]*>(.*?)</td>', row_html, re.DOTALL)
+                cells = re.findall(r"<td[^>]*>(.*?)</td>", row_html, re.DOTALL)
                 if cells:
-                    clean = [Paragraph(re.sub(r'<[^>]+>', '', c).strip(), styles['TableCell']) for c in cells]
+                    clean = [
+                        Paragraph(
+                            re.sub(r"<[^>]+>", "", c).strip(), styles["TableCell"]
+                        )
+                        for c in cells
+                    ]
                     if len(clean) == len(headers) or not headers:
                         all_rows.append(clean)
 
@@ -1784,34 +2095,43 @@ For methodology, assumptions, and interpretation limits, see `docs/METHODOLOGY.m
                 n_cols = len(all_rows[0])
                 col_w = doc.width / n_cols if n_cols > 0 else doc.width
                 try:
-                    t = Table(all_rows, colWidths=[col_w]*n_cols, repeatRows=1)
+                    t = Table(all_rows, colWidths=[col_w] * n_cols, repeatRows=1)
                     style_cmds = [
-                        ('FONTSIZE', (0,0), (-1,-1), 7),
-                        ('LEADING', (0,0), (-1,-1), 9),
-                        ('TOPPADDING', (0,0), (-1,-1), 3),
-                        ('BOTTOMPADDING', (0,0), (-1,-1), 3),
-                        ('GRID', (0,0), (-1,-1), 0.4, HexColor('#e2e8f0')),
-                        ('BACKGROUND', (0,0), (-1,0), HexColor('#f1f5f9')),
-                        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-                        ('ROWBACKGROUNDS', (0,1), (-1,-1), [HexColor('#ffffff'), HexColor('#f8fafc')]),
+                        ("FONTSIZE", (0, 0), (-1, -1), 7),
+                        ("LEADING", (0, 0), (-1, -1), 9),
+                        ("TOPPADDING", (0, 0), (-1, -1), 3),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                        ("GRID", (0, 0), (-1, -1), 0.4, HexColor("#e2e8f0")),
+                        ("BACKGROUND", (0, 0), (-1, 0), HexColor("#f1f5f9")),
+                        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                        (
+                            "ROWBACKGROUNDS",
+                            (0, 1),
+                            (-1, -1),
+                            [HexColor("#ffffff"), HexColor("#f8fafc")],
+                        ),
                     ]
                     t.setStyle(TableStyle(style_cmds))
                     story.append(t)
                 except Exception:
                     pass  # Skip malformed tables
-            story.append(Spacer(1, 3*mm))
+            story.append(Spacer(1, 3 * mm))
 
         # Footer
-        story.append(Spacer(1, 10*mm))
-        story.append(HRFlowable(width="100%", color=HexColor('#e2e8f0')))
-        story.append(Paragraph(
-            f"Designed and developed by Eliot Abramo | KiCad Reliability Plugin v{PLUGIN_VERSION} | IEC TR 62380:2004",
-            styles['FooterStyle']
-        ))
-        story.append(Paragraph(
-            "This report is for engineering reference. Verify critical calculations independently.",
-            styles['FooterStyle']
-        ))
+        story.append(Spacer(1, 10 * mm))
+        story.append(HRFlowable(width="100%", color=HexColor("#e2e8f0")))
+        story.append(
+            Paragraph(
+                f"Designed and developed by Eliot Abramo | KiCad Reliability Plugin v{PLUGIN_VERSION} | IEC TR 62380:2004",
+                styles["FooterStyle"],
+            )
+        )
+        story.append(
+            Paragraph(
+                "This report is for engineering reference. Verify critical calculations independently.",
+                styles["FooterStyle"],
+            )
+        )
 
         doc.build(story)
 
