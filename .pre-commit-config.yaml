@@ -17,3 +17,13 @@ repos:
       - id: check-added-large-files
       - id: check-merge-conflict
       - id: detect-private-key
+
+  - repo: local
+    hooks:
+      - id: ty
+        name: ty (Astral type checker)
+        entry: uv run ty check plugins/
+        language: system
+        types: [python]
+        pass_filenames: false
+        require_serial: true
