@@ -1,6 +1,6 @@
 """Tests for BOM reliability export (via report_generator)."""
 
-import unittest
+import pytest
 
 import report_generator
 
@@ -28,21 +28,21 @@ def _make_report_data():
     )
 
 
-class CSVExportTests(unittest.TestCase):
+class CSVExportTests:
     def test_generate_csv_contains_components(self):
         data = _make_report_data()
         gen = report_generator.ReportGenerator()
         csv_output = gen.generate_csv(data)
-        self.assertIn("R1", csv_output)
-        self.assertIn("Resistor", csv_output)
+        assert "R1" in csv_output
+        assert "Resistor" in csv_output
 
     def test_generate_csv_header(self):
         data = _make_report_data()
         gen = report_generator.ReportGenerator()
         csv_output = gen.generate_csv(data)
-        self.assertIn("Sheet", csv_output)
-        self.assertIn("Reference", csv_output)
-        self.assertIn("Lambda_FIT", csv_output)
+        assert "Sheet" in csv_output
+        assert "Reference" in csv_output
+        assert "Lambda_FIT" in csv_output
 
     def test_generate_csv_without_components(self):
         data = _make_report_data()
@@ -50,8 +50,4 @@ class CSVExportTests(unittest.TestCase):
         gen = report_generator.ReportGenerator()
         csv_output = gen.generate_csv(data)
         rows = csv_output.strip().split("\n")
-        self.assertEqual(len(rows), 1)  # header only
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert len(rows) == 1  # header only

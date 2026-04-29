@@ -1,9 +1,9 @@
-import unittest
+import pytest
 
 import derating_engine as de
 
 
-class DeratingRecommendationTests(unittest.TestCase):
+class DeratingRecommendationTests:
     def test_recommendation_to_dict(self):
         rec = de.DeratingRecommendation(
             reference="R1",
@@ -23,13 +23,13 @@ class DeratingRecommendationTests(unittest.TestCase):
             priority=1,
         )
         d = rec.to_dict()
-        self.assertEqual(d["reference"], "R1")
-        self.assertEqual(d["feasibility"], "easy")
-        self.assertEqual(d["priority"], 1)
-        self.assertEqual(d["actions"], ["Reduce voltage by 50%"])
+        assert d["reference"] == "R1"
+        assert d["feasibility"] == "easy"
+        assert d["priority"] == 1
+        assert d["actions"] == ["Reduce voltage by 50%"]
 
 
-class DeratingGuidanceTests(unittest.TestCase):
+class DeratingGuidanceTests:
     def test_compute_returns_derating_result_with_recommendations(self):
         result = de.compute_derating_guidance(
             sheet_data={
@@ -48,10 +48,10 @@ class DeratingGuidanceTests(unittest.TestCase):
             mission_hours=1000.0,
             target_fit=50.0,
         )
-        self.assertIsInstance(result, de.DeratingResult)
-        self.assertIsInstance(result.recommendations, list)
-        self.assertGreaterEqual(result.system_actual_fit, 0)
-        self.assertGreaterEqual(result.system_gap_fit, 0)
+        assert isinstance(result, de.DeratingResult)
+        assert isinstance(result.recommendations, list)
+        assert result.system_actual_fit >= 0
+        assert result.system_gap_fit >= 0
 
     def test_no_components_returns_empty_recommendations(self):
         result = de.compute_derating_guidance(
@@ -59,7 +59,7 @@ class DeratingGuidanceTests(unittest.TestCase):
             mission_hours=1000.0,
             target_fit=100.0,
         )
-        self.assertEqual(len(result.recommendations), 0)
+        assert len(result.recommendations) == 0
 
     def test_recommendation_has_expected_structure(self):
         result = de.compute_derating_guidance(
@@ -81,10 +81,10 @@ class DeratingGuidanceTests(unittest.TestCase):
         )
         if result.recommendations:
             rec = result.recommendations[0]
-            self.assertIn(rec.feasibility, {"easy", "moderate", "difficult", "infeasible"})
-            self.assertGreaterEqual(rec.priority, 1)
-            self.assertIsInstance(rec.actions, list)
-            self.assertIsInstance(rec.to_dict(), dict)
+            assert rec.feasibility in {"easy", "moderate", "difficult", "infeasible"}
+            assert rec.priority >= 1
+            assert isinstance(rec.actions, list)
+            assert isinstance(rec.to_dict(), dict)
 
     def test_result_contains_system_summary(self):
         result = de.compute_derating_guidance(
@@ -97,10 +97,6 @@ class DeratingGuidanceTests(unittest.TestCase):
             mission_hours=1000.0,
             target_fit=50.0,
         )
-        self.assertEqual(result.system_actual_fit, 100.0)
-        self.assertEqual(result.system_target_fit, 50.0)
-        self.assertEqual(result.system_gap_fit, 50.0)
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert result.system_actual_fit == 100.0
+        assert result.system_target_fit == 50.0
+        assert result.system_gap_fit == 50.0

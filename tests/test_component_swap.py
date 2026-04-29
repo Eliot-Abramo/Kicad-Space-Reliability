@@ -1,10 +1,10 @@
-import unittest
-
 import component_swap as cs
+import pytest
 import reliability_math
+from unittest import mock
 
 
-class SwapCandidateTests(unittest.TestCase):
+class SwapCandidateTests:
     def test_swap_candidate_creation(self):
         cand = cs.SwapCandidate(
             name="SO-8 -> DIP-8",
@@ -17,9 +17,9 @@ class SwapCandidateTests(unittest.TestCase):
             delta_percent=100.0,
             improvement=False,
         )
-        self.assertEqual(cand.name, "SO-8 -> DIP-8")
-        self.assertEqual(cand.parameter, "package")
-        self.assertFalse(cand.improvement)
+        assert cand.name == "SO-8 -> DIP-8"
+        assert cand.parameter == "package"
+        assert not cand.improvement
 
     def test_swap_candidate_improvement_detected(self):
         cand = cs.SwapCandidate(
@@ -33,11 +33,11 @@ class SwapCandidateTests(unittest.TestCase):
             delta_percent=-50.0,
             improvement=True,
         )
-        self.assertTrue(cand.improvement)
-        self.assertLess(cand.delta_fit, 0)
+        assert cand.improvement
+        assert cand.delta_fit < 0
 
 
-class SwapAnalysisResultTests(unittest.TestCase):
+class SwapAnalysisResultTests:
     def test_result_creation(self):
         result = cs.SwapAnalysisResult(
             reference="U1",
@@ -48,9 +48,9 @@ class SwapAnalysisResultTests(unittest.TestCase):
             system_fit_before=0.0,
             system_fit_after_best=0.0,
         )
-        self.assertEqual(result.reference, "U1")
-        self.assertEqual(result.component_type, "Integrated Circuit")
-        self.assertEqual(len(result.candidates), 0)
+        assert result.reference == "U1"
+        assert result.component_type == "Integrated Circuit"
+        assert len(result.candidates) == 0
 
     def test_result_with_candidates(self):
         c1 = cs.SwapCandidate("A", "pkg", "old", "new", 1e-9, 2e-9, 1.0, 100.0, False)
@@ -64,13 +64,13 @@ class SwapAnalysisResultTests(unittest.TestCase):
             system_fit_before=100.0,
             system_fit_after_best=50.0,
         )
-        self.assertEqual(len(result.candidates), 2)
-        self.assertIs(result.best_candidate, c2)
+        assert len(result.candidates) == 2
+        assert result.best_candidate is c2
 
 
-class AnalyzePackageSwapsTests(unittest.TestCase):
+class AnalyzePackageSwapsTests:
     def test_analyze_package_swaps_returns_candidates(self):
-        with unittest.mock.patch.object(
+        with mock.patch.object(
             reliability_math,
             "calculate_component_lambda",
             return_value={"lambda_total": 1e-9},
@@ -79,23 +79,23 @@ class AnalyzePackageSwapsTests(unittest.TestCase):
                 component_type="Integrated Circuit",
                 base_params={"package": "QFP-48 (7x7mm)", "t_junction": 50.0},
             )
-        self.assertIsInstance(result, cs.SwapAnalysisResult)
-        self.assertEqual(result.component_type, "Integrated Circuit")
+        assert isinstance(result, cs.SwapAnalysisResult)
+        assert result.component_type == "Integrated Circuit"
 
 
-class AnalyzeTypeSwapsTests(unittest.TestCase):
+class AnalyzeTypeSwapsTests:
     def test_analyze_type_swaps(self):
         result = cs.analyze_type_swaps(
             component_type="Resistor",
             base_params={"t_ambient": 25.0, "v_applied": 5.0, "v_rated": 10.0},
         )
-        self.assertIsInstance(result, cs.SwapAnalysisResult)
-        self.assertEqual(result.component_type, "Resistor")
+        assert isinstance(result, cs.SwapAnalysisResult)
+        assert result.component_type == "Resistor"
 
 
-class QuickSwapComparisonTests(unittest.TestCase):
+class QuickSwapComparisonTests:
     def test_quick_swap_comparison(self):
-        with unittest.mock.patch.object(
+        with mock.patch.object(
             reliability_math,
             "calculate_component_lambda",
             return_value={"lambda_total": 2e-9},
@@ -106,18 +106,14 @@ class QuickSwapComparisonTests(unittest.TestCase):
                 parameter="v_applied",
                 new_value=2.5,
             )
-        self.assertIn("parameter", result)
-        self.assertIn("old_value", result)
-        self.assertIn("new_value", result)
-        self.assertIn("delta_fit", result)
-        self.assertEqual(result["parameter"], "v_applied")
+        assert "parameter" in result
+        assert "old_value" in result
+        assert "new_value" in result
+        assert "delta_fit" in result
+        assert result["parameter"] == "v_applied"
 
 
-class RankAllSwapsTests(unittest.TestCase):
+class RankAllSwapsTests:
     def test_rank_all_swaps_no_components(self):
         result = cs.rank_all_swaps({})
-        self.assertEqual(len(result), 0)
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert len(result) == 0

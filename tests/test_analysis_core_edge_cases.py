@@ -1,4 +1,4 @@
-import unittest
+import pytest
 from unittest import mock
 
 import budget_allocation
@@ -16,15 +16,12 @@ from tests.helpers import (
 )
 
 
-class MonteCarloEdgeCaseTests(unittest.TestCase):
+class MonteCarloEdgeCaseTests:
     def test_empty_components_raises_value_error(self):
-        with (
-            self.assertRaises(ValueError),
-            mock.patch.object(
-                monte_carlo,
-                "_import_reliability_math",
-                return_value=(lambda _c, _p: {"lambda_total": 0}, exp_reliability),
-            ),
+        with pytest.raises(ValueError), mock.patch.object(
+            monte_carlo,
+            "_import_reliability_math",
+            return_value=(lambda _c, _p: {"lambda_total": 0}, exp_reliability),
         ):
             monte_carlo.run_uncertainty_analysis(
                 [],
@@ -66,11 +63,11 @@ class MonteCarloEdgeCaseTests(unittest.TestCase):
                 seed=42,
             )
 
-        self.assertEqual(len(result.lambda_samples), 10)
-        self.assertEqual(len(result.reliability_samples), 10)
+        assert len(result.lambda_samples) == 10
+        assert len(result.reliability_samples) == 10
         for lam in result.lambda_samples:
-            self.assertAlmostEqual(lam, 25e-9)
-        self.assertIn("mean_reliability", dir(result))
+            assert lam == pytest.approx(25e-9)
+        assert "mean_reliability" in dir(result)
 
     def test_large_n_simulations_does_not_crash(self):
         components = [
@@ -102,7 +99,7 @@ class MonteCarloEdgeCaseTests(unittest.TestCase):
                 confidence_level=0.90,
                 seed=1,
             )
-        self.assertEqual(result.n_simulations, 1000)
+        assert result.n_simulations == 1000
 
     def test_short_mission_returns_high_reliability(self):
         components = [
@@ -134,7 +131,7 @@ class MonteCarloEdgeCaseTests(unittest.TestCase):
                 confidence_level=0.90,
                 seed=1,
             )
-        self.assertAlmostEqual(result.mean_reliability, 1.0, places=10)
+            assert abs(result.mean_reliability - 1.0) < 1e-10
 
     def test_mismatched_refs_in_specs_handles_gracefully(self):
         components = [
@@ -166,10 +163,10 @@ class MonteCarloEdgeCaseTests(unittest.TestCase):
                 confidence_level=0.90,
                 seed=1,
             )
-        self.assertEqual(result.n_simulations, 10)
+        assert result.n_simulations == 10
 
 
-class TornadoEdgeCaseTests(unittest.TestCase):
+class TornadoEdgeCaseTests:
     def test_single_component_tornado(self):
         def fake_calc(_ctype, params):
             return {"lambda_total": float(params.get("stress", 0)) * 1e-9}
@@ -191,7 +188,7 @@ class TornadoEdgeCaseTests(unittest.TestCase):
             return_value=(fake_calc, exp_reliability),
         ):
             result = sensitivity_analysis.tornado_analysis(data, mission_hours=1000.0, perturbations=perturbations)
-        self.assertEqual(len(result.entries), 1)
+        assert len(result.entries) == 1
 
     def test_tornado_empty_sheets_returns_empty_entries(self):
         def fake_calc(_ctype, params):  # noqa: ARG001
@@ -203,10 +200,10 @@ class TornadoEdgeCaseTests(unittest.TestCase):
             return_value=(fake_calc, exp_reliability),
         ):
             result = sensitivity_analysis.tornado_analysis({}, mission_hours=1000.0)
-        self.assertEqual(len(result.entries), 0)
+        assert len(result.entries) == 0
 
 
-class BudgetEdgeCaseTests(unittest.TestCase):
+class BudgetEdgeCaseTests:
     def test_budget_allocation_with_no_components(self):
         result = budget_allocation.allocate_budget(
             {},
@@ -215,7 +212,7 @@ class BudgetEdgeCaseTests(unittest.TestCase):
             strategy="equal",
             margin_percent=10.0,
         )
-        self.assertIn("actual_fit", dir(result))
+        assert "actual_fit" in dir(result)
 
     def test_budget_allocation_perfect_reliability_target(self):
         data = make_sheet_data(
@@ -232,24 +229,20 @@ class BudgetEdgeCaseTests(unittest.TestCase):
             strategy="proportional",
             margin_percent=0.0,
         )
-        self.assertGreaterEqual(result.fit_gap_to_close, 0)
-        self.assertGreater(result.effective_budget_fit, 0)
+        assert result.fit_gap_to_close >= 0
+        assert result.effective_budget_fit > 0
 
 
-class ClassificationEdgeCaseTests(unittest.TestCase):
+class ClassificationEdgeCaseTests:
     def test_classification_with_only_tp_testpoint_returns_misc(self):
         result = classification.classify_component_info("TP1", "", {})
-        self.assertEqual(result.component_type, "Miscellaneous")
-        self.assertTrue(result.review_required)
+        assert result.component_type == "Miscellaneous"
+        assert result.review_required
 
     def test_classification_with_footprint_hint(self):
         result = classification.classify_component_info("J1", "", {"Footprint": "USB_A_Plug"})
-        self.assertEqual(result.component_type, "Connector")
+        assert result.component_type == "Connector"
 
     def test_classification_with_lowercase_reliability_class(self):
         result = classification.classify_component_info("U1", "", {"Reliability_Class": "integrated circuit"})
-        self.assertEqual(result.component_type, "Integrated Circuit")
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert result.component_type == "Integrated Circuit"

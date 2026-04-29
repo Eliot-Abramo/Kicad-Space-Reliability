@@ -1,41 +1,41 @@
 import math
-import unittest
-from unittest import mock
 
 import budget_allocation
 import classification
 import monte_carlo
 import numpy as np
+import pytest
 import reliability_math
 import sensitivity_analysis
+from unittest import mock
 
 
 def _exp_reliability(lam, hours):
     return math.exp(-lam * hours)
 
 
-class AnalysisCoreTests(unittest.TestCase):
+class AnalysisCoreTests:
     def test_autoclassify_uses_explicit_field_and_flags_ambiguous_parts(self):
         explicit = classification.classify_component_info(
             "U1",
             "STM32F4",
             {"Reliability_Class": "Integrated Circuit"},
         )
-        self.assertEqual(explicit.component_type, "Integrated Circuit")
-        self.assertEqual(explicit.source, "explicit field")
-        self.assertFalse(explicit.review_required)
+        assert explicit.component_type == "Integrated Circuit"
+        assert explicit.source == "explicit field"
+        assert not explicit.review_required
 
         ambiguous = classification.classify_component_info(
             "X1",
             "",
             {"Footprint": "PinHeader_1x04"},
         )
-        self.assertEqual(ambiguous.component_type, "Connector")
-        self.assertFalse(ambiguous.review_required)
+        assert ambiguous.component_type == "Connector"
+        assert not ambiguous.review_required
 
         unknown = classification.classify_component_info("TP1", "", {})
-        self.assertEqual(unknown.component_type, "Miscellaneous")
-        self.assertTrue(unknown.review_required)
+        assert unknown.component_type == "Miscellaneous"
+        assert unknown.review_required
 
     def test_tornado_ranks_larger_local_fit_swing_first(self):
         def fake_calc(_ctype, params):
@@ -76,9 +76,9 @@ class AnalysisCoreTests(unittest.TestCase):
                 sheet_data, mission_hours=1000.0, perturbations=perturbations
             )
 
-        self.assertEqual(len(result.entries), 2)
-        self.assertEqual(result.entries[0].name, "stress (2 comps)")
-        self.assertGreater(result.entries[0].swing, result.entries[1].swing)
+        assert len(result.entries) == 2
+        assert result.entries[0].name == "stress (2 comps)"
+        assert result.entries[0].swing > result.entries[1].swing
 
     def test_component_criticality_reports_expected_elasticity_signs(self):
         def fake_component_lambda(_ctype, params):
@@ -99,8 +99,8 @@ class AnalysisCoreTests(unittest.TestCase):
             )
 
         by_field = {row["field"]: row for row in rows}
-        self.assertAlmostEqual(by_field["temp"]["sensitivity"], 1.0, places=2)
-        self.assertAlmostEqual(by_field["load"]["sensitivity"], -1.0, places=1)
+        assert abs(by_field["temp"]["sensitivity"] - 1.0) < 1e-2
+        assert abs(by_field["load"]["sensitivity"] - (-1.0)) < 1e-1
 
     def test_uncertainty_analysis_respects_shared_and_independent_sampling(self):
         components = [
@@ -148,7 +148,7 @@ class AnalysisCoreTests(unittest.TestCase):
             return {"lambda_total": (float(params["shared_temp"]) + float(params["drive"])) * 1e-6}
 
         def fake_sample(_rng, min_val, mode, max_val, distribution, size):
-            self.assertEqual(size, 10)
+            assert size == 10
             if mode == 0.0 and min_val == -5.0 and max_val == 5.0:
                 return shared_series.copy()
             if mode == 1.0:
@@ -221,7 +221,7 @@ class AnalysisCoreTests(unittest.TestCase):
             return {"lambda_total": float(params["shared_temp"]) * 1e-6}
 
         def fake_sample(_rng, min_val, mode, max_val, distribution, size):  # noqa: ARG001
-            self.assertEqual(size, 10)
+            assert size == 10
             return shared_series.copy()
 
         with (
@@ -242,12 +242,9 @@ class AnalysisCoreTests(unittest.TestCase):
             )
 
         mean_lambda = float(np.mean(result.lambda_samples))
-        self.assertGreaterEqual(
-            result.mean_reliability,
-            math.exp(-mean_lambda * 10.0) - 1e-12,
-        )
-        self.assertIn("R(E[", result.jensen_note)
-        self.assertNotIn("lower bound", result.jensen_note.lower())
+        assert result.mean_reliability >= math.exp(-mean_lambda * 10.0) - 1e-12
+        assert "R(E[" in result.jensen_note
+        assert "lower bound" not in result.jensen_note.lower()
 
     def test_build_component_inputs_smoke_with_run_uncertainty_analysis(self):
         sheet_data = {
@@ -273,7 +270,7 @@ class AnalysisCoreTests(unittest.TestCase):
         ):
             inputs = monte_carlo.build_component_inputs(sheet_data)
 
-        self.assertEqual(len(inputs), 1)
+        assert len(inputs) == 1
         specs = [
             monte_carlo.ParameterSpec(
                 name="drive",
@@ -288,7 +285,7 @@ class AnalysisCoreTests(unittest.TestCase):
         drive_series = np.array([5.0, 5.2, 4.9, 5.1, 4.8, 5.0, 5.3, 4.7, 5.1, 4.95])
 
         def fake_sample(_rng, min_val, mode, max_val, distribution, size):  # noqa: ARG001
-            self.assertEqual(size, 10)
+            assert size == 10
             return drive_series.copy()
 
         with (
@@ -308,8 +305,8 @@ class AnalysisCoreTests(unittest.TestCase):
                 seed=2,
             )
 
-        self.assertEqual(result.n_simulations, 10)
-        self.assertEqual(len(result.reliability_samples), 10)
+        assert result.n_simulations == 10
+        assert len(result.reliability_samples) == 10
 
     def test_budget_allocation_reports_gap_and_top_offenders(self):
         sheet_data = {
@@ -346,13 +343,9 @@ class AnalysisCoreTests(unittest.TestCase):
             margin_percent=10.0,
         )
 
-        self.assertGreater(result.effective_budget_fit, 0)
-        self.assertGreaterEqual(result.fit_gap_to_close, 0)
-        self.assertTrue(result.top_offenders)
+        assert result.effective_budget_fit > 0
+        assert result.fit_gap_to_close >= 0
+        assert result.top_offenders
         first = result.top_offenders[0]
-        self.assertIn("required_savings_fit", first)
-        self.assertIn("utilization_pct", first)
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert "required_savings_fit" in first
+        assert "utilization_pct" in first

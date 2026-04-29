@@ -1,12 +1,12 @@
 import tempfile
-import unittest
 from datetime import datetime
 from pathlib import Path
 
 import growth_tracking as gt
+import pytest
 
 
-class ReliabilitySnapshotTests(unittest.TestCase):
+class ReliabilitySnapshotTests:
     def test_snapshot_creation(self):
         snap = gt.ReliabilitySnapshot(
             timestamp="2025-01-01T00:00:00",
@@ -26,9 +26,9 @@ class ReliabilitySnapshotTests(unittest.TestCase):
             component_lambdas={"U1": 1e-7, "R1": 5e-8, "C1": 2e-8},
             component_details={},
         )
-        self.assertEqual(snap.version_label, "v1")
-        self.assertEqual(snap.n_components, 50)
-        self.assertEqual(len(snap.sheet_summary), 3)
+        assert snap.version_label == "v1"
+        assert snap.n_components == 50
+        assert len(snap.sheet_summary) == 3
 
     def test_snapshot_to_dict_roundtrip(self):
         snap = gt.ReliabilitySnapshot(
@@ -47,13 +47,13 @@ class ReliabilitySnapshotTests(unittest.TestCase):
         )
         d = snap.to_dict()
         snap2 = gt.ReliabilitySnapshot.from_dict(d)
-        self.assertEqual(snap.version_label, snap2.version_label)
-        self.assertEqual(snap.system_lambda, snap2.system_lambda)
-        self.assertEqual(snap.n_components, snap2.n_components)
+        assert snap.version_label == snap2.version_label
+        assert snap.system_lambda == snap2.system_lambda
+        assert snap.n_components == snap2.n_components
 
 
-class SaveLoadTests(unittest.TestCase):
-    def setUp(self):
+class SaveLoadTests:
+    def setup_method(self):
         self.project_dir = Path(tempfile.mkdtemp())
 
     def test_save_and_load_snapshots(self):
@@ -73,15 +73,15 @@ class SaveLoadTests(unittest.TestCase):
         )
         gt.save_snapshot(snap, project_path=str(self.project_dir))
         loaded = gt.load_snapshots(project_path=str(self.project_dir))
-        self.assertEqual(len(loaded), 1)
-        self.assertEqual(loaded[0].version_label, "v2")
-        self.assertAlmostEqual(loaded[0].system_lambda, 5e-7)
+        assert len(loaded) == 1
+        assert loaded[0].version_label == "v2"
+        assert loaded[0].system_lambda == pytest.approx(5e-7)
 
     def test_load_empty_directory(self):
         empty_dir = self.project_dir / "nonexistent"
         empty_dir.mkdir(parents=True, exist_ok=True)
         loaded = gt.load_snapshots(project_path=str(empty_dir))
-        self.assertEqual(len(loaded), 0)
+        assert len(loaded) == 0
 
     def test_create_snapshot_produces_valid_object(self):
         sheet_data = {
@@ -99,14 +99,14 @@ class SaveLoadTests(unittest.TestCase):
             version_label="test-snap",
             notes="Integration test",
         )
-        self.assertEqual(snap.version_label, "test-snap")
-        self.assertEqual(snap.n_sheets, 1)
-        self.assertEqual(snap.n_components, 1)
-        self.assertAlmostEqual(snap.system_lambda, 1e-6)
+        assert snap.version_label == "test-snap"
+        assert snap.n_sheets == 1
+        assert snap.n_components == 1
+        assert snap.system_lambda == pytest.approx(1e-6)
         datetime.fromisoformat(snap.timestamp)
 
 
-class RevisionComparisonTests(unittest.TestCase):
+class RevisionComparisonTests:
     def _make_snap(self, ts, ver, lam, r=0.99, fit=1000.0):
         return gt.ReliabilitySnapshot(
             timestamp=ts,
@@ -126,15 +126,15 @@ class RevisionComparisonTests(unittest.TestCase):
     def test_compare_revisions_identical(self):
         snap = self._make_snap("2025-01-01T00:00:00", "v1", 1e-6)
         comparison = gt.compare_revisions(snap, snap)
-        self.assertAlmostEqual(comparison.system_delta_fit, 0.0)
-        self.assertAlmostEqual(comparison.reliability_improvement, 0.0)
+        assert comparison.system_delta_fit == pytest.approx(0.0)
+        assert comparison.reliability_improvement == pytest.approx(0.0)
 
     def test_compare_revisions_improvement(self):
         earlier = self._make_snap("2025-01-01T00:00:00", "v1", 2e-6, 0.98, 2000.0)
         later = self._make_snap("2025-06-01T00:00:00", "v2", 1e-6, 0.99, 1000.0)
         comparison = gt.compare_revisions(earlier, later)
-        self.assertAlmostEqual(comparison.system_delta_fit, -1000.0)
-        self.assertGreater(comparison.reliability_improvement, 0)
+        assert comparison.system_delta_fit == pytest.approx(-1000.0)
+        assert comparison.reliability_improvement > 0
 
     def test_build_growth_timeline(self):
         snaps = [
@@ -146,9 +146,5 @@ class RevisionComparisonTests(unittest.TestCase):
             gt.save_snapshot(s, project_path=str(snapshots_dir))
 
         timeline = gt.build_growth_timeline(project_path=str(snapshots_dir))
-        self.assertIsInstance(timeline, gt.GrowthTimeline)
-        self.assertEqual(len(timeline.snapshots), 2)
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert isinstance(timeline, gt.GrowthTimeline)
+        assert len(timeline.snapshots) == 2

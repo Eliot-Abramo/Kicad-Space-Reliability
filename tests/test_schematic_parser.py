@@ -1,12 +1,12 @@
 """Tests for the schematic parser module."""
 
 import tempfile
-import unittest
 
+import pytest
 import schematic_parser as sp
 
 
-class ComponentDataclassTests(unittest.TestCase):
+class ComponentDataclassTests:
     def test_component_defaults(self):
         c = sp.Component(
             reference="R1",
@@ -14,8 +14,8 @@ class ComponentDataclassTests(unittest.TestCase):
             lib_id="device:R",
             sheet_path="/main",
         )
-        self.assertEqual(c.reference, "R1")
-        self.assertEqual(c.footprint, "")
+        assert c.reference == "R1"
+        assert c.footprint == ""
 
     def test_component_with_footprint(self):
         c = sp.Component(
@@ -26,38 +26,34 @@ class ComponentDataclassTests(unittest.TestCase):
             footprint="LQFP-48",
             fields={"Manufacturer": "ST"},
         )
-        self.assertEqual(c.footprint, "LQFP-48")
-        self.assertEqual(c.fields["Manufacturer"], "ST")
+        assert c.footprint == "LQFP-48"
+        assert c.fields["Manufacturer"] == "ST"
 
 
-class SheetDataclassTests(unittest.TestCase):
+class SheetDataclassTests:
     def test_sheet_defaults(self):
         s = sp.Sheet(name="Main", path="/", filename="main.kicad_sch")
-        self.assertEqual(s.name, "Main")
-        self.assertEqual(len(s.components), 0)
-        self.assertEqual(len(s.child_sheets), 0)
+        assert s.name == "Main"
+        assert len(s.components) == 0
+        assert len(s.child_sheets) == 0
 
 
-class SchematicParserTests(unittest.TestCase):
+class SchematicParserTests:
     def test_parser_creation(self):
         parser = sp.SchematicParser(project_path="/tmp/nonexistent")
-        self.assertIsNotNone(parser)
+        assert parser is not None
 
     def test_parse_empty_project_returns_false(self):
         with tempfile.TemporaryDirectory() as tmp:
             parser = sp.SchematicParser(project_path=tmp)
             result = parser.parse()
-            self.assertFalse(result)
+            assert not result
 
     def test_parse_nonexistent_path_returns_false(self):
         parser = sp.SchematicParser(project_path="/nonexistent/path")
         result = parser.parse()
-        self.assertFalse(result)
+        assert not result
 
     def test_create_test_data(self):
         parser = sp.create_test_data(sheet_names=["/main", "/power"])
-        self.assertIsInstance(parser, sp.SchematicParser)
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert isinstance(parser, sp.SchematicParser)
