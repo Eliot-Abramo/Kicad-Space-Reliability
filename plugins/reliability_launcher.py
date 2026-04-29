@@ -13,17 +13,19 @@ On first launch without a project, shows a welcome dialog to browse for a projec
 Author:  Eliot Abramo
 """
 
-import sys
-import os
+from __future__ import annotations
 
-# Ensure the plugin directory is in the path
-plugin_dir = os.path.dirname(os.path.abspath(__file__))
-if plugin_dir not in sys.path:
-    sys.path.insert(0, plugin_dir)
+import json
+import os
+import sys
+from pathlib import Path
 
 import wx
-import json
-from pathlib import Path
+
+# Ensure the plugin directory is in the path
+plugin_dir = str(Path(__file__).resolve().parent)
+if plugin_dir not in sys.path:
+    sys.path.insert(0, plugin_dir)
 
 try:
     from .ui.theme import PALETTE, apply_compact_fonts, apply_theme_recursively, dip_size, style_panel, ui_font
@@ -89,9 +91,7 @@ class ProjectSelector(wx.Dialog):
             recent_label.SetFont(recent_label.GetFont().Bold())
             main_sizer.Add(recent_label, 0, wx.LEFT | wx.TOP, 15)
 
-            self.recent_list = wx.ListBox(
-                panel, choices=self.recent_projects, style=wx.LB_SINGLE
-            )
+            self.recent_list = wx.ListBox(panel, choices=self.recent_projects, style=wx.LB_SINGLE)
             self.recent_list.SetBackgroundColour(PALETTE.card_bg)
             self.recent_list.SetForegroundColour(PALETTE.text)
             self.recent_list.Bind(wx.EVT_LISTBOX_DCLICK, self.on_recent_dclick)
@@ -133,11 +133,11 @@ class ProjectSelector(wx.Dialog):
         try:
             config_path = self._get_config_path()
             if config_path.exists():
-                with open(config_path, "r") as f:
+                with config_path.open() as f:
                     data = json.load(f)
                     # Filter to only existing projects
                     return [p for p in data.get("recent", []) if Path(p).exists()]
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
         return []
 
@@ -154,12 +154,12 @@ class ProjectSelector(wx.Dialog):
             recent = recent[:10]
 
             config_path = self._get_config_path()
-            with open(config_path, "w") as f:
+            with config_path.open("w") as f:
                 json.dump({"recent": recent}, f)
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
 
-    def on_browse(self, event):
+    def on_browse(self, event):  # noqa: ARG002
         """Browse for a KiCad project."""
         dlg = wx.DirDialog(
             self,
@@ -190,7 +190,7 @@ class ProjectSelector(wx.Dialog):
 
         dlg.Destroy()
 
-    def on_open_recent(self, event):
+    def on_open_recent(self, event):  # noqa: ARG002
         """Open the selected recent project."""
         selection = self.recent_list.GetSelection()
         if selection != wx.NOT_FOUND:
@@ -204,7 +204,7 @@ class ProjectSelector(wx.Dialog):
 
 def main():
     """Main entry point."""
-    app = wx.App()
+    wx.App()
 
     # Check if a project path was provided
     project_path = None
@@ -212,11 +212,7 @@ def main():
     if len(sys.argv) > 1:
         arg_path = Path(sys.argv[1])
         if arg_path.exists():
-            if arg_path.is_dir():
-                project_path = str(arg_path)
-            else:
-                # It's a file, use parent directory
-                project_path = str(arg_path.parent)
+            project_path = str(arg_path) if arg_path.is_dir() else str(arg_path.parent)
 
     # If no project provided, show selector
     if not project_path:

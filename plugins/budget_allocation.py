@@ -18,13 +18,27 @@ The core identity:
 Author:  Eliot Abramo
 """
 
+from __future__ import annotations
+
 import math
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple, Any
 from enum import Enum
+from typing import Any
+
+try:
+    from .reliability_math import FIT_PER_LAMBDA, LAMBDA_PER_FIT
+except ImportError:
+    from reliability_math import FIT_PER_LAMBDA, LAMBDA_PER_FIT
 
 
 class AllocationStrategy(Enum):
+    EQUAL = "equal"
+    PROPORTIONAL = "proportional"
+    COMPLEXITY = "complexity"
+    CRITICALITY = "criticality"
+
+
+class BudgetStrategy(str, Enum):
     EQUAL = "equal"
     PROPORTIONAL = "proportional"
     COMPLEXITY = "complexity"
@@ -42,27 +56,28 @@ def _serialize_utilization_label(utilization: float) -> str:
 @dataclass
 class ComponentBudget:
     """Budget allocation for a single component."""
+
     reference: str
     component_type: str
     sheet_path: str
 
     # Actual values
-    actual_lambda: float      # per hour
-    actual_fit: float         # FIT (failures per 10^9 hours)
+    actual_lambda: float  # per hour
+    actual_fit: float  # FIT (failures per 10^9 hours)
 
     # Budget values
-    budget_lambda: float      # per hour
-    budget_fit: float         # FIT
+    budget_lambda: float  # per hour
+    budget_fit: float  # FIT
 
     # Status
-    margin_fit: float         # budget_fit - actual_fit (positive = under budget)
-    margin_percent: float     # margin_fit / budget_fit * 100
-    within_budget: bool       # True if actual <= budget
-    utilization: float        # actual / budget (0.0 to inf)
+    margin_fit: float  # budget_fit - actual_fit (positive = under budget)
+    margin_percent: float  # margin_fit / budget_fit * 100
+    within_budget: bool  # True if actual <= budget
+    utilization: float  # actual / budget (0.0 to inf)
     required_savings_fit: float  # max(0, actual - budget)
-    review_priority: float    # sorting score for actionability
+    review_priority: float  # sorting score for actionability
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "ref": self.reference,
             "reference": self.reference,
@@ -87,6 +102,7 @@ class ComponentBudget:
 @dataclass
 class SheetBudget:
     """Budget allocation for a schematic sheet."""
+
     sheet_path: str
     sheet_name: str
 
@@ -103,9 +119,9 @@ class SheetBudget:
     n_components: int
     n_over_budget: int
     required_savings_fit: float
-    component_budgets: List[ComponentBudget] = field(default_factory=list)
+    component_budgets: list[ComponentBudget] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "sheet_path": self.sheet_path,
             "sheet_name": self.sheet_name,
@@ -132,8 +148,8 @@ class BudgetAllocationResult:
 
     # Target
     target_reliability: float
-    target_lambda: float          # /h
-    target_fit: float             # FIT
+    target_lambda: float  # /h
+    target_fit: float  # FIT
     mission_hours: float
     strategy: str
     design_margin_pct: float
@@ -151,16 +167,16 @@ class BudgetAllocationResult:
     fit_gap_to_close: float
 
     # Detailed breakdown
-    sheet_budgets: List[SheetBudget] = field(default_factory=list)
+    sheet_budgets: list[SheetBudget] = field(default_factory=list)
     total_components: int = 0
     components_over_budget: int = 0
     sheets_over_budget: int = 0
-    top_offenders: List[Dict[str, Any]] = field(default_factory=list)
+    top_offenders: list[dict[str, Any]] = field(default_factory=list)
 
     # Recommendations
-    recommendations: List[str] = field(default_factory=list)
+    recommendations: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "target_reliability": self.target_reliability,
             "target_fit": self.target_fit,
@@ -192,11 +208,11 @@ def _safe_float(val, default=0.0):
 
 
 def allocate_budget(
-    sheet_data: Dict[str, Dict],
+    sheet_data: dict[str, dict],
     mission_hours: float,
     target_reliability: float = 0.999,
-    strategy: str = "proportional",
-    active_sheets: Optional[List[str]] = None,
+    strategy: str | BudgetStrategy = "proportional",
+    active_sheets: list[str] | None = None,
     margin_percent: float = 10.0,
 ) -> BudgetAllocationResult:
     """
@@ -214,62 +230,60 @@ def allocate_budget(
         BudgetAllocationResult with complete breakdown
     """
     try:
-        from .reliability_math import reliability_from_lambda, lambda_from_reliability
+        from .reliability_math import lambda_from_reliability, reliability_from_lambda
     except ImportError:
-        from reliability_math import reliability_from_lambda, lambda_from_reliability
+        from reliability_math import lambda_from_reliability, reliability_from_lambda
 
     # Filter to active sheets
-    if active_sheets:
-        filtered = {k: v for k, v in sheet_data.items() if k in active_sheets}
-    else:
-        filtered = dict(sheet_data)
+    filtered = {k: v for k, v in sheet_data.items() if k in active_sheets} if active_sheets else dict(sheet_data)
 
     # Compute system target lambda from reliability target
     target_lambda = lambda_from_reliability(target_reliability, mission_hours)
-    target_fit = target_lambda * 1e9
+    target_fit = target_lambda * FIT_PER_LAMBDA
 
     # Apply design margin: reduce available budget by margin_percent
     available_fit = target_fit * (1.0 - margin_percent / 100.0)
-    available_lambda = available_fit * 1e-9
+    available_lambda = available_fit * LAMBDA_PER_FIT
 
     # Compute actual system values
     actual_lambda = sum(_safe_float(d.get("lambda", 0)) for d in filtered.values())
-    actual_fit = actual_lambda * 1e9
+    actual_fit = actual_lambda * FIT_PER_LAMBDA
     actual_r = reliability_from_lambda(actual_lambda, mission_hours)
 
     # Collect all components
-    all_components = []
-    for path, data in filtered.items():
-        for comp in data.get("components", []):
-            all_components.append({
-                "ref": comp.get("ref", "?"),
-                "class": comp.get("class", "Unknown"),
-                "lambda": _safe_float(comp.get("lambda", 0)),
-                "sheet": path,
-                "params": comp.get("params", {}),
-            })
+    all_components = [
+        {
+            "ref": comp.get("ref", "?"),
+            "class": comp.get("class", "Unknown"),
+            "lambda": _safe_float(comp.get("lambda", 0)),
+            "sheet": path,
+            "params": comp.get("params", {}),
+        }
+        for path, data in filtered.items()
+        for comp in data.get("components", [])
+    ]
 
     n_total = len(all_components)
-    n_sheets = len(filtered)
+    len(filtered)
 
     # ---- Strategy dispatch ----
 
-    if strategy == "equal":
+    if strategy == BudgetStrategy.EQUAL:
         sheet_budgets = _allocate_equal(
-            filtered, all_components, available_lambda, available_fit,
-            mission_hours, n_total)
-    elif strategy == "complexity":
+            filtered, all_components, available_lambda, available_fit, mission_hours, n_total
+        )
+    elif strategy == BudgetStrategy.COMPLEXITY:
         sheet_budgets = _allocate_complexity(
-            filtered, all_components, available_lambda, available_fit,
-            mission_hours, n_total)
-    elif strategy == "criticality":
+            filtered, all_components, available_lambda, available_fit, mission_hours, n_total
+        )
+    elif strategy == BudgetStrategy.CRITICALITY:
         sheet_budgets = _allocate_criticality(
-            filtered, all_components, available_lambda, available_fit,
-            mission_hours, n_total)
+            filtered, all_components, available_lambda, available_fit, mission_hours, n_total
+        )
     else:  # proportional (default, ARINC-style)
         sheet_budgets = _allocate_proportional(
-            filtered, all_components, available_lambda, available_fit,
-            mission_hours, n_total)
+            filtered, all_components, available_lambda, available_fit, mission_hours, n_total
+        )
 
     # Compute aggregate statistics
     n_over = sum(1 for sb in sheet_budgets for cb in sb.component_budgets if not cb.within_budget)
@@ -281,13 +295,9 @@ def allocate_budget(
     fit_gap_to_close = max(0.0, actual_fit - available_fit)
 
     # Generate recommendations
-    recs = _generate_recommendations(
-        sheet_budgets, system_within, system_margin_fit, available_fit, actual_fit)
+    recs = _generate_recommendations(sheet_budgets, system_within, system_margin_fit, available_fit, actual_fit)
 
-    offenders = []
-    for sb in sheet_budgets:
-        for cb in sb.component_budgets:
-            offenders.append(cb)
+    offenders = [cb for sb in sheet_budgets for cb in sb.component_budgets]
     offenders.sort(key=lambda item: (-item.required_savings_fit, -item.utilization))
 
     return BudgetAllocationResult(
@@ -314,20 +324,21 @@ def allocate_budget(
     )
 
 
-def _allocate_equal(filtered, all_components, available_lambda, available_fit,
-                    mission_hours, n_total):
+def _allocate_equal(filtered, all_components, available_lambda, available_fit, mission_hours, n_total):  # noqa: ARG001
     """Equal apportionment: each component gets the same budget."""
     per_comp_fit = available_fit / max(n_total, 1)
     per_comp_lambda = available_lambda / max(n_total, 1)
 
     return _build_sheet_budgets(
-        filtered, per_comp_lambda, per_comp_fit, mission_hours,
-        strategy_fn=lambda comp, total_in_sheet: (per_comp_lambda, per_comp_fit)
+        filtered,
+        per_comp_lambda,
+        per_comp_fit,
+        mission_hours,
+        strategy_fn=lambda comp, total_in_sheet: (per_comp_lambda, per_comp_fit),  # noqa: ARG005
     )
 
 
-def _allocate_proportional(filtered, all_components, available_lambda, available_fit,
-                           mission_hours, n_total):
+def _allocate_proportional(filtered, all_components, available_lambda, available_fit, mission_hours, n_total):
     """Proportional (ARINC): budget proportional to actual failure rate.
 
     Components that currently consume more lambda get proportionally more budget.
@@ -335,22 +346,20 @@ def _allocate_proportional(filtered, all_components, available_lambda, available
     """
     total_actual = sum(c["lambda"] for c in all_components)
     if total_actual <= 0:
-        return _allocate_equal(filtered, all_components, available_lambda, available_fit,
-                               mission_hours, n_total)
+        return _allocate_equal(filtered, all_components, available_lambda, available_fit, mission_hours, n_total)
 
     scale = available_lambda / total_actual
 
-    def strategy_fn(comp, total_in_sheet):
+    def strategy_fn(comp, total_in_sheet):  # noqa: ARG001
         comp_lambda = _safe_float(comp.get("lambda", 0))
         budg_lambda = comp_lambda * scale
-        budg_fit = budg_lambda * 1e9
+        budg_fit = budg_lambda * FIT_PER_LAMBDA
         return budg_lambda, budg_fit
 
     return _build_sheet_budgets(filtered, 0, 0, mission_hours, strategy_fn=strategy_fn)
 
 
-def _allocate_complexity(filtered, all_components, available_lambda, available_fit,
-                         mission_hours, n_total):
+def _allocate_complexity(filtered, all_components, available_lambda, available_fit, mission_hours, n_total):
     """Complexity-weighted: budget proportional to component count per sheet.
 
     Sheets with more components get more budget. Within a sheet,
@@ -362,22 +371,20 @@ def _allocate_complexity(filtered, all_components, available_lambda, available_f
 
     total_count = sum(sheet_counts.values())
     if total_count <= 0:
-        return _allocate_equal(filtered, all_components, available_lambda, available_fit,
-                               mission_hours, n_total)
+        return _allocate_equal(filtered, all_components, available_lambda, available_fit, mission_hours, n_total)
 
-    def strategy_fn(comp, total_in_sheet):
+    def strategy_fn(comp, total_in_sheet):  # noqa: ARG001
         if total_in_sheet <= 0:
             return 0, 0
         sheet_frac = total_in_sheet / total_count
         sheet_budget_lambda = available_lambda * sheet_frac
         per_comp_lambda = sheet_budget_lambda / total_in_sheet
-        return per_comp_lambda, per_comp_lambda * 1e9
+        return per_comp_lambda, per_comp_lambda * FIT_PER_LAMBDA
 
     return _build_sheet_budgets(filtered, 0, 0, mission_hours, strategy_fn=strategy_fn)
 
 
-def _allocate_criticality(filtered, all_components, available_lambda, available_fit,
-                          mission_hours, n_total):
+def _allocate_criticality(filtered, all_components, available_lambda, available_fit, mission_hours, n_total):
     """Criticality-weighted: components with higher failure rates get tighter budgets.
 
     The inverse of proportional: high-FIT components are considered more critical
@@ -395,21 +402,19 @@ def _allocate_criticality(filtered, all_components, available_lambda, available_
 
     total_inv = sum(inv_lambdas.values())
     if total_inv <= 0:
-        return _allocate_equal(filtered, all_components, available_lambda, available_fit,
-                               mission_hours, n_total)
+        return _allocate_equal(filtered, all_components, available_lambda, available_fit, mission_hours, n_total)
 
-    def strategy_fn(comp, total_in_sheet):
+    def strategy_fn(comp, total_in_sheet):  # noqa: ARG001
         ref = comp.get("ref", "?")
         inv_l = inv_lambdas.get(ref, 1e15)
         frac = inv_l / total_inv
         budg_lambda = available_lambda * frac
-        return budg_lambda, budg_lambda * 1e9
+        return budg_lambda, budg_lambda * FIT_PER_LAMBDA
 
     return _build_sheet_budgets(filtered, 0, 0, mission_hours, strategy_fn=strategy_fn)
 
 
-def _build_sheet_budgets(filtered, default_comp_lambda, default_comp_fit,
-                         mission_hours, strategy_fn=None):
+def _build_sheet_budgets(filtered, default_comp_lambda, default_comp_fit, mission_hours, strategy_fn=None):  # noqa: ARG001
     """Build SheetBudget list from strategy function."""
     sheet_budgets = []
 
@@ -417,14 +422,14 @@ def _build_sheet_budgets(filtered, default_comp_lambda, default_comp_fit,
         components = data.get("components", [])
         n_comps = len(components)
         sheet_actual_lambda = _safe_float(data.get("lambda", 0))
-        sheet_actual_fit = sheet_actual_lambda * 1e9
+        sheet_actual_fit = sheet_actual_lambda * FIT_PER_LAMBDA
 
         comp_budgets = []
         sheet_budget_lambda = 0.0
 
         for comp in components:
             comp_lambda = _safe_float(comp.get("lambda", 0))
-            comp_fit = comp_lambda * 1e9
+            comp_fit = comp_lambda * FIT_PER_LAMBDA
 
             if strategy_fn:
                 budg_lambda, budg_fit = strategy_fn(comp, n_comps)
@@ -436,102 +441,102 @@ def _build_sheet_budgets(filtered, default_comp_lambda, default_comp_fit,
             margin_fit = budg_fit - comp_fit
             margin_pct = (margin_fit / budg_fit * 100) if budg_fit > 0 else 0
             within = comp_fit <= budg_fit
-            utilization = comp_fit / budg_fit if budg_fit > 0 else float('inf')
+            utilization = comp_fit / budg_fit if budg_fit > 0 else float("inf")
             required_savings_fit = max(0.0, comp_fit - budg_fit)
             review_priority = required_savings_fit * (utilization if math.isfinite(utilization) else 2.0)
 
-            comp_budgets.append(ComponentBudget(
-                reference=comp.get("ref", "?"),
-                component_type=comp.get("class", "Unknown"),
-                sheet_path=path,
-                actual_lambda=comp_lambda,
-                actual_fit=comp_fit,
-                budget_lambda=budg_lambda,
-                budget_fit=budg_fit,
-                margin_fit=margin_fit,
-                margin_percent=margin_pct,
-                within_budget=within,
-                utilization=utilization,
-                required_savings_fit=required_savings_fit,
-                review_priority=review_priority,
-            ))
+            comp_budgets.append(
+                ComponentBudget(
+                    reference=comp.get("ref", "?"),
+                    component_type=comp.get("class", "Unknown"),
+                    sheet_path=path,
+                    actual_lambda=comp_lambda,
+                    actual_fit=comp_fit,
+                    budget_lambda=budg_lambda,
+                    budget_fit=budg_fit,
+                    margin_fit=margin_fit,
+                    margin_percent=margin_pct,
+                    within_budget=within,
+                    utilization=utilization,
+                    required_savings_fit=required_savings_fit,
+                    review_priority=review_priority,
+                )
+            )
 
-        sheet_budget_fit = sheet_budget_lambda * 1e9
+        sheet_budget_fit = sheet_budget_lambda * FIT_PER_LAMBDA
         s_margin_fit = sheet_budget_fit - sheet_actual_fit
         s_margin_pct = (s_margin_fit / sheet_budget_fit * 100) if sheet_budget_fit > 0 else 0
         s_within = sheet_actual_fit <= sheet_budget_fit
-        s_util = sheet_actual_fit / sheet_budget_fit if sheet_budget_fit > 0 else float('inf')
+        s_util = sheet_actual_fit / sheet_budget_fit if sheet_budget_fit > 0 else float("inf")
         n_over = sum(1 for cb in comp_budgets if not cb.within_budget)
         required_savings_fit = max(0.0, sheet_actual_fit - sheet_budget_fit)
 
         name = path.rstrip("/").split("/")[-1] or "Root"
-        sheet_budgets.append(SheetBudget(
-            sheet_path=path,
-            sheet_name=name,
-            actual_lambda=sheet_actual_lambda,
-            actual_fit=sheet_actual_fit,
-            budget_lambda=sheet_budget_lambda,
-            budget_fit=sheet_budget_fit,
-            margin_fit=s_margin_fit,
-            margin_percent=s_margin_pct,
-            within_budget=s_within,
-            utilization=s_util,
-            n_components=n_comps,
-            n_over_budget=n_over,
-            required_savings_fit=required_savings_fit,
-            component_budgets=comp_budgets,
-        ))
+        sheet_budgets.append(
+            SheetBudget(
+                sheet_path=path,
+                sheet_name=name,
+                actual_lambda=sheet_actual_lambda,
+                actual_fit=sheet_actual_fit,
+                budget_lambda=sheet_budget_lambda,
+                budget_fit=sheet_budget_fit,
+                margin_fit=s_margin_fit,
+                margin_percent=s_margin_pct,
+                within_budget=s_within,
+                utilization=s_util,
+                n_components=n_comps,
+                n_over_budget=n_over,
+                required_savings_fit=required_savings_fit,
+                component_budgets=comp_budgets,
+            )
+        )
 
     return sheet_budgets
 
 
 def _generate_recommendations(
-    sheet_budgets: List[SheetBudget],
+    sheet_budgets: list[SheetBudget],
     system_within: bool,
     system_margin_fit: float,
     effective_budget_fit: float,
     actual_fit: float,
-) -> List[str]:
+) -> list[str]:
     """Generate actionable recommendations from budget analysis."""
     recs = []
 
     if system_within:
         recs.append(
             f"System meets reliability target with {system_margin_fit:.1f} FIT margin "
-            f"({system_margin_fit/effective_budget_fit*100:.1f}% headroom after design margin)."
+            f"({system_margin_fit / effective_budget_fit * 100:.1f}% headroom after design margin)."
         )
     else:
         excess = actual_fit - effective_budget_fit
         recs.append(
             f"SYSTEM EXCEEDS BUDGET by {excess:.1f} FIT "
-            f"({excess/effective_budget_fit*100:.1f}% over effective budget). Action required."
+            f"({excess / effective_budget_fit * 100:.1f}% over effective budget). Action required."
         )
 
     # Find worst offenders
-    over_components = []
-    for sb in sheet_budgets:
-        for cb in sb.component_budgets:
-            if not cb.within_budget:
-                over_components.append(cb)
+    over_components = [cb for sb in sheet_budgets for cb in sb.component_budgets if not cb.within_budget]
 
     over_components.sort(key=lambda c: c.margin_fit)  # most negative first
 
     for i, cb in enumerate(over_components[:5]):
         excess = abs(cb.margin_fit)
         recs.append(
-            f"{i+1}. {cb.reference} ({cb.component_type}): "
+            f"{i + 1}. {cb.reference} ({cb.component_type}): "
             f"exceeds budget by {excess:.2f} FIT "
             f"(actual={cb.actual_fit:.2f}, budget={cb.budget_fit:.2f}, save {cb.required_savings_fit:.2f} FIT). "
             f"Consider derating, package change, or component upgrade."
         )
 
     # Sheet-level observations
-    for sb in sorted(sheet_budgets, key=lambda s: s.utilization, reverse=True):
-        if sb.utilization > 0.9 and sb.within_budget:
-            recs.append(
-                f"Sheet '{sb.sheet_name}' at {sb.utilization*100:.0f}% of budget "
-                f"({sb.n_over_budget} components over). Low margin -- monitor closely."
-            )
+    recs.extend(
+        f"Sheet '{sb.sheet_name}' at {sb.utilization * 100:.0f}% of budget "
+        f"({sb.n_over_budget} components over). Low margin -- monitor closely."
+        for sb in sorted(sheet_budgets, key=lambda s: s.utilization, reverse=True)
+        if sb.utilization > 0.9 and sb.within_budget
+    )
 
     return recs
 
@@ -557,4 +562,4 @@ def compute_max_fit_for_target(
     if target_reliability <= 0 or target_reliability >= 1:
         return 0.0
     lam = -math.log(target_reliability) / mission_hours
-    return lam * 1e9
+    return lam * FIT_PER_LAMBDA

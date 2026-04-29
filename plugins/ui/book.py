@@ -59,7 +59,7 @@ class SegmentedBook(wx.Panel):
     def set_on_page_changed(self, handler) -> None:
         self._on_page_changed = handler
 
-    def AddPage(self, page: wx.Window, text: str, select: bool = False) -> bool:
+    def AddPage(self, page: wx.Window, text: str, select: bool = False) -> bool:  # noqa: N802
         if page.GetParent() is not self._page_host:
             page.Reparent(self._page_host)
         page.Hide()
@@ -75,7 +75,7 @@ class SegmentedBook(wx.Panel):
         button.SetBezelWidth(1)
         button.SetUseFocusIndicator(False)
         button.SetFont(ui_font(button, role="small", weight=wx.FONTWEIGHT_BOLD))
-        button.Bind(wx.EVT_BUTTON, lambda event, idx=index: self.SetSelection(idx))
+        button.Bind(wx.EVT_BUTTON, lambda event, idx=index: self.SetSelection(idx))  # noqa: ARG005
         self._buttons.append(button)
         self._tab_sizer.Add(button, 0, wx.RIGHT | wx.BOTTOM, dip_px(self._tab_bar, 6))
         self._sync_button_styles()
@@ -84,18 +84,18 @@ class SegmentedBook(wx.Panel):
             self.SetSelection(index)
         return True
 
-    def GetPage(self, index: int) -> wx.Window | None:
+    def GetPage(self, index: int) -> wx.Window | None:  # noqa: N802
         if 0 <= index < len(self._pages):
             return self._pages[index]
         return None
 
-    def GetPageCount(self) -> int:
+    def GetPageCount(self) -> int:  # noqa: N802
         return len(self._pages)
 
-    def GetSelection(self) -> int:
+    def GetSelection(self) -> int:  # noqa: N802
         return self._selection
 
-    def SetSelection(self, index: int) -> int:
+    def SetSelection(self, index: int) -> int:  # noqa: N802
         if not 0 <= index < len(self._pages):
             return self._selection
 
@@ -127,4 +127,3 @@ class SegmentedBook(wx.Panel):
             button.SetForegroundColour(self._active_fg if selected else self._inactive_fg)
             button.SetBestSize(dip_size(button, 120, 32))
             button.Refresh()
-

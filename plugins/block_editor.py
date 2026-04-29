@@ -6,22 +6,27 @@ Drag-and-drop canvas for defining reliability topology with zoom/pan.
 Author:  Eliot Abramo
 """
 
-import wx
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+
+import wx
 
 try:
+    from .reliability_math import FIT_PER_LAMBDA
     from .ui.theme import platform_point_size
 except ImportError:
     from import_compat import ensure_plugin_paths
 
     ensure_plugin_paths()
+    from reliability_math import FIT_PER_LAMBDA
     from theme import platform_point_size
 
 
 @dataclass
 class Block:
     """A block in the reliability diagram."""
+
     id: str
     name: str
     label: str
@@ -32,14 +37,14 @@ class Block:
     reliability: float = 1.0
     lambda_val: float = 0.0
     is_group: bool = False
-    children: List[str] = field(default_factory=list)
+    children: list[str] = field(default_factory=list)
     connection_type: str = "series"
     k_value: int = 2
 
     def contains(self, px: int, py: int) -> bool:
         return self.x <= px <= self.x + self.width and self.y <= py <= self.y + self.height
 
-    def center(self) -> Tuple[int, int]:
+    def center(self) -> tuple[int, int]:
         return (self.x + self.width // 2, self.y + self.height // 2)
 
 
@@ -68,11 +73,11 @@ class BlockEditor(wx.Panel):
         self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
         self.SetMinSize((800, 400))
 
-        self.blocks: Dict[str, Block] = {}
-        self.root_id: Optional[str] = None
-        self.selected: Optional[str] = None
-        self.multi_selected: List[str] = []  # rubber-band multi selection
-        self.hover: Optional[str] = None
+        self.blocks: dict[str, Block] = {}
+        self.root_id: str | None = None
+        self.selected: str | None = None
+        self.multi_selected: list[str] = []  # rubber-band multi selection
+        self.hover: str | None = None
         self.dragging = False
         self.drag_offset = (0, 0)
         self.zoom_level = 1.0
@@ -103,7 +108,7 @@ class BlockEditor(wx.Panel):
         self.Bind(wx.EVT_MOTION, self._on_motion)
         self.Bind(wx.EVT_MOUSEWHEEL, self._on_mouse_wheel)
         self.Bind(wx.EVT_KEY_DOWN, self._on_key)
-        self.Bind(wx.EVT_SIZE, lambda e: self.Refresh())
+        self.Bind(wx.EVT_SIZE, lambda e: self.Refresh())  # noqa: ARG005
         self.SetFocus()
 
     def _fit_text(self, gc, text: str, max_width: int) -> str:
@@ -126,7 +131,8 @@ class BlockEditor(wx.Panel):
     def set_zoom(self, zoom, center_on=None):
         old_zoom = self.zoom_level
         new_zoom = max(0.25, min(3.0, zoom))
-        if abs(new_zoom - old_zoom) < 0.01: return
+        if abs(new_zoom - old_zoom) < 0.01:
+            return
         if center_on:
             cx, cy = center_on
             canvas_x = (cx - self.pan_offset[0]) / old_zoom
@@ -135,20 +141,24 @@ class BlockEditor(wx.Panel):
             self.pan_offset[1] = cy - canvas_y * new_zoom
         self.zoom_level = new_zoom
         self.Refresh()
-        if self.on_zoom_change: self.on_zoom_change(new_zoom)
+        if self.on_zoom_change:
+            self.on_zoom_change(new_zoom)
 
     def zoom_fit(self):
-        if not self.blocks: return
-        min_x = min_y = float('inf')
-        max_x = max_y = float('-inf')
+        if not self.blocks:
+            return
+        min_x = min_y = float("inf")
+        max_x = max_y = float("-inf")
         for b in self.blocks.values():
             min_x, min_y = min(min_x, b.x), min(min_y, b.y)
             max_x, max_y = max(max_x, b.x + b.width), max(max_y, b.y + b.height)
-        if min_x == float('inf'): return
+        if min_x == float("inf"):
+            return
         pad = 40
-        content_w, content_h = max_x - min_x + pad*2, max_y - min_y + pad*2
+        content_w, content_h = max_x - min_x + pad * 2, max_y - min_y + pad * 2
         panel_w, panel_h = self.GetSize()
-        if panel_w <= 0 or panel_h <= 0: return
+        if panel_w <= 0 or panel_h <= 0:
+            return
         fit_zoom = min(panel_w / content_w, panel_h / content_h, 2.0)
         self.zoom_level = max(fit_zoom, 0.25)
         center_x, center_y = (min_x + max_x) / 2, (min_y + max_y) / 2
@@ -156,8 +166,9 @@ class BlockEditor(wx.Panel):
         self.pan_offset[1] = panel_h / 2 - center_y * self.zoom_level
         self.Refresh()
 
-    def add_block(self, block_id: str, name: str, label: str = None) -> Block:
-        if label is None: label = name.rstrip('/').split('/')[-1] or name
+    def add_block(self, block_id: str, name: str, label: str | None = None) -> Block:
+        if label is None:
+            label = name.rstrip("/").split("/")[-1] or name
         x, y = self._find_position()
         block = Block(id=block_id, name=name, label=label, x=x, y=y)
         self.blocks[block_id] = block
@@ -173,39 +184,54 @@ class BlockEditor(wx.Panel):
         return block
 
     def remove_block(self, block_id: str):
-        if block_id not in self.blocks: return
+        if block_id not in self.blocks:
+            return
         for b in self.blocks.values():
             if b.is_group and block_id in b.children:
                 b.children.remove(block_id)
         del self.blocks[block_id]
-        if self.selected == block_id: self.selected = None
+        if self.selected == block_id:
+            self.selected = None
         self._update_group_bounds()
         self.Refresh()
         self._notify_change()
 
-    def create_group(self, block_ids: List[str], conn_type: str, k: int = 2) -> Optional[str]:
-        if len(block_ids) < 2: return None
+    def create_group(self, block_ids: list[str], conn_type: str, k: int = 2) -> str | None:
+        if len(block_ids) < 2:
+            return None
         gid = f"__grp_{sum(1 for b in self.blocks.values() if b.is_group)}__"
         min_x = min(self.blocks[bid].x for bid in block_ids)
         min_y = min(self.blocks[bid].y for bid in block_ids)
         max_x = max(self.blocks[bid].x + self.blocks[bid].width for bid in block_ids)
         max_y = max(self.blocks[bid].y + self.blocks[bid].height for bid in block_ids)
         label = {"series": "SERIES", "parallel": "PARALLEL", "k_of_n": f"{k}-of-{len(block_ids)}"}[conn_type]
-        group = Block(id=gid, name=label, label=label, x=min_x - self.PAD, y=min_y - self.PAD,
-                      width=max_x - min_x + 2*self.PAD, height=max_y - min_y + 2*self.PAD,
-                      is_group=True, children=list(block_ids), connection_type=conn_type, k_value=k)
+        group = Block(
+            id=gid,
+            name=label,
+            label=label,
+            x=min_x - self.PAD,
+            y=min_y - self.PAD,
+            width=max_x - min_x + 2 * self.PAD,
+            height=max_y - min_y + 2 * self.PAD,
+            is_group=True,
+            children=list(block_ids),
+            connection_type=conn_type,
+            k_value=k,
+        )
         self.blocks[gid] = group
         root = self.blocks.get(self.root_id)
         if root:
             for bid in block_ids:
-                if bid in root.children: root.children.remove(bid)
+                if bid in root.children:
+                    root.children.remove(bid)
             root.children.append(gid)
         self.Refresh()
         self._notify_change()
         return gid
 
     def ungroup(self, group_id: str):
-        if group_id not in self.blocks or not self.blocks[group_id].is_group: return
+        if group_id not in self.blocks or not self.blocks[group_id].is_group:
+            return
         group = self.blocks[group_id]
         children = group.children.copy()
         parent = None
@@ -221,44 +247,51 @@ class BlockEditor(wx.Panel):
         self.Refresh()
         self._notify_change()
 
-    def _find_position(self) -> Tuple[int, int]:
+    def _find_position(self) -> tuple[int, int]:
         x, y = self.PAD + self.GRID, self.PAD + self.GRID
         spacing_x, spacing_y = 220, 110
         max_x = 800
         while True:
-            collision = any(not b.is_group and abs(b.x - x) < spacing_x and abs(b.y - y) < spacing_y for b in self.blocks.values())
-            if not collision: return (x, y)
+            collision = any(
+                not b.is_group and abs(b.x - x) < spacing_x and abs(b.y - y) < spacing_y for b in self.blocks.values()
+            )
+            if not collision:
+                return (x, y)
             x += spacing_x
-            if x > max_x: x, y = self.PAD + self.GRID, y + spacing_y
+            if x > max_x:
+                x, y = self.PAD + self.GRID, y + spacing_y
 
-    def _snap(self, x: int, y: int) -> Tuple[int, int]:
+    def _snap(self, x: int, y: int) -> tuple[int, int]:
         return (round(x / self.GRID) * self.GRID, round(y / self.GRID) * self.GRID)
 
-    def _block_at(self, x: int, y: int) -> Optional[str]:
+    def _block_at(self, x: int, y: int) -> str | None:
         for bid, b in self.blocks.items():
-            if not b.is_group and b.contains(x, y): return bid
+            if not b.is_group and b.contains(x, y):
+                return bid
         for bid, b in self.blocks.items():
-            if b.is_group and b.contains(x, y): return bid
+            if b.is_group and b.contains(x, y):
+                return bid
         return None
 
     def _update_group_bounds(self):
         for g in self.blocks.values():
             if g.is_group and g.children:
-                min_x = min_y = float('inf')
-                max_x = max_y = float('-inf')
+                min_x = min_y = float("inf")
+                max_x = max_y = float("-inf")
                 for cid in g.children:
                     c = self.blocks.get(cid)
                     if c:
                         min_x, min_y = min(min_x, c.x), min(min_y, c.y)
                         max_x, max_y = max(max_x, c.x + c.width), max(max_y, c.y + c.height)
-                if min_x != float('inf'):
+                if min_x != float("inf"):
                     g.x, g.y = int(min_x - self.PAD), int(min_y - self.PAD)
-                    g.width, g.height = int(max_x - min_x + 2*self.PAD), int(max_y - min_y + 2*self.PAD)
+                    g.width, g.height = int(max_x - min_x + 2 * self.PAD), int(max_y - min_y + 2 * self.PAD)
 
     def _notify_change(self):
-        if self.on_structure_change: self.on_structure_change()
+        if self.on_structure_change:
+            self.on_structure_change()
 
-    def _on_paint(self, event):
+    def _on_paint(self, event):  # noqa: ARG002
         dc = wx.AutoBufferedPaintDC(self)
         gc = wx.GraphicsContext.Create(dc)
         w, h = self.GetSize()
@@ -266,14 +299,16 @@ class BlockEditor(wx.Panel):
         gc.DrawRectangle(0, 0, w, h)
         gc.Translate(self.pan_offset[0], self.pan_offset[1])
         gc.Scale(self.zoom_level, self.zoom_level)
-        
+
         # Draw groups first
         for b in self.blocks.values():
-            if b.is_group: self._draw_group(gc, b)
+            if b.is_group:
+                self._draw_group(gc, b)
         # Then blocks
         for b in self.blocks.values():
-            if not b.is_group: self._draw_block(gc, b)
-        
+            if not b.is_group:
+                self._draw_block(gc, b)
+
         # Draw rubber-band selection rectangle
         if self.rubber_band:
             x1 = min(self.rubber_start[0], self.rubber_end[0])
@@ -299,16 +334,18 @@ class BlockEditor(wx.Panel):
         gc.SetFont(font, self.BLOCK_TEXT)
         label = self._fit_text(gc, b.label, max(48, b.width - 20))
         tw = gc.GetTextExtent(label)[0]
-        gc.DrawText(label, b.x + (b.width - tw)/2, b.y + 10)
+        gc.DrawText(label, b.x + (b.width - tw) / 2, b.y + 10)
         font = wx.Font(platform_point_size(9), wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
         gc.SetFont(font, self.BLOCK_TEXT_MUTED)
         r_val = float(b.reliability if b.reliability is not None else 1.0)
         lam_val = float(b.lambda_val if b.lambda_val is not None else 0)
         gc.DrawText(f"R = {r_val:.4f}", b.x + 10, b.y + 32)
-        gc.DrawText(f"L = {lam_val*1e9:.1f} FIT", b.x + 10, b.y + 48)
+        gc.DrawText(f"L = {lam_val * FIT_PER_LAMBDA:.1f} FIT", b.x + 10, b.y + 48)
 
     def _draw_group(self, gc, g: Block):
-        color = {"series": self.SERIES_COLOR, "parallel": self.PARALLEL_COLOR, "k_of_n": self.KN_COLOR}.get(g.connection_type, self.SERIES_COLOR)
+        color = {"series": self.SERIES_COLOR, "parallel": self.PARALLEL_COLOR, "k_of_n": self.KN_COLOR}.get(
+            g.connection_type, self.SERIES_COLOR
+        )
         gc.SetBrush(wx.Brush(wx.Colour(color.Red(), color.Green(), color.Blue(), 60)))
         gc.SetPen(wx.Pen(self.BLOCK_BORDER, 2, wx.PENSTYLE_DOT))
         gc.DrawRoundedRectangle(g.x, g.y, g.width, g.height, 10)
@@ -338,7 +375,8 @@ class BlockEditor(wx.Panel):
                 self.dragging = True
                 b = self.blocks[bid]
                 self.drag_offset = (cx - b.x, cy - b.y)
-            if self.on_selection_change: self.on_selection_change(self.selected)
+            if self.on_selection_change:
+                self.on_selection_change(self.selected)
         else:
             # Empty space: Ctrl+left = rubber-band, plain left = pan
             if not event.ShiftDown():
@@ -353,7 +391,7 @@ class BlockEditor(wx.Panel):
                 self.pan_start = (sx, sy)
         self.Refresh()
 
-    def _on_left_up(self, event):
+    def _on_left_up(self, event):  # noqa: ARG002
         if self.rubber_band:
             # Finish rubber-band: select all non-group blocks in the rectangle
             self.rubber_band = False
@@ -365,9 +403,8 @@ class BlockEditor(wx.Panel):
                 for bid, b in self.blocks.items():
                     if not b.is_group:
                         bcx, bcy = b.center()
-                        if x1 <= bcx <= x2 and y1 <= bcy <= y2:
-                            if bid not in self.multi_selected:
-                                self.multi_selected.append(bid)
+                        if x1 <= bcx <= x2 and y1 <= bcy <= y2 and bid not in self.multi_selected:
+                            self.multi_selected.append(bid)
                 if self.multi_selected:
                     self.selected = self.multi_selected[-1]
                     if self.on_selection_change:
@@ -391,46 +428,48 @@ class BlockEditor(wx.Panel):
         bid = self._block_at(cx, cy)
         if bid:
             b = self.blocks[bid]
-            if b.is_group: self._edit_group(bid)
-            elif self.on_block_activate: self.on_block_activate(bid, b.name)
+            if b.is_group:
+                self._edit_group(bid)
+            elif self.on_block_activate:
+                self.on_block_activate(bid, b.name)
 
     def _on_right_click(self, event):
         sx, sy = event.GetPosition()
         cx, cy = self.screen_to_canvas(sx, sy)
         bid = self._block_at(cx, cy)
-        
+
         menu = wx.Menu()
-        
+
         # Multi-selection: allow grouping blocks and/or groups (nested: K-of-N in parallel, etc.)
         groupable = [b for b in self.multi_selected if b in self.blocks]
         if len(groupable) >= 2:
             item_s = menu.Append(wx.ID_ANY, f"Group {len(groupable)} blocks  Series")
-            self.Bind(wx.EVT_MENU, lambda e, ids=groupable: self._group_selected(ids, "series"), item_s)
+            self.Bind(wx.EVT_MENU, lambda e, ids=groupable: self._group_selected(ids, "series"), item_s)  # noqa: ARG005
             item_p = menu.Append(wx.ID_ANY, f"Group {len(groupable)} blocks  Parallel")
-            self.Bind(wx.EVT_MENU, lambda e, ids=groupable: self._group_selected(ids, "parallel"), item_p)
+            self.Bind(wx.EVT_MENU, lambda e, ids=groupable: self._group_selected(ids, "parallel"), item_p)  # noqa: ARG005
             item_k = menu.Append(wx.ID_ANY, f"Group {len(groupable)} blocks  K-of-N")
-            self.Bind(wx.EVT_MENU, lambda e, ids=groupable: self._group_selected(ids, "k_of_n"), item_k)
+            self.Bind(wx.EVT_MENU, lambda e, ids=groupable: self._group_selected(ids, "k_of_n"), item_k)  # noqa: ARG005
             menu.AppendSeparator()
-        
+
         if bid:
             self.selected = bid
             self.Refresh()
             b = self.blocks[bid]
             if b.is_group:
                 item = menu.Append(wx.ID_ANY, "Edit Group...")
-                self.Bind(wx.EVT_MENU, lambda e: self._edit_group(bid), item)
+                self.Bind(wx.EVT_MENU, lambda e: self._edit_group(bid), item)  # noqa: ARG005
                 menu.AppendSeparator()
                 item = menu.Append(wx.ID_ANY, "Ungroup")
-                self.Bind(wx.EVT_MENU, lambda e: self.ungroup(bid), item)
+                self.Bind(wx.EVT_MENU, lambda e: self.ungroup(bid), item)  # noqa: ARG005
             else:
                 item = menu.Append(wx.ID_ANY, "Remove")
-                self.Bind(wx.EVT_MENU, lambda e: self.remove_block(bid), item)
-        
+                self.Bind(wx.EVT_MENU, lambda e: self.remove_block(bid), item)  # noqa: ARG005
+
         if menu.GetMenuItemCount() > 0:
             self.PopupMenu(menu, event.GetPosition())
         menu.Destroy()
-    
-    def _group_selected(self, block_ids: List[str], conn_type: str):
+
+    def _group_selected(self, block_ids: list[str], conn_type: str):
         """Group selected blocks with given connection type."""
         k = 2
         if conn_type == "k_of_n":
@@ -467,66 +506,88 @@ class BlockEditor(wx.Panel):
         else:
             old = self.hover
             self.hover = self._block_at(cx, cy)
-            if old != self.hover: self.Refresh()
+            if old != self.hover:
+                self.Refresh()
 
     def _on_middle_down(self, event):
         sx, sy = event.GetPosition()
         self.panning = True
         self.pan_start = (sx, sy)
 
-    def _on_middle_up(self, event):
+    def _on_middle_up(self, event):  # noqa: ARG002
         self.panning = False
 
     def _on_mouse_wheel(self, event):
         rotation = event.GetWheelRotation()
-        if rotation > 0: self.set_zoom(self.zoom_level + 0.1, event.GetPosition())
-        else: self.set_zoom(self.zoom_level - 0.1, event.GetPosition())
+        if rotation > 0:
+            self.set_zoom(self.zoom_level + 0.1, event.GetPosition())
+        else:
+            self.set_zoom(self.zoom_level - 0.1, event.GetPosition())
 
     def _on_key(self, event):
         key = event.GetKeyCode()
         if key == wx.WXK_DELETE and self.selected:
             b = self.blocks.get(self.selected)
-            if b and b.is_group: self.ungroup(self.selected)
-            elif b: self.remove_block(self.selected)
-        elif key in (ord('f'), ord('F')): self.zoom_fit()
+            if b and b.is_group:
+                self.ungroup(self.selected)
+            elif b:
+                self.remove_block(self.selected)
+        elif key in (ord("f"), ord("F")):
+            self.zoom_fit()
         elif key == wx.WXK_ESCAPE:
             self.selected = None
             self.multi_selected = []
             self.Refresh()
-        elif key == ord('G') or key == ord('g'):
+        elif key == ord("G") or key == ord("g"):
             groupable = [b for b in self.multi_selected if b in self.blocks]
             if len(groupable) >= 2:
                 self._group_selected(groupable, "series")
-        else: event.Skip()
+        else:
+            event.Skip()
 
     def _edit_group(self, group_id: str):
         g = self.blocks.get(group_id)
-        if not g or not g.is_group: return
+        if not g or not g.is_group:
+            return
         choices = ["SERIES", "PARALLEL", f"K-of-{len(g.children)}"]
         dlg = wx.SingleChoiceDialog(self, "Connection type:", "Group Type", choices)
         dlg.SetSelection({"series": 0, "parallel": 1, "k_of_n": 2}.get(g.connection_type, 0))
         if dlg.ShowModal() == wx.ID_OK:
             sel = dlg.GetSelection()
-            if sel == 0: g.connection_type, g.label = "series", "SERIES"
-            elif sel == 1: g.connection_type, g.label = "parallel", "PARALLEL"
+            if sel == 0:
+                g.connection_type, g.label = "series", "SERIES"
+            elif sel == 1:
+                g.connection_type, g.label = "parallel", "PARALLEL"
             else:
                 kdlg = wx.NumberEntryDialog(self, "K value:", "K:", "K-of-N", g.k_value, 1, len(g.children))
-                if kdlg.ShowModal() == wx.ID_OK: g.k_value = kdlg.GetValue()
+                if kdlg.ShowModal() == wx.ID_OK:
+                    g.k_value = kdlg.GetValue()
                 kdlg.Destroy()
                 g.connection_type, g.label = "k_of_n", f"{g.k_value}-of-{len(g.children)}"
             self.Refresh()
             self._notify_change()
         dlg.Destroy()
 
-    def get_structure(self) -> Dict:
+    def get_structure(self) -> dict:
         return {
-            "blocks": {bid: {"name": b.name, "label": b.label, "x": b.x, "y": b.y, "is_group": b.is_group,
-                            "children": b.children, "connection_type": b.connection_type, "k_value": b.k_value}
-                      for bid, b in self.blocks.items()},
-            "root": self.root_id, "mission_hours": self.mission_hours,
+            "blocks": {
+                bid: {
+                    "name": b.name,
+                    "label": b.label,
+                    "x": b.x,
+                    "y": b.y,
+                    "is_group": b.is_group,
+                    "children": b.children,
+                    "connection_type": b.connection_type,
+                    "k_value": b.k_value,
+                }
+                for bid, b in self.blocks.items()
+            },
+            "root": self.root_id,
+            "mission_hours": self.mission_hours,
         }
 
-    def load_structure(self, data: Dict):
+    def load_structure(self, data: dict):
         self.blocks.clear()
         blocks_data = data.get("blocks") or {}
         for bid, bd in blocks_data.items():

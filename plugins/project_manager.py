@@ -7,9 +7,11 @@ Handles configuration, component data, block setup, and reports.
 Author:  Eliot Abramo
 """
 
+from __future__ import annotations
+
 import json
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Any
 
 
 class ProjectManager:
@@ -17,7 +19,7 @@ class ProjectManager:
 
     RELIABILITY_FOLDER = "Reliability"
     DATA_FILENAME = "reliability_data.json"
-    LOGO_EXTENSIONS = [".png", ".jpg", ".jpeg", ".svg", ".bmp", ".gif"]
+    LOGO_EXTENSIONS = (".png", ".jpg", ".jpeg", ".svg", ".bmp", ".gif")
 
     def __init__(self, project_path: str):
         self.project_path = Path(project_path)
@@ -36,20 +38,20 @@ class ProjectManager:
 
     def get_data_path(self) -> Path:
         return self.reliability_dir / self.DATA_FILENAME
-    
-    def get_logo_path(self) -> Optional[Path]:
+
+    def get_logo_path(self) -> Path | None:
         """Get path to logo file, trying multiple extensions."""
         for ext in self.LOGO_EXTENSIONS:
             path = self.reliability_dir / f"logo{ext}"
             if path.exists() and path.is_file():
                 return path
         return None
-    
+
     def logo_exists(self) -> bool:
         """Check if any logo file exists in Reliability folder."""
         return self.get_logo_path() is not None
-    
-    def get_logo_mime_type(self) -> Optional[str]:
+
+    def get_logo_mime_type(self) -> str | None:
         """Get MIME type for the logo file."""
         logo = self.get_logo_path()
         if not logo:
@@ -64,16 +66,16 @@ class ProjectManager:
             ".gif": "image/gif",
         }
         return mime_map.get(ext, "image/png")
-    
+
     def get_reports_folder(self) -> Path:
         reports_dir = self.reliability_dir / "Reports"
         reports_dir.mkdir(parents=True, exist_ok=True)
         return reports_dir
-    
-    def get_available_logo_path(self) -> Optional[Path]:
+
+    def get_available_logo_path(self) -> Path | None:
         return self.get_logo_path()
-    
-    def get_folder_structure_info(self) -> Dict[str, str]:
+
+    def get_folder_structure_info(self) -> dict[str, str | bool]:
         self.ensure_reliability_folder()
         reports_folder = self.get_reports_folder()
         logo = self.get_logo_path()
@@ -86,30 +88,31 @@ class ProjectManager:
             "logo_exists": self.logo_exists(),
         }
 
-    def load_data(self) -> Optional[Dict[str, Any]]:
+    def load_data(self) -> dict[str, Any] | None:
         """Load reliability_data.json. Returns None if file doesn't exist."""
         path = self.get_data_path()
         if not path.exists():
             return None
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with path.open(encoding="utf-8") as f:
                 return json.load(f)
         except (json.JSONDecodeError, OSError):
             return None
 
-    def save_data(self, data: Dict[str, Any]) -> bool:
+    def save_data(self, data: dict[str, Any]) -> bool:
         """Save reliability_data.json. Creates Reliability/ if needed."""
         try:
             self.ensure_reliability_folder()
             path = self.get_data_path()
-            with open(path, "w", encoding="utf-8") as f:
+            with path.open("w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
-            return True
         except OSError:
             return False
+        else:
+            return True
 
     @staticmethod
-    def default_data() -> Dict[str, Any]:
+    def default_data() -> dict[str, Any]:
         """Default reliability data: blank canvas, default settings."""
         return {
             "components": {},

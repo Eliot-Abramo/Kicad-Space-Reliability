@@ -14,68 +14,80 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any
 
 BASE_DIR = Path(__file__).resolve().parent
 
-_CATEGORIES: Dict[str, Any] = {}
-_TABLES: Dict[str, Any] = {}
+_CATEGORIES: dict[str, Any] = {}
+_TABLES: dict[str, Any] = {}
 
 # Maps reliability_math.py type names -> ECSS category keys
 # These are the EXACT strings from get_component_types()
 _MATH_TYPE_TO_ECSS = {
-    "Integrated Circuit":   "ic_digital",
-    "Diode":                "diode",
-    "Transistor":           "bjt",
-    "Optocoupler":          "optocoupler",
-    "Thyristor/TRIAC":      "thyristor",
-    "Capacitor":            "capacitor_ceramic",
-    "Resistor":             "resistor",
+    "Integrated Circuit": "ic_digital",
+    "Diode": "diode",
+    "Transistor": "bjt",
+    "Optocoupler": "optocoupler",
+    "Thyristor/TRIAC": "thyristor",
+    "Capacitor": "capacitor_ceramic",
+    "Resistor": "resistor",
     "Inductor/Transformer": "inductor",
-    "Relay":                "relay",
-    "Connector":            "connector",
-    "PCB/Solder":           "pcb_solder",
-    "Miscellaneous":        "miscellaneous",
-    "Crystal/Oscillator":   "crystal",
-    "DC/DC Converter":      "converter",
+    "Relay": "relay",
+    "Connector": "connector",
+    "PCB/Solder": "pcb_solder",
+    "Miscellaneous": "miscellaneous",
+    "Crystal/Oscillator": "crystal",
+    "DC/DC Converter": "converter",
 }
 
 # For display: maps ECSS category key -> user-friendly group name
 _ECSS_TO_DISPLAY_GROUP = {
-    "resistor":             "Resistors",
-    "capacitor_ceramic":    "Capacitors (Ceramic)",
-    "capacitor_tantalum":   "Capacitors (Tantalum)",
-    "diode":                "Diodes",
-    "bjt":                  "Bipolar Transistors",
-    "mosfet":               "MOSFETs",
-    "ic_digital":           "ICs (Digital / MCU / Logic)",
-    "ic_analog":            "ICs (Analog / Mixed-Signal)",
-    "fpga":                 "ICs (FPGA / Complex Digital)",
-    "connector":            "Connectors",
-    "converter":            "DC/DC Converters",
-    "inductor":             "Inductors / Transformers",
-    "crystal":              "Crystals / Oscillators",
-    "battery":              "Batteries",
-    "relay":                "Relays",
-    "optocoupler":          "Optocouplers",
-    "thyristor":            "Thyristors / TRIACs",
-    "pcb_solder":           "PCB / Solder Joints",
-    "miscellaneous":        "Miscellaneous",
+    "resistor": "Resistors",
+    "capacitor_ceramic": "Capacitors (Ceramic)",
+    "capacitor_tantalum": "Capacitors (Tantalum)",
+    "diode": "Diodes",
+    "bjt": "Bipolar Transistors",
+    "mosfet": "MOSFETs",
+    "ic_digital": "ICs (Digital / MCU / Logic)",
+    "ic_analog": "ICs (Analog / Mixed-Signal)",
+    "fpga": "ICs (FPGA / Complex Digital)",
+    "connector": "Connectors",
+    "converter": "DC/DC Converters",
+    "inductor": "Inductors / Transformers",
+    "crystal": "Crystals / Oscillators",
+    "battery": "Batteries",
+    "relay": "Relays",
+    "optocoupler": "Optocouplers",
+    "thyristor": "Thyristors / TRIACs",
+    "pcb_solder": "PCB / Solder Joints",
+    "miscellaneous": "Miscellaneous",
 }
 
 # Canonical order for UI display (grouped logically)
 CATEGORY_DISPLAY_ORDER = [
-    "ic_digital", "ic_analog", "fpga",
+    "ic_digital",
+    "ic_analog",
+    "fpga",
     "resistor",
-    "capacitor_ceramic", "capacitor_tantalum",
-    "diode", "bjt", "mosfet",
-    "inductor", "connector", "converter",
-    "crystal", "relay", "battery",
-    "optocoupler", "thyristor", "pcb_solder", "miscellaneous",
+    "capacitor_ceramic",
+    "capacitor_tantalum",
+    "diode",
+    "bjt",
+    "mosfet",
+    "inductor",
+    "connector",
+    "converter",
+    "crystal",
+    "relay",
+    "battery",
+    "optocoupler",
+    "thyristor",
+    "pcb_solder",
+    "miscellaneous",
 ]
 
 
-def _load_json(name: str) -> Dict[str, Any]:
+def _load_json(name: str) -> dict[str, Any]:
     path = BASE_DIR / name
     if not path.exists():
         return {}
@@ -85,7 +97,7 @@ def _load_json(name: str) -> Dict[str, Any]:
 
 def load_specs() -> None:
     """Load JSON specs into module-level caches."""
-    global _CATEGORIES, _TABLES
+    global _CATEGORIES, _TABLES  # noqa: PLW0603
     data = _load_json("ecss_categories.json")
     _CATEGORIES = data.get("categories", {})
     _TABLES = _load_json("ecss_tables.json")
@@ -95,15 +107,15 @@ def load_specs() -> None:
 load_specs()
 
 
-def get_categories() -> Dict[str, Any]:
+def get_categories() -> dict[str, Any]:
     return _CATEGORIES
 
 
-def get_tables() -> Dict[str, Any]:
+def get_tables() -> dict[str, Any]:
     return _TABLES
 
 
-def get_category_fields(category: str) -> Dict[str, Any]:
+def get_category_fields(category: str) -> dict[str, Any]:
     """Return full definition dict for a category key."""
     cat = _CATEGORIES.get(category)
     if not cat:
@@ -116,7 +128,7 @@ def get_display_group(ecss_key: str) -> str:
     return _ECSS_TO_DISPLAY_GROUP.get(ecss_key, ecss_key.replace("_", " ").title())
 
 
-def get_all_ic_categories() -> List[str]:
+def get_all_ic_categories() -> list[str]:
     """Return all ECSS keys that represent ICs."""
     return ["ic_digital", "ic_analog", "fpga"]
 
@@ -129,12 +141,9 @@ def math_type_to_ecss(math_type: str) -> str:
     return infer_category_from_class(math_type)
 
 
-def get_ordered_categories_present(category_set: set) -> List[str]:
+def get_ordered_categories_present(category_set: set) -> list[str]:
     """Return categories from category_set in canonical UI display order."""
-    ordered = []
-    for key in CATEGORY_DISPLAY_ORDER:
-        if key in category_set:
-            ordered.append(key)
+    ordered = [key for key in CATEGORY_DISPLAY_ORDER if key in category_set]
     # Add any remaining not in canonical order
     for key in sorted(category_set):
         if key not in ordered:
@@ -142,7 +151,7 @@ def get_ordered_categories_present(category_set: set) -> List[str]:
     return ordered
 
 
-def infer_category_from_class(component_class: str, footprint: str = "") -> str:
+def infer_category_from_class(component_class: str, footprint: str = "") -> str:  # noqa: C901
     """Heuristic mapping from KiCad 'Class' / 'Reliability_Class' + footprint
     to an ECSS category key defined in the JSON.
 

@@ -23,10 +23,15 @@ where pi_t_i is the fractional time in phase i (sum = 1.0).
 Author:  Eliot Abramo
 """
 
-import math
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple, Any
-from copy import deepcopy
+from typing import Any
+
+try:
+    from .reliability_math import FIT_PER_LAMBDA
+except ImportError:
+    from reliability_math import FIT_PER_LAMBDA
 
 
 @dataclass
@@ -44,15 +49,16 @@ class MissionPhase:
         delta_t:        Temperature excursion per cycle (deg C)
         tau_on:         Working time ratio during this phase (0-1)
     """
+
     name: str = "Nominal"
     duration_frac: float = 1.0
     t_ambient: float = 25.0
-    t_junction: Optional[float] = None
+    t_junction: float | None = None
     n_cycles: int = 5256
     delta_t: float = 3.0
     tau_on: float = 1.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "duration_frac": self.duration_frac,
@@ -64,15 +70,23 @@ class MissionPhase:
         }
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "MissionPhase":
+    def from_dict(cls, d: dict[str, Any]) -> MissionPhase:
         def _f(v, default):
-            if v is None: return default
-            try: return float(v)
-            except (TypeError, ValueError): return default
+            if v is None:
+                return default
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                return default
+
         def _i(v, default):
-            if v is None: return default
-            try: return int(v)
-            except (TypeError, ValueError): return default
+            if v is None:
+                return default
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                return default
+
         return cls(
             name=d.get("name") or "Nominal",
             duration_frac=_f(d.get("duration_frac"), 1.0),
@@ -94,7 +108,8 @@ class MissionProfile:
 
     The duration_frac of all phases must sum to 1.0 (normalized).
     """
-    phases: List[MissionPhase] = field(default_factory=lambda: [MissionPhase()])
+
+    phases: list[MissionPhase] = field(default_factory=lambda: [MissionPhase()])
     mission_years: float = 5.0
 
     @property
@@ -105,19 +120,16 @@ class MissionProfile:
     def is_single_phase(self) -> bool:
         return len(self.phases) <= 1
 
-    def validate(self) -> Tuple[bool, str]:
+    def validate(self) -> tuple[bool, str]:
         """Validate the mission profile. Returns (valid, message)."""
         if not self.phases:
             return False, "Mission profile must have at least one phase."
 
         total_frac = sum(p.duration_frac for p in self.phases)
         if abs(total_frac - 1.0) > 0.01:
-            return False, (
-                f"Phase duration fractions sum to {total_frac:.3f}, "
-                f"must sum to 1.0 (within 1%)."
-            )
+            return False, (f"Phase duration fractions sum to {total_frac:.3f}, must sum to 1.0 (within 1%).")
 
-        for i, p in enumerate(self.phases):
+        for _i, p in enumerate(self.phases):
             if p.duration_frac < 0 or p.duration_frac > 1:
                 return False, f"Phase '{p.name}' has invalid duration fraction: {p.duration_frac}"
             if p.tau_on < 0 or p.tau_on > 1:
@@ -136,14 +148,14 @@ class MissionProfile:
             for p in self.phases:
                 p.duration_frac /= total
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "mission_years": self.mission_years,
             "phases": [p.to_dict() for p in self.phases],
         }
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "MissionProfile":
+    def from_dict(cls, d: dict[str, Any]) -> MissionProfile:
         phases_data = d.get("phases")
         if phases_data is None or not isinstance(phases_data, list):
             phases = [MissionPhase()]
@@ -161,19 +173,26 @@ class MissionProfile:
         return cls(phases=phases, mission_years=mission_years)
 
     @classmethod
-    def single_phase(cls, years: float = 5.0, n_cycles: int = 5256,
-                     delta_t: float = 3.0, tau_on: float = 1.0,
-                     t_ambient: float = 25.0) -> "MissionProfile":
+    def single_phase(
+        cls,
+        years: float = 5.0,
+        n_cycles: int = 5256,
+        delta_t: float = 3.0,
+        tau_on: float = 1.0,
+        t_ambient: float = 25.0,
+    ) -> MissionProfile:
         """Create a single-phase mission profile (backward compatible)."""
         return cls(
-            phases=[MissionPhase(
-                name="Nominal",
-                duration_frac=1.0,
-                t_ambient=t_ambient,
-                n_cycles=n_cycles,
-                delta_t=delta_t,
-                tau_on=tau_on,
-            )],
+            phases=[
+                MissionPhase(
+                    name="Nominal",
+                    duration_frac=1.0,
+                    t_ambient=t_ambient,
+                    n_cycles=n_cycles,
+                    delta_t=delta_t,
+                    tau_on=tau_on,
+                )
+            ],
             mission_years=years,
         )
 
@@ -184,74 +203,83 @@ class MissionProfile:
 
 MISSION_TEMPLATES = {
     "Ground (Continuous)": MissionProfile(
-        phases=[MissionPhase(
-            name="Continuous Operation",
-            duration_frac=1.0,
-            t_ambient=25.0, n_cycles=365, delta_t=5.0, tau_on=1.0,
-        )],
+        phases=[
+            MissionPhase(
+                name="Continuous Operation",
+                duration_frac=1.0,
+                t_ambient=25.0,
+                n_cycles=365,
+                delta_t=5.0,
+                tau_on=1.0,
+            )
+        ],
         mission_years=10.0,
     ),
     "Ground (Office 8h/day)": MissionProfile(
         phases=[
-            MissionPhase(name="Operating", duration_frac=0.33,
-                         t_ambient=30.0, n_cycles=365, delta_t=10.0, tau_on=1.0),
-            MissionPhase(name="Standby", duration_frac=0.67,
-                         t_ambient=22.0, n_cycles=365, delta_t=3.0, tau_on=0.0),
+            MissionPhase(name="Operating", duration_frac=0.33, t_ambient=30.0, n_cycles=365, delta_t=10.0, tau_on=1.0),
+            MissionPhase(name="Standby", duration_frac=0.67, t_ambient=22.0, n_cycles=365, delta_t=3.0, tau_on=0.0),
         ],
         mission_years=10.0,
     ),
     "Automotive (Daily commute)": MissionProfile(
         phases=[
-            MissionPhase(name="Engine On", duration_frac=0.08,
-                         t_ambient=85.0, n_cycles=730, delta_t=40.0, tau_on=1.0),
-            MissionPhase(name="Parked (day)", duration_frac=0.42,
-                         t_ambient=45.0, n_cycles=365, delta_t=20.0, tau_on=0.0),
-            MissionPhase(name="Parked (night)", duration_frac=0.50,
-                         t_ambient=10.0, n_cycles=365, delta_t=10.0, tau_on=0.0),
+            MissionPhase(name="Engine On", duration_frac=0.08, t_ambient=85.0, n_cycles=730, delta_t=40.0, tau_on=1.0),
+            MissionPhase(
+                name="Parked (day)", duration_frac=0.42, t_ambient=45.0, n_cycles=365, delta_t=20.0, tau_on=0.0
+            ),
+            MissionPhase(
+                name="Parked (night)", duration_frac=0.50, t_ambient=10.0, n_cycles=365, delta_t=10.0, tau_on=0.0
+            ),
         ],
         mission_years=15.0,
     ),
     "LEO Satellite": MissionProfile(
         phases=[
-            MissionPhase(name="Sunlit", duration_frac=0.60,
-                         t_ambient=60.0, n_cycles=5256, delta_t=30.0, tau_on=1.0),
-            MissionPhase(name="Eclipse", duration_frac=0.37,
-                         t_ambient=-20.0, n_cycles=5256, delta_t=30.0, tau_on=0.8),
-            MissionPhase(name="Safe Mode", duration_frac=0.03,
-                         t_ambient=0.0, n_cycles=100, delta_t=5.0, tau_on=0.1),
+            MissionPhase(name="Sunlit", duration_frac=0.60, t_ambient=60.0, n_cycles=5256, delta_t=30.0, tau_on=1.0),
+            MissionPhase(name="Eclipse", duration_frac=0.37, t_ambient=-20.0, n_cycles=5256, delta_t=30.0, tau_on=0.8),
+            MissionPhase(name="Safe Mode", duration_frac=0.03, t_ambient=0.0, n_cycles=100, delta_t=5.0, tau_on=0.1),
         ],
         mission_years=7.0,
     ),
     "GEO Satellite": MissionProfile(
         phases=[
-            MissionPhase(name="Sunlit", duration_frac=0.94,
-                         t_ambient=50.0, n_cycles=730, delta_t=15.0, tau_on=1.0),
-            MissionPhase(name="Eclipse Season", duration_frac=0.05,
-                         t_ambient=-10.0, n_cycles=90, delta_t=40.0, tau_on=1.0),
-            MissionPhase(name="Station Keeping", duration_frac=0.01,
-                         t_ambient=40.0, n_cycles=24, delta_t=10.0, tau_on=0.5),
+            MissionPhase(name="Sunlit", duration_frac=0.94, t_ambient=50.0, n_cycles=730, delta_t=15.0, tau_on=1.0),
+            MissionPhase(
+                name="Eclipse Season", duration_frac=0.05, t_ambient=-10.0, n_cycles=90, delta_t=40.0, tau_on=1.0
+            ),
+            MissionPhase(
+                name="Station Keeping", duration_frac=0.01, t_ambient=40.0, n_cycles=24, delta_t=10.0, tau_on=0.5
+            ),
         ],
         mission_years=15.0,
     ),
     "Avionics (Flight cycle)": MissionProfile(
         phases=[
-            MissionPhase(name="Ground Idle", duration_frac=0.15,
-                         t_ambient=30.0, n_cycles=1460, delta_t=15.0, tau_on=0.5),
-            MissionPhase(name="Takeoff/Climb", duration_frac=0.10,
-                         t_ambient=45.0, n_cycles=1460, delta_t=25.0, tau_on=1.0),
-            MissionPhase(name="Cruise", duration_frac=0.60,
-                         t_ambient=40.0, n_cycles=730, delta_t=5.0, tau_on=1.0),
-            MissionPhase(name="Descent/Landing", duration_frac=0.15,
-                         t_ambient=40.0, n_cycles=1460, delta_t=20.0, tau_on=1.0),
+            MissionPhase(
+                name="Ground Idle", duration_frac=0.15, t_ambient=30.0, n_cycles=1460, delta_t=15.0, tau_on=0.5
+            ),
+            MissionPhase(
+                name="Takeoff/Climb", duration_frac=0.10, t_ambient=45.0, n_cycles=1460, delta_t=25.0, tau_on=1.0
+            ),
+            MissionPhase(name="Cruise", duration_frac=0.60, t_ambient=40.0, n_cycles=730, delta_t=5.0, tau_on=1.0),
+            MissionPhase(
+                name="Descent/Landing", duration_frac=0.15, t_ambient=40.0, n_cycles=1460, delta_t=20.0, tau_on=1.0
+            ),
         ],
         mission_years=20.0,
     ),
     "Industrial (24/7)": MissionProfile(
-        phases=[MissionPhase(
-            name="Continuous",
-            duration_frac=1.0,
-            t_ambient=40.0, n_cycles=1000, delta_t=10.0, tau_on=1.0,
-        )],
+        phases=[
+            MissionPhase(
+                name="Continuous",
+                duration_frac=1.0,
+                t_ambient=40.0,
+                n_cycles=1000,
+                delta_t=10.0,
+                tau_on=1.0,
+            )
+        ],
         mission_years=20.0,
     ),
 }
@@ -261,11 +289,12 @@ MISSION_TEMPLATES = {
 # Phase-aware calculation helpers
 # =========================================================================
 
+
 def compute_phased_die_factor(
-    phases: List[MissionPhase],
+    phases: list[MissionPhase],
     ea: float,
     t_ref: float,
-    t_junction_override: Optional[float] = None,
+    t_junction_override: float | None = None,
 ) -> float:
     """Compute the phased die acceleration factor.
 
@@ -298,7 +327,7 @@ def compute_phased_die_factor(
     return weighted_sum
 
 
-def compute_phased_pkg_factor(phases: List[MissionPhase]) -> float:
+def compute_phased_pkg_factor(phases: list[MissionPhase]) -> float:
     """Compute the phased package stress factor.
 
     Returns: SUM_i(pi_n_i * delta_t_i^0.68 * frac_i)
@@ -317,7 +346,7 @@ def compute_phased_pkg_factor(phases: List[MissionPhase]) -> float:
     return weighted_sum
 
 
-def compute_phased_tau_weighted(phases: List[MissionPhase]) -> float:
+def compute_phased_tau_weighted(phases: list[MissionPhase]) -> float:
     """Compute the effective weighted tau_on across phases.
 
     Returns: SUM_i(tau_on_i * frac_i)
@@ -326,9 +355,9 @@ def compute_phased_tau_weighted(phases: List[MissionPhase]) -> float:
 
 
 def override_params_for_phase(
-    base_params: Dict[str, Any],
+    base_params: dict[str, Any],
     phase: MissionPhase,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Create a parameter dict with phase-specific environmental values.
 
     Used for per-phase recalculation in sensitivity/what-if analysis.
@@ -346,9 +375,9 @@ def override_params_for_phase(
 
 def compute_phased_lambda(
     component_type: str,
-    base_params: Dict[str, Any],
-    phases: List[MissionPhase],
-) -> Dict[str, Any]:
+    base_params: dict[str, Any],
+    phases: list[MissionPhase],
+) -> dict[str, Any]:
     """Compute failure rate for a component across multiple mission phases.
 
     This is the primary entry point for phased calculations. For each phase,
@@ -381,26 +410,28 @@ def compute_phased_lambda(
         try:
             result = calculate_component_lambda(component_type, params)
             phase_lambda = result.get("lambda_total", 0.0)
-        except Exception:
+        except Exception:  # noqa: BLE001
             phase_lambda = 0.0
             result = {"lambda_total": 0.0, "fit_total": 0.0}
 
         weighted_lambda = phase_lambda * phase.duration_frac
         total_lambda += weighted_lambda
 
-        phase_results.append({
-            "phase_name": phase.name,
-            "duration_frac": phase.duration_frac,
-            "lambda_phase": phase_lambda,
-            "lambda_weighted": weighted_lambda,
-            "fit_phase": phase_lambda * 1e9,
-            "fit_weighted": weighted_lambda * 1e9,
-            "details": result,
-        })
+        phase_results.append(
+            {
+                "phase_name": phase.name,
+                "duration_frac": phase.duration_frac,
+                "lambda_phase": phase_lambda,
+                "lambda_weighted": weighted_lambda,
+                "fit_phase": phase_lambda * FIT_PER_LAMBDA,
+                "fit_weighted": weighted_lambda * FIT_PER_LAMBDA,
+                "details": result,
+            }
+        )
 
     return {
         "lambda_total": total_lambda,
-        "fit_total": total_lambda * 1e9,
+        "fit_total": total_lambda * FIT_PER_LAMBDA,
         "phase_breakdown": phase_results,
         "n_phases": len(phases),
     }
@@ -408,9 +439,9 @@ def compute_phased_lambda(
 
 def estimate_phasing_impact(
     component_type: str,
-    base_params: Dict[str, Any],
-    phases: List[MissionPhase],
-) -> Dict[str, Any]:
+    base_params: dict[str, Any],
+    phases: list[MissionPhase],
+) -> dict[str, Any]:
     """Compare phased vs. averaged single-phase calculation.
 
     Quantifies how much the multi-phase model differs from the simplified
@@ -425,10 +456,9 @@ def estimate_phasing_impact(
     avg_t_junc = None
     t_junc_vals = [p.t_junction for p in phases if p.t_junction is not None]
     if t_junc_vals:
-        avg_t_junc = sum(
-            p.t_junction * p.duration_frac
-            for p in phases if p.t_junction is not None
-        ) / sum(p.duration_frac for p in phases if p.t_junction is not None)
+        avg_t_junc = sum(p.t_junction * p.duration_frac for p in phases if p.t_junction is not None) / sum(
+            p.duration_frac for p in phases if p.t_junction is not None
+        )
     avg_cycles = sum(p.n_cycles * p.duration_frac for p in phases)
     avg_dt = sum(p.delta_t * p.duration_frac for p in phases)
     avg_tau = sum(p.tau_on * p.duration_frac for p in phases)
@@ -450,9 +480,9 @@ def estimate_phasing_impact(
 
     return {
         "phased_lambda": phased_lambda,
-        "phased_fit": phased_lambda * 1e9,
+        "phased_fit": phased_lambda * FIT_PER_LAMBDA,
         "averaged_lambda": avg_lambda,
-        "averaged_fit": avg_lambda * 1e9,
+        "averaged_fit": avg_lambda * FIT_PER_LAMBDA,
         "ratio": ratio,
         "delta_percent": delta_pct,
         "conclusion": (

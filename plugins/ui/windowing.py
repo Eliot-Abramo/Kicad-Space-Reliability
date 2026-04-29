@@ -3,13 +3,17 @@ Window placement helpers for wx dialogs.
 Author:  Eliot Abramo
 """
 
+from __future__ import annotations
+
+import contextlib
+
 import wx
 
 
 def _shown_on_screen(window) -> bool:
     try:
         return bool(window and window.IsShownOnScreen())
-    except Exception:
+    except Exception:  # noqa: BLE001
         return False
 
 
@@ -23,7 +27,7 @@ def get_display_client_area(window=None, parent=None):
                 display_index = wx.Display.GetFromWindow(candidate)
                 if display_index != wx.NOT_FOUND:
                     break
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
 
     if display_index == wx.NOT_FOUND and _shown_on_screen(parent):
@@ -31,7 +35,7 @@ def get_display_client_area(window=None, parent=None):
             rect = parent.GetScreenRect()
             center = wx.Point(rect.x + rect.width // 2, rect.y + rect.height // 2)
             display_index = wx.Display.GetFromPoint(center)
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
 
     if display_index == wx.NOT_FOUND:
@@ -39,7 +43,7 @@ def get_display_client_area(window=None, parent=None):
 
     try:
         return wx.Display(display_index).GetClientArea()
-    except Exception:
+    except Exception:  # noqa: BLE001
         return wx.Display(0).GetClientArea()
 
 
@@ -48,10 +52,8 @@ def center_dialog(window, parent=None):
     if not window:
         return
 
-    try:
+    with contextlib.suppress(Exception):
         window.Layout()
-    except Exception:
-        pass
 
     parent = parent or window.GetParent()
     display_rect = get_display_client_area(window, parent)
@@ -62,7 +64,7 @@ def center_dialog(window, parent=None):
             parent_rect = parent.GetScreenRect()
             x = parent_rect.x + max(0, (parent_rect.width - width) // 2)
             y = parent_rect.y + max(0, (parent_rect.height - height) // 2)
-        except Exception:
+        except Exception:  # noqa: BLE001
             x = display_rect.x + max(0, (display_rect.width - width) // 2)
             y = display_rect.y + max(0, (display_rect.height - height) // 2)
     else:
@@ -76,11 +78,11 @@ def center_dialog(window, parent=None):
 
     try:
         window.SetPosition((x, y))
-    except Exception:
+    except Exception:  # noqa: BLE001
         try:
             if _shown_on_screen(parent):
                 window.CentreOnParent()
             else:
                 window.CentreOnScreen()
-        except Exception:
+        except Exception:  # noqa: BLE001
             window.Centre()

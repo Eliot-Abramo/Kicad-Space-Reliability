@@ -4,13 +4,13 @@ Author:  Eliot Abramo
 """
 
 from .book import SegmentedBook
-from .panels import Colors, SheetPanel, SettingsPanel, ComponentPanel, MissionPhaseDialog
+from .panels import Colors, ComponentPanel, MissionPhaseDialog, SettingsPanel, SheetPanel
 
 __all__ = [
-    "SegmentedBook",
     "Colors",
-    "SheetPanel",
-    "SettingsPanel",
     "ComponentPanel",
     "MissionPhaseDialog",
+    "SegmentedBook",
+    "SettingsPanel",
+    "SheetPanel",
 ]

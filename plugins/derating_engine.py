@@ -20,14 +20,21 @@ Inverse calculations supported:
 Author:  Eliot Abramo
 """
 
-import math
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Any
+
+try:
+    from .reliability_math import FIT_PER_LAMBDA, LAMBDA_PER_FIT
+except ImportError:
+    from reliability_math import FIT_PER_LAMBDA, LAMBDA_PER_FIT
 
 
 @dataclass
 class DeratingRecommendation:
     """A single derating recommendation for a component parameter."""
+
     reference: str
     component_type: str
     parameter: str
@@ -40,11 +47,11 @@ class DeratingRecommendation:
     expected_fit: float
     system_fit_reduction: float
     system_fit_reduction_pct: float
-    feasibility: str          # "easy", "moderate", "difficult", "infeasible"
-    actions: List[str]        # Concrete engineering actions
-    priority: int             # 1 = highest
+    feasibility: str  # "easy", "moderate", "difficult", "infeasible"
+    actions: list[str]  # Concrete engineering actions
+    priority: int  # 1 = highest
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "reference": self.reference,
             "component_type": self.component_type,
@@ -67,13 +74,14 @@ class DeratingRecommendation:
 @dataclass
 class DeratingResult:
     """Complete derating guidance for a design."""
+
     system_actual_fit: float
     system_target_fit: float
     system_gap_fit: float
-    recommendations: List[DeratingRecommendation] = field(default_factory=list)
+    recommendations: list[DeratingRecommendation] = field(default_factory=list)
     summary: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "system_actual_fit": self.system_actual_fit,
             "system_target_fit": self.system_target_fit,
@@ -94,16 +102,17 @@ def _safe_float(val, default=0.0):
 # Inverse calculation: find required parameter value for target FIT
 # =========================================================================
 
+
 def _find_required_value(
     component_type: str,
-    base_params: Dict,
+    base_params: dict,
     parameter: str,
     target_lambda: float,
     current_value: float,
     search_direction: str = "decrease",
     max_iterations: int = 50,
     tolerance: float = 0.01,
-) -> Optional[float]:
+) -> float | None:
     """Binary search for the parameter value that achieves target_lambda.
 
     Args:
@@ -137,8 +146,8 @@ def _find_required_value(
         try:
             result = calculate_component_lambda(component_type, p)
             return result.get("lambda_total", 0.0)
-        except Exception:
-            return float('inf')
+        except Exception:  # noqa: BLE001
+            return float("inf")
 
     # Verify that the target is achievable within bounds
     lam_lo = eval_lambda(lo)
@@ -175,8 +184,7 @@ def _find_required_value(
     return (lo + hi) / 2.0
 
 
-def _get_parameter_bounds(parameter: str, current_value: float,
-                          search_direction: str) -> Optional[Tuple[float, float]]:
+def _get_parameter_bounds(parameter: str, current_value: float, search_direction: str) -> tuple[float, float] | None:  # noqa: ARG001
     """Get physically meaningful search bounds for a parameter."""
 
     param_bounds = {
@@ -206,8 +214,7 @@ def _get_parameter_bounds(parameter: str, current_value: float,
     return bounds
 
 
-def _get_parameter_actions(parameter: str, current: float,
-                           required: float, component_type: str) -> List[str]:
+def _get_parameter_actions(parameter: str, current: float, required: float, component_type: str) -> list[str]:  # noqa: ARG001
     """Generate concrete engineering actions for a parameter change."""
 
     change_pct = abs(current - required) / max(abs(current), 1e-12) * 100
@@ -248,8 +255,7 @@ def _get_parameter_actions(parameter: str, current: float,
             f"Reduce applied voltage from {current:.1f}V to {required:.1f}V",
             "Select higher voltage-rated component",
             "Add voltage regulation / clamping",
-            "Derate voltage to {:.0f}% of rated".format(
-                required / max(current, 1e-6) * 100),
+            f"Derate voltage to {required / max(current, 1e-6) * 100:.0f}% of rated",
         ],
         "voltage_stress_vds": [
             f"Reduce V_DS stress ratio from {current:.2f} to {required:.2f}",
@@ -273,40 +279,43 @@ def _get_parameter_actions(parameter: str, current: float,
         ],
     }
 
-    result = actions.get(parameter, [
-        f"Reduce {parameter} from {current} to {required}",
-    ])
+    result = actions.get(
+        parameter,
+        [
+            f"Reduce {parameter} from {current} to {required}",
+        ],
+    )
 
     # Only return relevant subset based on change magnitude
     if change_pct < 10:
         return result[:2]
-    elif change_pct < 30:
+    if change_pct < 30:
         return result[:3]
     return result[:4]
 
 
-def _assess_feasibility(parameter: str, change_percent: float) -> str:
+def _assess_feasibility(parameter: str, change_percent: float) -> str:  # noqa: ARG001
     """Assess how feasible a derating recommendation is."""
     if change_percent < 5:
         return "easy"
-    elif change_percent < 15:
+    if change_percent < 15:
         return "moderate"
-    elif change_percent < 30:
+    if change_percent < 30:
         return "difficult"
-    else:
-        return "infeasible"
+    return "infeasible"
 
 
 # =========================================================================
 # Main derating analysis
 # =========================================================================
 
-def compute_derating_guidance(
-    sheet_data: Dict[str, Dict],
+
+def compute_derating_guidance(  # noqa: C901
+    sheet_data: dict[str, dict],
     mission_hours: float,
     target_fit: float,
-    criticality_results: Optional[List[Dict]] = None,
-    active_sheets: Optional[List[str]] = None,
+    criticality_results: list[dict] | None = None,  # noqa: ARG001
+    active_sheets: list[str] | None = None,
     top_n: int = 10,
 ) -> DeratingResult:
     """
@@ -328,26 +337,23 @@ def compute_derating_guidance(
     """
     try:
         from .reliability_math import (
-            calculate_component_lambda, reliability_from_lambda,
             analyze_component_criticality,
+            calculate_component_lambda,
         )
     except ImportError:
         from reliability_math import (
-            calculate_component_lambda, reliability_from_lambda,
             analyze_component_criticality,
+            calculate_component_lambda,
         )
 
     # Gather all components
-    if active_sheets:
-        filtered = {k: v for k, v in sheet_data.items() if k in active_sheets}
-    else:
-        filtered = dict(sheet_data)
+    filtered = {k: v for k, v in sheet_data.items() if k in active_sheets} if active_sheets else dict(sheet_data)
 
-    system_actual_fit = sum(_safe_float(d.get("lambda", 0)) for d in filtered.values()) * 1e9
+    system_actual_fit = sum(_safe_float(d.get("lambda", 0)) for d in filtered.values()) * FIT_PER_LAMBDA
     system_gap = system_actual_fit - target_fit
 
     all_comps = []
-    for path, data in filtered.items():
+    for data in filtered.values():
         for comp in data.get("components", []):
             if comp.get("override_lambda") is not None:
                 continue  # Skip fixed-lambda components
@@ -364,7 +370,7 @@ def compute_derating_guidance(
         comp_type = comp.get("class", "Unknown")
         params = comp.get("params", {})
         comp_lambda = _safe_float(comp.get("lambda", 0))
-        comp_fit = comp_lambda * 1e9
+        comp_fit = comp_lambda * FIT_PER_LAMBDA
 
         if comp_lambda <= 0 or not params:
             continue
@@ -372,7 +378,7 @@ def compute_derating_guidance(
         # Run criticality to find most sensitive parameters
         try:
             crit = analyze_component_criticality(comp_type, params, mission_hours)
-        except Exception:
+        except Exception:  # noqa: BLE001
             continue
 
         if not crit:
@@ -383,7 +389,7 @@ def compute_derating_guidance(
             field_name = crit_entry.get("field", "")
             current_val = crit_entry.get("nominal_value", 0)
             elasticity = crit_entry.get("sensitivity", 0)
-            impact_pct = crit_entry.get("impact_percent", 0)
+            crit_entry.get("impact_percent", 0)
 
             if abs(elasticity) < 0.01 or current_val == 0:
                 continue
@@ -398,12 +404,11 @@ def compute_derating_guidance(
                 # System is within budget; still show optimization opportunities
                 comp_target_fit = comp_fit * 0.8  # 20% improvement target
 
-            comp_target_lambda = comp_target_fit * 1e-9
+            comp_target_lambda = comp_target_fit * LAMBDA_PER_FIT
 
             # Find required parameter value
             required = _find_required_value(
-                comp_type, params, field_name, comp_target_lambda,
-                current_val, search_direction="decrease"
+                comp_type, params, field_name, comp_target_lambda, current_val, search_direction="decrease"
             )
 
             if required is None:
@@ -420,8 +425,8 @@ def compute_derating_guidance(
             params_after[field_name] = required
             try:
                 result_after = calculate_component_lambda(comp_type, params_after)
-                expected_fit = result_after.get("lambda_total", 0) * 1e9
-            except Exception:
+                expected_fit = result_after.get("lambda_total", 0) * FIT_PER_LAMBDA
+            except Exception:  # noqa: BLE001
                 expected_fit = comp_fit
 
             sys_reduction = comp_fit - expected_fit
@@ -430,23 +435,25 @@ def compute_derating_guidance(
             feasibility = _assess_feasibility(field_name, change_pct)
             actions = _get_parameter_actions(field_name, current_val, required, comp_type)
 
-            recommendations.append(DeratingRecommendation(
-                reference=ref,
-                component_type=comp_type,
-                parameter=field_name,
-                current_value=current_val,
-                required_value=required,
-                change_absolute=change_abs,
-                change_percent=change_pct,
-                current_fit=comp_fit,
-                target_fit=comp_target_fit,
-                expected_fit=expected_fit,
-                system_fit_reduction=sys_reduction,
-                system_fit_reduction_pct=sys_reduction_pct,
-                feasibility=feasibility,
-                actions=actions,
-                priority=priority,
-            ))
+            recommendations.append(
+                DeratingRecommendation(
+                    reference=ref,
+                    component_type=comp_type,
+                    parameter=field_name,
+                    current_value=current_val,
+                    required_value=required,
+                    change_absolute=change_abs,
+                    change_percent=change_pct,
+                    current_fit=comp_fit,
+                    target_fit=comp_target_fit,
+                    expected_fit=expected_fit,
+                    system_fit_reduction=sys_reduction,
+                    system_fit_reduction_pct=sys_reduction_pct,
+                    feasibility=feasibility,
+                    actions=actions,
+                    priority=priority,
+                )
+            )
 
         priority += 1
 
@@ -462,14 +469,15 @@ def compute_derating_guidance(
     summary_lines = [
         f"Derating analysis identified {len(recommendations)} improvement opportunities.",
         f"Total potential system FIT reduction: {total_potential:.1f} FIT "
-        f"({total_potential/system_actual_fit*100:.1f}% of current)." if system_actual_fit > 0 else "",
+        f"({total_potential / system_actual_fit * 100:.1f}% of current)."
+        if system_actual_fit > 0
+        else "",
     ]
 
     if system_gap > 0:
         if total_potential >= system_gap:
             summary_lines.append(
-                f"Implementing all recommendations would close the "
-                f"{system_gap:.1f} FIT gap to target."
+                f"Implementing all recommendations would close the {system_gap:.1f} FIT gap to target."
             )
         else:
             summary_lines.append(

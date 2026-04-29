@@ -1,22 +1,13 @@
 import math
-import pathlib
-import sys
 import unittest
 from unittest import mock
 
-import numpy as np
-
-
-REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
-PLUGIN_ROOT = REPO_ROOT / "plugins"
-if str(PLUGIN_ROOT) not in sys.path:
-    sys.path.insert(0, str(PLUGIN_ROOT))
-
-import monte_carlo
-import reliability_math
-import sensitivity_analysis
 import budget_allocation
 import classification
+import monte_carlo
+import numpy as np
+import reliability_math
+import sensitivity_analysis
 
 
 def _exp_reliability(lam, hours):
@@ -149,17 +140,12 @@ class AnalysisCoreTests(unittest.TestCase):
             ),
         ]
 
-        shared_series = np.array(
-            [0.0, 1.0, -2.0, 0.5, -1.5, 2.0, -0.5, 1.5, -1.0, 0.25]
-        )
+        shared_series = np.array([0.0, 1.0, -2.0, 0.5, -1.5, 2.0, -0.5, 1.5, -1.0, 0.25])
         drive_a = np.array([1.1, 0.9, 1.2, 1.0, 0.95, 1.05, 1.15, 0.85, 1.0, 1.1])
         drive_b = np.array([9.0, 10.5, 11.0, 9.5, 10.0, 10.8, 9.2, 10.1, 9.8, 10.3])
 
         def fake_calc(_ctype, params):
-            return {
-                "lambda_total": (float(params["shared_temp"]) + float(params["drive"]))
-                * 1e-6
-            }
+            return {"lambda_total": (float(params["shared_temp"]) + float(params["drive"])) * 1e-6}
 
         def fake_sample(_rng, min_val, mode, max_val, distribution, size):
             self.assertEqual(size, 10)
@@ -169,26 +155,25 @@ class AnalysisCoreTests(unittest.TestCase):
                 return drive_a.copy()
             if mode == 10.0:
                 return drive_b.copy()
-            raise AssertionError(
-                f"Unexpected sample request: {min_val}, {mode}, {max_val}, {distribution}"
-            )
+            msg = f"Unexpected sample request: {min_val}, {mode}, {max_val}, {distribution}"
+            raise AssertionError(msg)
 
-        with mock.patch.object(
-            monte_carlo,
-            "_import_reliability_math",
-            return_value=(fake_calc, _exp_reliability),
+        with (
+            mock.patch.object(
+                monte_carlo,
+                "_import_reliability_math",
+                return_value=(fake_calc, _exp_reliability),
+            ),
+            mock.patch.object(monte_carlo, "_sample_parameter", side_effect=fake_sample),
         ):
-            with mock.patch.object(
-                monte_carlo, "_sample_parameter", side_effect=fake_sample
-            ):
-                result = monte_carlo.run_uncertainty_analysis(
-                    components,
-                    specs,
-                    mission_hours=10.0,
-                    n_simulations=10,
-                    confidence_level=0.90,
-                    seed=1,
-                )
+            result = monte_carlo.run_uncertainty_analysis(
+                components,
+                specs,
+                mission_hours=10.0,
+                n_simulations=10,
+                confidence_level=0.90,
+                seed=1,
+            )
 
         expected = (
             np.array(
@@ -230,33 +215,31 @@ class AnalysisCoreTests(unittest.TestCase):
                 shared=True,
             )
         ]
-        shared_series = np.array(
-            [0.0, 1.0, -2.0, 0.5, -1.5, 2.0, -0.5, 1.5, -1.0, 0.25]
-        )
+        shared_series = np.array([0.0, 1.0, -2.0, 0.5, -1.5, 2.0, -0.5, 1.5, -1.0, 0.25])
 
         def fake_calc(_ctype, params):
             return {"lambda_total": float(params["shared_temp"]) * 1e-6}
 
-        def fake_sample(_rng, min_val, mode, max_val, distribution, size):
+        def fake_sample(_rng, min_val, mode, max_val, distribution, size):  # noqa: ARG001
             self.assertEqual(size, 10)
             return shared_series.copy()
 
-        with mock.patch.object(
-            monte_carlo,
-            "_import_reliability_math",
-            return_value=(fake_calc, _exp_reliability),
+        with (
+            mock.patch.object(
+                monte_carlo,
+                "_import_reliability_math",
+                return_value=(fake_calc, _exp_reliability),
+            ),
+            mock.patch.object(monte_carlo, "_sample_parameter", side_effect=fake_sample),
         ):
-            with mock.patch.object(
-                monte_carlo, "_sample_parameter", side_effect=fake_sample
-            ):
-                result = monte_carlo.run_uncertainty_analysis(
-                    components,
-                    specs,
-                    mission_hours=10.0,
-                    n_simulations=10,
-                    confidence_level=0.90,
-                    seed=1,
-                )
+            result = monte_carlo.run_uncertainty_analysis(
+                components,
+                specs,
+                mission_hours=10.0,
+                n_simulations=10,
+                confidence_level=0.90,
+                seed=1,
+            )
 
         mean_lambda = float(np.mean(result.lambda_samples))
         self.assertGreaterEqual(
@@ -281,10 +264,7 @@ class AnalysisCoreTests(unittest.TestCase):
         }
 
         def fake_calc(_ctype, params):
-            return {
-                "lambda_total": (float(params["shared_temp"]) + float(params["drive"]))
-                * 1e-6
-            }
+            return {"lambda_total": (float(params["shared_temp"]) + float(params["drive"])) * 1e-6}
 
         with mock.patch.object(
             monte_carlo,
@@ -307,26 +287,26 @@ class AnalysisCoreTests(unittest.TestCase):
 
         drive_series = np.array([5.0, 5.2, 4.9, 5.1, 4.8, 5.0, 5.3, 4.7, 5.1, 4.95])
 
-        def fake_sample(_rng, min_val, mode, max_val, distribution, size):
+        def fake_sample(_rng, min_val, mode, max_val, distribution, size):  # noqa: ARG001
             self.assertEqual(size, 10)
             return drive_series.copy()
 
-        with mock.patch.object(
-            monte_carlo,
-            "_import_reliability_math",
-            return_value=(fake_calc, _exp_reliability),
+        with (
+            mock.patch.object(
+                monte_carlo,
+                "_import_reliability_math",
+                return_value=(fake_calc, _exp_reliability),
+            ),
+            mock.patch.object(monte_carlo, "_sample_parameter", side_effect=fake_sample),
         ):
-            with mock.patch.object(
-                monte_carlo, "_sample_parameter", side_effect=fake_sample
-            ):
-                result = monte_carlo.run_uncertainty_analysis(
-                    inputs,
-                    specs,
-                    mission_hours=5.0,
-                    n_simulations=10,
-                    confidence_level=0.90,
-                    seed=2,
-                )
+            result = monte_carlo.run_uncertainty_analysis(
+                inputs,
+                specs,
+                mission_hours=5.0,
+                n_simulations=10,
+                confidence_level=0.90,
+                seed=2,
+            )
 
         self.assertEqual(result.n_simulations, 10)
         self.assertEqual(len(result.reliability_samples), 10)

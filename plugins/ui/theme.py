@@ -5,12 +5,12 @@ Author:  Eliot Abramo
 
 from __future__ import annotations
 
+import contextlib
 import os
 import sys
 from dataclasses import dataclass
 
 import wx
-
 
 IS_WINDOWS = sys.platform.startswith("win")
 WINDOWS_FONT_POINT_DELTA = -2
@@ -46,7 +46,7 @@ def _safe_sys_colour(which: int, fallback: wx.Colour) -> wx.Colour:
         colour = wx.SystemSettings.GetColour(which)
         if colour.IsOk():
             return colour
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass
     return fallback
 
@@ -55,7 +55,7 @@ def _system_prefers_dark() -> bool:
     try:
         appearance = wx.SystemSettings.GetAppearance()
         return bool(appearance and appearance.IsDark())
-    except Exception:
+    except Exception:  # noqa: BLE001
         return False
 
 
@@ -86,18 +86,12 @@ def platform_point_size(size: int, minimum: int = 8) -> int:
 def _base_font_for(window: wx.Window | None = None) -> wx.Font:
     candidates = []
     if window is not None:
-        try:
+        with contextlib.suppress(Exception):
             candidates.append(window.GetFont())
-        except Exception:
-            pass
-    try:
+    with contextlib.suppress(Exception):
         candidates.append(wx.SystemSettings.GetFont(wx.SYS_DEFAULT_GUI_FONT))
-    except Exception:
-        pass
-    try:
+    with contextlib.suppress(Exception):
         candidates.append(wx.SystemSettings.GetFont(wx.SYS_SYSTEM_FONT))
-    except Exception:
-        pass
     for font in candidates:
         if font and font.IsOk():
             return wx.Font(font)
@@ -168,13 +162,13 @@ def apply_compact_fonts(window: wx.Window | None, delta: int | None = None, mini
                 sized = wx.Font(font)
                 sized.SetPointSize(max(minimum, font.GetPointSize() + delta))
                 node.SetFont(sized)
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
 
         try:
             for child in node.GetChildren():
                 _shrink(child)
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
 
     _shrink(window)
@@ -185,7 +179,7 @@ def dip_px(window: wx.Window, value: int) -> int:
         return value
     try:
         return int(window.FromDIP(value))
-    except Exception:
+    except Exception:  # noqa: BLE001
         return value
 
 
@@ -197,9 +191,9 @@ def screen_dip(value: int) -> int:
         return value
     try:
         dc = wx.ScreenDC()
-        scale = dc.GetPPI()[0] /150.0
+        scale = dc.GetPPI()[0] / 150.0
         return int(value * scale)
-    except Exception:
+    except Exception:  # noqa: BLE001
         return value
 
 
@@ -230,19 +224,13 @@ def _is_native_light_surface(colour: wx.Colour) -> bool:
 
 def _set_surface(window: wx.Window, background: wx.Colour | None = None, foreground: wx.Colour | None = None) -> None:
     if foreground is not None:
-        try:
+        with contextlib.suppress(Exception):
             window.SetForegroundColour(foreground)
-        except Exception:
-            pass
     if background is not None:
-        try:
+        with contextlib.suppress(Exception):
             window.SetBackgroundColour(background)
-        except Exception:
-            pass
-        try:
+        with contextlib.suppress(Exception):
             window.SetOwnBackgroundColour(background)
-        except Exception:
-            pass
 
 
 @dataclass(frozen=True)
@@ -270,9 +258,9 @@ class Palette:
 
 def build_palette() -> Palette:
     sys_window = _safe_sys_colour(wx.SYS_COLOUR_WINDOW, wx.Colour(255, 255, 255))
-    sys_face = _safe_sys_colour(wx.SYS_COLOUR_3DFACE, wx.Colour(245, 246, 247))
+    _safe_sys_colour(wx.SYS_COLOUR_3DFACE, wx.Colour(245, 246, 247))
     sys_text = _safe_sys_colour(wx.SYS_COLOUR_WINDOWTEXT, wx.Colour(32, 33, 36))
-    sys_button = _safe_sys_colour(wx.SYS_COLOUR_BTNFACE, wx.Colour(240, 240, 240))
+    _safe_sys_colour(wx.SYS_COLOUR_BTNFACE, wx.Colour(240, 240, 240))
     theme_mode = _theme_mode()
     prefers_dark = True if theme_mode == "dark" else _system_prefers_dark()
     if theme_mode == "light":
@@ -359,6 +347,7 @@ def style_text_like(ctrl: wx.Window, read_only: bool = False) -> None:
 def style_list_ctrl(ctrl: wx.ListCtrl) -> None:
     _set_surface(ctrl, PALETTE.card_bg, PALETTE.text)
 
+
 def _is_on_dark_header(node: wx.Window) -> bool:
     """Skip recoloring text that was explicitly set on a dark header."""
     try:
@@ -367,11 +356,12 @@ def _is_on_dark_header(node: wx.Window) -> bool:
             bg = parent.GetBackgroundColour()
             if bg.IsOk() and _luminance(bg) < 0.15:
                 return True
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass
     return False
 
-def apply_theme_recursively(
+
+def apply_theme_recursively(  # noqa: C901
     window: wx.Window | None,
     *,
     background: wx.Colour | None = None,
@@ -380,7 +370,7 @@ def apply_theme_recursively(
     if not window:
         return
 
-    def _style(node: wx.Window, inherited_bg: wx.Colour | None, force_bg: bool) -> None:
+    def _style(node: wx.Window, inherited_bg: wx.Colour | None, force_bg: bool) -> None:  # noqa: C901
         next_bg = inherited_bg or PALETTE.panel_bg
 
         if isinstance(node, wx.Dialog):
@@ -393,14 +383,10 @@ def apply_theme_recursively(
         elif isinstance(node, wx.SplitterWindow):
             splitter_bg = PALETTE.border if PALETTE.is_dark else PALETTE.grid
             _set_surface(node, splitter_bg, PALETTE.text)
-            try:
+            with contextlib.suppress(Exception):
                 node.SetBorderSize(0)
-            except Exception:
-                pass
-            try:
+            with contextlib.suppress(Exception):
                 node.SetSashSize(dip_px(node, 6))
-            except Exception:
-                pass
         elif isinstance(node, (wx.Panel, wx.ScrolledWindow)):
             if force_bg or _is_native_light_surface(node.GetBackgroundColour()):
                 _set_surface(node, next_bg, PALETTE.text)
@@ -411,10 +397,7 @@ def apply_theme_recursively(
         elif isinstance(node, wx.ListCtrl):
             style_list_ctrl(node)
             next_bg = PALETTE.card_bg
-        elif isinstance(node, wx.ListBox):
-            _set_surface(node, PALETTE.card_bg, PALETTE.text)
-            next_bg = PALETTE.card_bg
-        elif isinstance(node, (wx.ComboBox, wx.Choice, wx.SpinCtrl, wx.SpinCtrlDouble)):
+        elif isinstance(node, (wx.ListBox, wx.ComboBox, wx.Choice, wx.SpinCtrl, wx.SpinCtrlDouble)):
             _set_surface(node, PALETTE.card_bg, PALETTE.text)
             next_bg = PALETTE.card_bg
         elif isinstance(node, wx.StaticBox):
@@ -424,7 +407,7 @@ def apply_theme_recursively(
                 _set_surface(node, foreground=PALETTE.text)
         try:
             children = list(node.GetChildren())
-        except Exception:
+        except Exception:  # noqa: BLE001
             children = []
 
         for child in children:

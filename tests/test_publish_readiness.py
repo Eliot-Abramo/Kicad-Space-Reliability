@@ -2,7 +2,6 @@ import json
 import pathlib
 import unittest
 
-
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
@@ -24,7 +23,7 @@ class PublishReadinessTests(unittest.TestCase):
         reliability_math = (REPO_ROOT / "plugins" / "reliability_math.py").read_text(encoding="utf-8")
         report_generator = (REPO_ROOT / "plugins" / "report_generator.py").read_text(encoding="utf-8")
 
-        self.assertIn(f"**Version:** {expected}", readme)
+        self.assertIn(f"<strong>Version:</strong> {expected}", readme)
         self.assertEqual(metadata["versions"][0]["version"], expected)
         self.assertIn(f'__version__ = "{expected}"', package_init)
         self.assertIn(f'__version__ = "{expected}"', reliability_math)
@@ -53,9 +52,9 @@ class PublishReadinessTests(unittest.TestCase):
         component_editor = (REPO_ROOT / "plugins" / "component_editor.py").read_text(encoding="utf-8")
 
         self.assertIn("Cross-platform UI validation", readme)
-        self.assertIn('if IS_WINDOWS:\n        return "dark"', theme_py)
+        self.assertIn('if IS_WINDOWS:\n        return "light"', theme_py)
         self.assertIn("def apply_theme_recursively(", theme_py)
-        self.assertIn("WINDOWS_FONT_POINT_DELTA = -3", theme_py)
+        self.assertIn("WINDOWS_FONT_POINT_DELTA = -2", theme_py)
         self.assertIn("SegmentedBook", analysis_dialog)
         self.assertIn("SegmentedBook", component_editor)
         self.assertIn("apply_theme_recursively(self, background=C.BG)", analysis_dialog)

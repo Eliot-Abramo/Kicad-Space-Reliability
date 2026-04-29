@@ -5,58 +5,79 @@ Primary UI integrating all IEC TR 62380 features with block diagram editor.
 Author:  Eliot Abramo
 """
 
+from __future__ import annotations
+
 import json
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 import wx
 
 try:
     import pcbnew
+
     _HAS_PCBNEW = True
 except ImportError:
     _HAS_PCBNEW = False
 
-from .block_editor import BlockEditor, Block
-from .reliability_math import (
-    calculate_component_lambda,
-    reliability_from_lambda,
-    lambda_from_reliability,
-    r_series,
-    r_parallel,
-    r_k_of_n,
-    calculate_lambda,
-    get_field_definitions,
-)
+from .block_editor import BlockEditor
 from .component_editor import (
-    ComponentEditorDialog,
     BatchComponentEditorDialog,
     ComponentData,
-    classify_component_info,
+    ComponentEditorDialog,
     classification_to_fields,
+    classify_component_info,
 )
-from .schematic_parser import SchematicParser, Component, Sheet, create_test_data
-from .project_manager import ProjectManager
-from .report_generator import ReportGenerator, ReportData
 from .mission_profile import MissionProfile
+from .project_manager import ProjectManager
+from .reliability_math import (
+    FIT_PER_LAMBDA,
+    LAMBDA_PER_FIT,
+    calculate_component_lambda,
+    get_field_definitions,
+    lambda_from_reliability,
+    r_k_of_n,
+    r_parallel,
+    r_series,
+    reliability_from_lambda,
+)
+from .report_generator import ReportData, ReportGenerator
+from .schematic_parser import Component, SchematicParser, Sheet, create_test_data
 
 try:
-    from .ui.panels import Colors, SheetPanel, SettingsPanel, ComponentPanel
-    from .ui.theme import IS_WINDOWS, apply_compact_fonts, apply_theme_recursively, dip_px, dip_size, style_panel, style_text_like, ui_font
+    from .ui.panels import Colors, ComponentPanel, SettingsPanel, SheetPanel
+    from .ui.theme import (
+        IS_WINDOWS,
+        apply_compact_fonts,
+        apply_theme_recursively,
+        dip_px,
+        dip_size,
+        style_panel,
+        style_text_like,
+        ui_font,
+    )
     from .ui.windowing import center_dialog, get_display_client_area
 except ImportError:
     from import_compat import ensure_plugin_paths
 
     ensure_plugin_paths()
-    from panels import Colors, SheetPanel, SettingsPanel, ComponentPanel
-    from theme import IS_WINDOWS, apply_compact_fonts, apply_theme_recursively, dip_px, dip_size, style_panel, style_text_like, ui_font
+    from panels import Colors, ComponentPanel, SettingsPanel, SheetPanel
+    from theme import (
+        IS_WINDOWS,
+        apply_compact_fonts,
+        apply_theme_recursively,
+        dip_px,
+        dip_size,
+        style_panel,
+        style_text_like,
+        ui_font,
+    )
     from windowing import center_dialog, get_display_client_area
 
 
 class ReliabilityMainDialog(wx.Dialog):
     """Main reliability calculator dialog."""
 
-    def __init__(self, parent, project_path: str = None):
+    def __init__(self, parent, project_path: str | None = None):
         rect = get_display_client_area(parent=parent)
         w = min(1600, int(rect.Width * 0.9))
         h = min(1000, int(rect.Height * 0.9))
@@ -71,10 +92,10 @@ class ReliabilityMainDialog(wx.Dialog):
         self.SetMinSize(dip_size(self, 1100, 750))
 
         self.project_path = project_path
-        self.project_manager: Optional[ProjectManager] = None
-        self.parser: Optional[SchematicParser] = None
-        self.sheet_data: Dict[str, Dict] = {}
-        self.component_edits: Dict[str, Dict[str, Dict]] = {}
+        self.project_manager: ProjectManager | None = None
+        self.parser: SchematicParser | None = None
+        self.sheet_data: dict[str, dict] = {}
+        self.component_edits: dict[str, dict[str, dict]] = {}
 
         if project_path:
             self.project_manager = ProjectManager(project_path)
@@ -88,12 +109,14 @@ class ReliabilityMainDialog(wx.Dialog):
             self._load_test_data()
 
         wx.CallAfter(center_dialog, self, parent)
+
         def _force_hdr():
             self._header.SetOwnForegroundColour(wx.Colour(255, 255, 255))
             for child in self._header.GetChildren():
                 if isinstance(child, wx.StaticText):
                     child.SetOwnForegroundColour(wx.Colour(255, 255, 255))
             self._header.Refresh()
+
         wx.CallAfter(_force_hdr)
         wx.CallLater(150, _force_hdr)
         wx.CallLater(500, _force_hdr)
@@ -163,9 +186,7 @@ class ReliabilityMainDialog(wx.Dialog):
         results_lbl = wx.StaticText(results_panel, label="System Results")
         results_lbl.SetFont(results_lbl.GetFont().Bold())
         results_sizer.Add(results_lbl, 0, wx.ALL, 10)
-        self.results = wx.TextCtrl(
-            results_panel, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.BORDER_SIMPLE
-        )
+        self.results = wx.TextCtrl(results_panel, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.BORDER_SIMPLE)
         self.results.SetFont(ui_font(self.results, role="mono", minimum=8))
         style_text_like(self.results, read_only=True)
         results_sizer.Add(self.results, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
@@ -186,7 +207,7 @@ class ReliabilityMainDialog(wx.Dialog):
         self.status.SetForegroundColour(Colors.TEXT_SECONDARY)
         footer.Add(self.status, 1, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 8)
         close_btn = wx.Button(self, label="Close", size=dip_size(self, 88, -1))
-        close_btn.Bind(wx.EVT_BUTTON, lambda e: self.EndModal(wx.ID_CANCEL))
+        close_btn.Bind(wx.EVT_BUTTON, lambda e: self.EndModal(wx.ID_CANCEL))  # noqa: ARG005
         footer.Add(close_btn, 0, wx.ALL, 8)
         root.Add(footer, 0, wx.EXPAND)
 
@@ -285,11 +306,9 @@ class ReliabilityMainDialog(wx.Dialog):
                 self._save_reliability_data()
                 self._calculate_sheets()
                 n = len(self.parser.all_components)
-                self.status.SetLabel(
-                    f"Loaded {n} component(s) from {len(sheets)} sheet(s)"
-                )
+                self.status.SetLabel(f"Loaded {n} component(s) from {len(sheets)} sheet(s)")
                 sch_loaded = True
-        except Exception as e:
+        except Exception:  # noqa: BLE001
             sch_loaded = False
 
         if not sch_loaded:
@@ -297,7 +316,7 @@ class ReliabilityMainDialog(wx.Dialog):
             board_loaded = False
             try:
                 board_loaded = self._load_from_board(path)
-            except Exception:
+            except Exception:  # noqa: BLE001
                 board_loaded = False
             if not board_loaded:
                 wx.MessageBox(
@@ -327,11 +346,16 @@ class ReliabilityMainDialog(wx.Dialog):
         self.component_edits = data.get("components") or {}
         self.editor.load_structure(data.get("structure") or {})
         settings = data.get("settings") or {}
+
         # Coerce to valid numbers (JSON null becomes None; default only applies when key missing)
         def _num(v, default):
-            if v is None: return default
-            try: return type(default)(v)
-            except (TypeError, ValueError): return default
+            if v is None:
+                return default
+            try:
+                return type(default)(v)
+            except (TypeError, ValueError):
+                return default
+
         self.settings_panel.years.SetValue(_num(settings.get("years"), 5))
         self.settings_panel.cycles.SetValue(_num(settings.get("cycles"), 5256))
         self.settings_panel.dt.SetValue(_num(settings.get("dt"), 3.0))
@@ -340,14 +364,16 @@ class ReliabilityMainDialog(wx.Dialog):
         if mp:
             self.settings_panel.set_mission_profile(MissionProfile.from_dict(mp))
         else:
-            self.settings_panel.set_mission_profile(MissionProfile.single_phase(
-                years=_num(settings.get("years"), 5),
-                n_cycles=_num(settings.get("cycles"), 5256),
-                delta_t=_num(settings.get("dt"), 3.0),
-                tau_on=_num(settings.get("tau_on"), 1.0),
-            ))
+            self.settings_panel.set_mission_profile(
+                MissionProfile.single_phase(
+                    years=_num(settings.get("years"), 5),
+                    n_cycles=_num(settings.get("cycles"), 5256),
+                    delta_t=_num(settings.get("dt"), 3.0),
+                    tau_on=_num(settings.get("tau_on"), 1.0),
+                )
+            )
 
-    def _load_from_board(self, project_path: str) -> bool:
+    def _load_from_board(self, project_path: str) -> bool:  # noqa: C901
         """Load components directly from pcbnew board (native API).
 
         Uses pcbnew.GetBoard().GetFootprints() to enumerate all footprints.
@@ -376,7 +402,7 @@ class ReliabilityMainDialog(wx.Dialog):
 
             # Build a synthetic parser-like structure so the rest of the tool works
             # Group components by sheet path (from footprint's sheet name)
-            sheet_comps: Dict[str, List[Component]] = {}
+            sheet_comps: dict[str, list[Component]] = {}
             skipped = 0
             for fp in footprints:
                 try:
@@ -392,25 +418,23 @@ class ReliabilityMainDialog(wx.Dialog):
                     try:
                         fpid = fp.GetFPID()
                         # Try multiple API names across KiCad versions
-                        for method in ("GetUniStringLibItemName", "GetLibItemName",
-                                       "Format"):
+                        for method in ("GetUniStringLibItemName", "GetLibItemName", "Format"):
                             fn = getattr(fpid, method, None)
                             if fn is not None:
                                 footprint_str = str(fn())
                                 break
-                    except Exception:
+                    except Exception:  # noqa: BLE001
                         footprint_str = ""
 
                     lib_id = ""
                     try:
                         fpid = fp.GetFPID()
-                        for method in ("GetUniStringLibId", "GetLibNickname",
-                                       "GetFullLibId"):
+                        for method in ("GetUniStringLibId", "GetLibNickname", "GetFullLibId"):
                             fn = getattr(fpid, method, None)
                             if fn is not None:
                                 lib_id = str(fn())
                                 break
-                    except Exception:
+                    except Exception:  # noqa: BLE001
                         lib_id = ""
 
                     # Get the sheet path -- group all under one sheet if unavailable
@@ -423,7 +447,7 @@ class ReliabilityMainDialog(wx.Dialog):
                                 if val:
                                     sheet_name = str(val).strip("/").split("/")[-1]
                                     break
-                            except Exception:
+                            except Exception:  # noqa: BLE001
                                 pass
 
                     sheet_path = f"/{sheet_name}/" if sheet_name else default_sheet
@@ -436,11 +460,9 @@ class ReliabilityMainDialog(wx.Dialog):
                             for f in fp_fields:
                                 fname = f.GetName()
                                 fval = f.GetText()
-                                if fname and fname not in (
-                                    "Reference", "Value", "Footprint", "Datasheet"
-                                ):
+                                if fname and fname not in ("Reference", "Value", "Footprint", "Datasheet"):
                                     fields[fname] = fval
-                    except Exception:
+                    except Exception:  # noqa: BLE001
                         fields = {}
 
                     comp = Component(
@@ -453,7 +475,7 @@ class ReliabilityMainDialog(wx.Dialog):
                     )
                     sheet_comps.setdefault(sheet_path, []).append(comp)
 
-                except Exception:
+                except Exception:  # noqa: BLE001
                     skipped += 1
                     continue
 
@@ -465,7 +487,8 @@ class ReliabilityMainDialog(wx.Dialog):
             for spath, comps in sheet_comps.items():
                 name = spath.strip("/").split("/")[-1] or "Root"
                 sheet = Sheet(
-                    name=name, path=spath,
+                    name=name,
+                    path=spath,
                     filename=str(Path(project_path) / f"{name}.kicad_sch"),
                     components=comps,
                 )
@@ -484,11 +507,12 @@ class ReliabilityMainDialog(wx.Dialog):
             if skipped:
                 msg += f" [{skipped} skipped]"
             self.status.SetLabel(msg)
-            return True
 
-        except Exception:
+        except Exception:  # noqa: BLE001
             # NEVER crash the caller -- return False and let fallback handle it
             return False
+        else:
+            return True
 
     def _ensure_default_components(self):
         """Ensure every parsed component has a properly classified entry."""
@@ -509,11 +533,16 @@ class ReliabilityMainDialog(wx.Dialog):
         if not self.project_manager:
             self.status.SetLabel("Warning: no project manager -- data not saved")
             return
+
         def _val(ctrl, default):
             v = ctrl.GetValue()
-            if v is None: return default
-            try: return type(default)(v)
-            except (TypeError, ValueError): return default
+            if v is None:
+                return default
+            try:
+                return type(default)(v)
+            except (TypeError, ValueError):
+                return default
+
         sp = self.settings_panel
         data = {
             "components": self.component_edits,
@@ -531,9 +560,10 @@ class ReliabilityMainDialog(wx.Dialog):
         else:
             self.status.SetLabel("Error: failed to save reliability data")
             wx.MessageBox(
-                "Failed to save reliability data to disk.\n"
-                "Check that the Reliability/ folder exists and is writable.",
-                "Save Error", wx.OK | wx.ICON_ERROR)
+                "Failed to save reliability data to disk.\nCheck that the Reliability/ folder exists and is writable.",
+                "Save Error",
+                wx.OK | wx.ICON_ERROR,
+            )
 
     def _load_test_data(self):
         sheets = [
@@ -572,16 +602,15 @@ class ReliabilityMainDialog(wx.Dialog):
                 ovr = edited.get("override_lambda")
                 has_override = ovr is not None
 
-                params = self._build_full_params(
-                    ct, edited, None, cycles, dt, tau_on)
+                params = self._build_full_params(ct, edited, None, cycles, dt, tau_on)
 
                 if has_override:
-                    lam = float(ovr) * 1e-9
+                    lam = float(ovr) * LAMBDA_PER_FIT
                 else:
                     try:
                         res = calculate_component_lambda(ct, params)
                         lam = float(res.get("lambda_total", 0) or 0)
-                    except Exception:
+                    except Exception:  # noqa: BLE001
                         lam = 0.0
 
                 r = reliability_from_lambda(lam, hours)
@@ -604,8 +633,7 @@ class ReliabilityMainDialog(wx.Dialog):
             sheet_r = reliability_from_lambda(total_lam, hours)
             self.sheet_data[path] = {"components": comp_data, "lambda": total_lam, "r": sheet_r}
 
-    def _build_full_params(self, component_type, edited, schematic_comp,
-                           cycles, dt, tau_on):
+    def _build_full_params(self, component_type, edited, schematic_comp, cycles, dt, tau_on):
         """Build a complete parameter dict for a component.
 
         Strategy (simple & robust):
@@ -656,10 +684,8 @@ class ReliabilityMainDialog(wx.Dialog):
             total_lam = 0.0
 
             for c in components:
-                edited = self.component_edits.get(path, {}).get(
-                    c.reference, {})
-                ct = (edited.get("_component_type")
-                      if edited else None)
+                edited = self.component_edits.get(path, {}).get(c.reference, {})
+                ct = edited.get("_component_type") if edited else None
                 if not ct:
                     info = classify_component_info(c.reference, c.value, c.fields)
                     ct = info.component_type
@@ -674,13 +700,11 @@ class ReliabilityMainDialog(wx.Dialog):
                 ovr = edited.get("override_lambda") if edited else None
                 has_override = ovr is not None
 
-                if has_override:
-                    lam = float(ovr) * 1e-9
-                    params = self._build_full_params(
-                        ct, edited, c, cycles, dt, tau_on)
+                if has_override and ovr is not None:
+                    lam = float(ovr) * LAMBDA_PER_FIT
+                    params = self._build_full_params(ct, edited, c, cycles, dt, tau_on)
                 else:
-                    params = self._build_full_params(
-                        ct, edited, c, cycles, dt, tau_on)
+                    params = self._build_full_params(ct, edited, c, cycles, dt, tau_on)
                     result = calculate_component_lambda(ct, params)
                     lam = float(result.get("lambda_total", 0) or 0)
 
@@ -694,10 +718,16 @@ class ReliabilityMainDialog(wx.Dialog):
                     "lambda": lam,
                     "r": r,
                     "params": params,
-                    "classification_confidence": edited.get("_classification_confidence", "manual") if edited else "manual",
-                    "classification_reason": edited.get("_classification_reason", "Imported or manually assigned") if edited else "Imported or manually assigned",
+                    "classification_confidence": edited.get("_classification_confidence", "manual")
+                    if edited
+                    else "manual",
+                    "classification_reason": edited.get("_classification_reason", "Imported or manually assigned")
+                    if edited
+                    else "Imported or manually assigned",
                     "classification_source": edited.get("_classification_source", "manual") if edited else "manual",
-                    "classification_review_required": bool(edited.get("_classification_review_required")) if edited else False,
+                    "classification_review_required": bool(edited.get("_classification_review_required"))
+                    if edited
+                    else False,
                 }
                 if has_override:
                     comp_entry["override_lambda"] = ovr
@@ -713,14 +743,14 @@ class ReliabilityMainDialog(wx.Dialog):
     def _recalculate_all(self):
         self.status.SetLabel("Recalculating...")
         self._calculate_sheets()
-        for _, b in self.editor.blocks.items():
+        for b in self.editor.blocks.values():
             if not b.is_group:
                 data = self.sheet_data.get(b.name, {})
                 b.reliability = float(data.get("r", 1.0) or 1.0)
                 b.lambda_val = float(data.get("lambda", 0.0) or 0.0)
         self._on_calculate(None)
 
-    def _calculate_system(self) -> Tuple[float, float]:
+    def _calculate_system(self) -> tuple[float, float]:
         hours = self.settings_panel.get_hours()
 
         def calc(bid: str) -> float:
@@ -761,7 +791,7 @@ class ReliabilityMainDialog(wx.Dialog):
         block.lambda_val = float(data.get("lambda", 0.0) or 0.0)
         self.editor.Refresh()
 
-    def _on_block_select(self, block_id: Optional[str]):
+    def _on_block_select(self, block_id: str | None):
         if block_id:
             b = self.editor.blocks.get(block_id)
             if b and not b.is_group:
@@ -773,7 +803,7 @@ class ReliabilityMainDialog(wx.Dialog):
                     float(data.get("r", 1) or 1),
                 )
 
-    def _on_block_activate(self, block_id: str, sheet_path: str):
+    def _on_block_activate(self, block_id: str, sheet_path: str):  # noqa: ARG002
         sheet_path = sheet_path or ""
         components = self.parser.get_sheet_components(sheet_path) if self.parser else []
         # Fallback: use sheet_data components if parser has none (e.g. path mismatch after load)
@@ -814,9 +844,7 @@ class ReliabilityMainDialog(wx.Dialog):
                 )
                 for c in comps
             ]
-        dlg = BatchComponentEditorDialog(
-            self, comp_list, self.settings_panel.get_hours()
-        )
+        dlg = BatchComponentEditorDialog(self, comp_list, self.settings_panel.get_hours())
         if dlg.ShowModal() == wx.ID_OK:
             if sheet_path not in self.component_edits:
                 self.component_edits[sheet_path] = {}
@@ -826,7 +854,7 @@ class ReliabilityMainDialog(wx.Dialog):
             self._save_reliability_data()
         dlg.Destroy()
 
-    def _on_calculate(self, event):
+    def _on_calculate(self, event):  # noqa: ARG002
         sys_r, sys_lam = self._calculate_system()
         hours = self.settings_panel.get_hours()
         years = hours / (365 * 24)
@@ -839,11 +867,11 @@ class ReliabilityMainDialog(wx.Dialog):
             f"  Mission: {years:.1f} years ({hours:.0f} h)",
             "",
             f"   Reliability:  R = {sys_r:.6f}",
-            f"   Failure Rate: L = {sys_lam*1e9:.2f} FIT",
+            f"   Failure Rate: L = {sys_lam * FIT_PER_LAMBDA:.2f} FIT",
         ]
         if sys_lam > 0:
             mttf = 1 / sys_lam
-            lines.append(f"   MTTF: {mttf/(365*24):.1f} years")
+            lines.append(f"   MTTF: {mttf / (365 * 24):.1f} years")
 
         lines.extend(["", "=" * 45, "            BLOCK DETAILS", "=" * 45])
         for bid, b in sorted(self.editor.blocks.items()):
@@ -855,7 +883,7 @@ class ReliabilityMainDialog(wx.Dialog):
             else:
                 lines.append(f"\n  {b.label}")
                 lines.append(
-                    f"    L = {float(b.lambda_val or 0)*1e9:.1f} FIT, R = {float(b.reliability or 1.0):.6f}"
+                    f"    L = {float(b.lambda_val or 0) * FIT_PER_LAMBDA:.1f} FIT, R = {float(b.reliability or 1.0):.6f}"
                 )
 
         self.results.SetValue("\n".join(lines))
@@ -902,7 +930,7 @@ class ReliabilityMainDialog(wx.Dialog):
                 )
         dlg.Destroy()
 
-    def _edit_sheet_components(self, sheets: List[str]):
+    def _edit_sheet_components(self, sheets: list[str]):
         if not self.parser:
             return
         all_comps = []
@@ -921,14 +949,10 @@ class ReliabilityMainDialog(wx.Dialog):
                 all_comps.append(ComponentData(c.reference, c.value, ct, fields))
 
         if not all_comps:
-            wx.MessageBox(
-                "No components found.", "No Components", wx.OK | wx.ICON_INFORMATION
-            )
+            wx.MessageBox("No components found.", "No Components", wx.OK | wx.ICON_INFORMATION)
             return
 
-        dlg = BatchComponentEditorDialog(
-            self, all_comps, self.settings_panel.get_hours()
-        )
+        dlg = BatchComponentEditorDialog(self, all_comps, self.settings_panel.get_hours())
         if dlg.ShowModal() == wx.ID_OK:
             results = dlg.get_results()
             for sheet in sheets:
@@ -942,7 +966,7 @@ class ReliabilityMainDialog(wx.Dialog):
             self._save_reliability_data()
         dlg.Destroy()
 
-    def _on_open(self, event):
+    def _on_open(self, event):  # noqa: ARG002
         """Open reliability_data.json file (or KiCad project folder)."""
         default_dir = ""
         if self.project_manager:
@@ -965,8 +989,9 @@ class ReliabilityMainDialog(wx.Dialog):
     def _load_json_file(self, json_path: str):
         """Load reliability data from a JSON file."""
         import json
+
         try:
-            with open(json_path, "r", encoding="utf-8") as f:
+            with Path(json_path).open(encoding="utf-8") as f:
                 data = json.load(f)
         except (OSError, json.JSONDecodeError) as e:
             wx.MessageBox(f"Could not load file:\n{e}", "Open Error", wx.OK | wx.ICON_ERROR)
@@ -995,16 +1020,16 @@ class ReliabilityMainDialog(wx.Dialog):
         self._save_reliability_data()
         self.status.SetLabel(f"Loaded: {path_obj.name}")
 
-    def _on_save(self, event):
+    def _on_save(self, event):  # noqa: ARG002
         self._save_reliability_data()
         self.status.SetLabel("Saved to Reliability/reliability_data.json")
 
-    def _on_monte_carlo(self, event):
+    def _on_monte_carlo(self, event):  # noqa: ARG002
         """Open the analysis dialog for uncertainty, sensitivity, and design actions."""
         try:
             from .analysis_dialog import AnalysisDialog
 
-            sys_r, sys_lam = self._calculate_system()
+            _sys_r, sys_lam = self._calculate_system()
 
             if sys_lam <= 0:
                 wx.MessageBox(
@@ -1035,17 +1060,15 @@ class ReliabilityMainDialog(wx.Dialog):
             dlg.ShowModal()
             dlg.Destroy()
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             wx.MessageBox(f"Error: {e}", "Analysis Error", wx.OK | wx.ICON_ERROR)
 
-    def _on_export(self, event):
+    def _on_export(self, event):  # noqa: ARG002
         # Determine initial directory and filename
         if self.project_manager:
             reports_folder = self.project_manager.get_reports_folder()
             initial_dir = str(reports_folder)
-            default_name = (
-                f"reliability_report_{wx.DateTime.Now().Format('%Y%m%d_%H%M%S')}"
-            )
+            default_name = f"reliability_report_{wx.DateTime.Now().Format('%Y%m%d_%H%M%S')}"
         else:
             initial_dir = ""
             default_name = "reliability_report"
@@ -1073,7 +1096,7 @@ class ReliabilityMainDialog(wx.Dialog):
             else:
                 content = self._generate_json(sys_r, sys_lam, hours)
 
-            with open(path, "w", encoding="utf-8") as f:
+            with Path(path).open("w", encoding="utf-8") as f:
                 f.write(content)
             self.status.SetLabel(f"Exported: {path}")
         dlg.Destroy()
@@ -1097,15 +1120,9 @@ class ReliabilityMainDialog(wx.Dialog):
         generator = ReportGenerator(logo_path=str(logo_path) if logo_path else None)
 
         # Build report data
-        all_components = [
-            comp for data in self.sheet_data.values() for comp in data.get("components", [])
-        ]
+        all_components = [comp for data in self.sheet_data.values() for comp in data.get("components", [])]
         report_data = ReportData(
-            project_name=(
-                Path(self.project_path).name
-                if self.project_path
-                else "Reliability Report"
-            ),
+            project_name=(Path(self.project_path).name if self.project_path else "Reliability Report"),
             mission_hours=hours,
             mission_years=years,
             n_cycles=int(self.settings_panel.cycles.GetValue()),
@@ -1136,13 +1153,13 @@ class ReliabilityMainDialog(wx.Dialog):
 
 - **Mission:** {years:.1f} years ({hours:.0f} hours)
 - **Reliability:** R = {sys_r:.6f}
-- **Failure Rate:** L = {sys_lam*1e9:.2f} FIT
+- **Failure Rate:** L = {sys_lam * FIT_PER_LAMBDA:.2f} FIT
 
 ## Sheet Analysis
 
 """
         for path, data in sorted(self.sheet_data.items()):
-            fit = float(data["lambda"]) * 1e9
+            fit = float(data["lambda"]) * FIT_PER_LAMBDA
             md += f"""### {path}
 
 R = {float(data["r"]):.6f}, L = {fit:.2f} FIT
@@ -1151,8 +1168,8 @@ R = {float(data["r"]):.6f}, L = {fit:.2f} FIT
 |-----|-------|------|---------|---|
 """
             for c in data["components"][:20]:
-                c_fit = float(c["lambda"]) * 1e9
-                md += f'| {c["ref"]} | {c["value"]} | {c["class"]} | {c_fit:.2f} | {float(c["r"]):.6f} |\n'
+                c_fit = float(c["lambda"]) * FIT_PER_LAMBDA
+                md += f"| {c['ref']} | {c['value']} | {c['class']} | {c_fit:.2f} | {float(c['r']):.6f} |\n"
             md += "\n"
         return md
 
@@ -1160,10 +1177,8 @@ R = {float(data["r"]):.6f}, L = {fit:.2f} FIT
         lines = ["Sheet,Reference,Value,Type,Lambda_FIT,Reliability"]
         for path, data in sorted(self.sheet_data.items()):
             for c in data["components"]:
-                c_fit = float(c["lambda"]) * 1e9
-                lines.append(
-                    f'"{path}","{c["ref"]}","{c["value"]}","{c["class"]}",{c_fit:.2f},{float(c["r"]):.6f}'
-                )
+                c_fit = float(c["lambda"]) * FIT_PER_LAMBDA
+                lines.append(f'"{path}","{c["ref"]}","{c["value"]}","{c["class"]}",{c_fit:.2f},{float(c["r"]):.6f}')
         return "\n".join(lines)
 
     def _generate_json(self, sys_r: float, sys_lam: float, hours: float) -> str:
@@ -1171,7 +1186,7 @@ R = {float(data["r"]):.6f}, L = {fit:.2f} FIT
             {
                 "system": {
                     "reliability": sys_r,
-                    "lambda_fit": sys_lam * 1e9,
+                    "lambda_fit": sys_lam * FIT_PER_LAMBDA,
                     "mission_hours": hours,
                 },
                 "sheets": self.sheet_data,
