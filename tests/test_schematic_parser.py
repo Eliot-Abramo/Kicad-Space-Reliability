@@ -2,7 +2,6 @@
 
 import tempfile
 
-import pytest
 import schematic_parser as sp
 
 

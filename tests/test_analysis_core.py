@@ -4,7 +4,6 @@ import budget_allocation
 import classification
 import monte_carlo
 import numpy as np
-import pytest
 import reliability_math
 import sensitivity_analysis
 from unittest import mock

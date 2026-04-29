@@ -1,6 +1,5 @@
 """Tests for BOM reliability export (via report_generator)."""
 
-import pytest
 
 import report_generator
 

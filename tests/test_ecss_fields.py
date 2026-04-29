@@ -1,6 +1,5 @@
 """Tests for ECSS field definitions — focused on behavior, not metadata."""
 
-import pytest
 
 import ecss_fields as ef
 

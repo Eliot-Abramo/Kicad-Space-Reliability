@@ -1,5 +1,4 @@
 import component_swap as cs
-import pytest
 import reliability_math
 from unittest import mock
 

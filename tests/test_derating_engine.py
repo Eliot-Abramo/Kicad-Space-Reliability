@@ -1,4 +1,3 @@
-import pytest
 
 import derating_engine as de
 

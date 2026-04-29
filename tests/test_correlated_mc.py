@@ -1,7 +1,6 @@
 import warnings
 
 import correlated_mc as cmc
-import pytest
 
 
 class CorrelationGroupTests:
