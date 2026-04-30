@@ -74,25 +74,33 @@ of recent advances", European J. Operational Research, 248(3), 869-887.
 Author:  Eliot Abramo
 """
 
-import math
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from __future__ import annotations
 
+import contextlib
+from dataclasses import dataclass
+from typing import Any
+
+try:
+    from .reliability_math import FIT_PER_LAMBDA
+except ImportError:
+    from reliability_math import FIT_PER_LAMBDA
 
 # =====================================================================
 # Data Structures
 # =====================================================================
 
+
 @dataclass
 class TornadoEntry:
     """Single entry in a tornado chart."""
+
     name: str
-    base_value: float       # System FIT at nominal
-    low_value: float        # System FIT when parameter is at low bound
-    high_value: float       # System FIT when parameter is at high bound
-    delta_low: float        # base - low (positive = low is beneficial)
-    delta_high: float       # high - base (positive = high is detrimental)
-    swing: float            # |high - low|
+    base_value: float  # System FIT at nominal
+    low_value: float  # System FIT when parameter is at low bound
+    high_value: float  # System FIT when parameter is at high bound
+    delta_low: float  # base - low (positive = low is beneficial)
+    delta_high: float  # high - base (positive = high is detrimental)
+    swing: float  # |high - low|
     unit: str = "FIT"
     perturbation_desc: str = ""  # e.g. "+/-10 degC" or "+/-20%"
 
@@ -100,12 +108,13 @@ class TornadoEntry:
 @dataclass
 class TornadoResult:
     """Results from tornado sensitivity analysis."""
-    entries: List[TornadoEntry]
+
+    entries: list[TornadoEntry]
     base_lambda_fit: float
     base_reliability: float
     mission_hours: float
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "base_lambda_fit": self.base_lambda_fit,
             "base_reliability": self.base_reliability,
@@ -130,6 +139,7 @@ class TornadoResult:
 @dataclass
 class ScenarioEntry:
     """Single what-if scenario result."""
+
     name: str
     description: str
     lambda_fit: float
@@ -142,12 +152,13 @@ class ScenarioEntry:
 @dataclass
 class ScenarioResult:
     """Results from what-if scenario analysis."""
+
     baseline_lambda_fit: float
     baseline_reliability: float
     mission_hours: float
-    scenarios: List[ScenarioEntry]
+    scenarios: list[ScenarioEntry]
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "baseline_lambda_fit": self.baseline_lambda_fit,
             "baseline_reliability": self.baseline_reliability,
@@ -170,10 +181,11 @@ class ScenarioResult:
 @dataclass
 class CriticalityEntry:
     """Criticality analysis for a single component."""
+
     reference: str
     component_type: str
     base_lambda_fit: float
-    fields: List[Dict]   # [{name, value, elasticity, impact_pct}]
+    fields: list[dict]  # [{name, value, elasticity, impact_pct}]
 
 
 @dataclass
@@ -182,8 +194,9 @@ class TornadoPerturbation:
 
     The user specifies physical units, not percentages.
     """
+
     param_name: str
-    delta_low: float   # Amount to subtract (positive number => subtract)
+    delta_low: float  # Amount to subtract (positive number => subtract)
     delta_high: float  # Amount to add
     unit: str = ""
     enabled: bool = True
@@ -213,15 +226,12 @@ DEFAULT_PERTURBATIONS = [
 # Tornado Sensitivity (parameter-level, physical units)
 # =====================================================================
 
+
 def _import_math():
     try:
-        from .reliability_math import (
-            calculate_component_lambda, reliability_from_lambda
-        )
+        from .reliability_math import calculate_component_lambda, reliability_from_lambda
     except ImportError:
-        from reliability_math import (
-            calculate_component_lambda, reliability_from_lambda
-        )
+        from reliability_math import calculate_component_lambda, reliability_from_lambda
     return calculate_component_lambda, reliability_from_lambda
 
 
@@ -229,19 +239,21 @@ def _validate_mission_hours(mission_hours: float) -> float:
     """Validate and return mission hours, raising ValueError on bad input."""
     try:
         mh = float(mission_hours)
-    except (TypeError, ValueError):
-        raise ValueError(f"mission_hours must be a number, got {type(mission_hours).__name__}")
+    except (TypeError, ValueError) as e:
+        msg = f"mission_hours must be a number, got {type(mission_hours).__name__}"
+        raise ValueError(msg) from e
     if mh <= 0 or mh != mh:  # catches NaN
-        raise ValueError(f"mission_hours must be positive, got {mh}")
+        msg = f"mission_hours must be positive, got {mh}"
+        raise ValueError(msg)
     return mh
 
 
-def tornado_analysis(
-    sheet_data: Dict[str, Dict],
+def tornado_analysis(  # noqa: C901
+    sheet_data: dict[str, dict],
     mission_hours: float,
-    perturbations: Optional[List[TornadoPerturbation]] = None,
-    active_sheets: Optional[List[str]] = None,
-    excluded_types: Optional[set] = None,
+    perturbations: list[TornadoPerturbation] | None = None,
+    active_sheets: list[str] | None = None,
+    excluded_types: set | None = None,
     mode: str = "parameter",
 ) -> TornadoResult:
     """Tornado sensitivity with physical-unit perturbations.
@@ -269,15 +281,13 @@ def tornado_analysis(
     """
     mission_hours = _validate_mission_hours(mission_hours)
     if mode not in ("parameter", "sheet"):
-        raise ValueError(f"mode must be 'parameter' or 'sheet', got '{mode}'")
+        msg = f"mode must be 'parameter' or 'sheet', got '{mode}'"
+        raise ValueError(msg)
 
     calc_lambda, rel_from_lambda = _import_math()
     excluded = excluded_types or set()
 
-    if active_sheets:
-        filtered = {k: v for k, v in sheet_data.items() if k in active_sheets}
-    else:
-        filtered = sheet_data
+    filtered = {k: v for k, v in sheet_data.items() if k in active_sheets} if active_sheets else sheet_data
 
     # Gather components (deduplicate by reference)
     all_comps = []
@@ -293,10 +303,8 @@ def tornado_analysis(
                 continue
             all_comps.append(comp)
 
-    base_lambda = sum(
-        float(d.get("lambda", 0) or 0) for d in filtered.values()
-    )
-    base_fit = base_lambda * 1e9
+    base_lambda = sum(float(d.get("lambda", 0) or 0) for d in filtered.values())
+    base_fit = base_lambda * FIT_PER_LAMBDA
     base_r = rel_from_lambda(base_lambda, mission_hours)
 
     entries = []
@@ -309,20 +317,24 @@ def tornado_analysis(
             name = path.rstrip("/").split("/")[-1] or "Root"
             pct = 0.20  # 20% for sheet-level
             delta = lam * pct
-            low_fit = (base_lambda - delta) * 1e9
-            high_fit = (base_lambda + delta) * 1e9
-            entries.append(TornadoEntry(
-                name=name, base_value=base_fit,
-                low_value=low_fit, high_value=high_fit,
-                delta_low=base_fit - low_fit,
-                delta_high=high_fit - base_fit,
-                swing=high_fit - low_fit,
-                perturbation_desc="+/- 20%",
-            ))
+            low_fit = (base_lambda - delta) * FIT_PER_LAMBDA
+            high_fit = (base_lambda + delta) * FIT_PER_LAMBDA
+            entries.append(
+                TornadoEntry(
+                    name=name,
+                    base_value=base_fit,
+                    low_value=low_fit,
+                    high_value=high_fit,
+                    delta_low=base_fit - low_fit,
+                    delta_high=high_fit - base_fit,
+                    swing=high_fit - low_fit,
+                    perturbation_desc="+/- 20%",
+                )
+            )
     else:
         # Parameter-level
         if perturbations is None:
-            perturbations = [p for p in DEFAULT_PERTURBATIONS]
+            perturbations = list(DEFAULT_PERTURBATIONS)
 
         for pert in perturbations:
             if not pert.enabled:
@@ -355,7 +367,7 @@ def tornado_analysis(
                 p_lo[pert.param_name] = nom_val - pert.delta_low
                 try:
                     lam_lo = calc_lambda(ct, p_lo).get("lambda_total", 0)
-                except Exception:
+                except Exception:  # noqa: BLE001
                     lam_lo = nom_lam
 
                 # High perturbation
@@ -363,17 +375,17 @@ def tornado_analysis(
                 p_hi[pert.param_name] = nom_val + pert.delta_high
                 try:
                     lam_hi = calc_lambda(ct, p_hi).get("lambda_total", 0)
-                except Exception:
+                except Exception:  # noqa: BLE001
                     lam_hi = nom_lam
 
-                d_low_total += (lam_lo - nom_lam)
-                d_high_total += (lam_hi - nom_lam)
+                d_low_total += lam_lo - nom_lam
+                d_high_total += lam_hi - nom_lam
 
             if n_affected == 0:
                 continue
 
-            low_fit = (base_lambda + d_low_total) * 1e9
-            high_fit = (base_lambda + d_high_total) * 1e9
+            low_fit = (base_lambda + d_low_total) * FIT_PER_LAMBDA
+            high_fit = (base_lambda + d_high_total) * FIT_PER_LAMBDA
             swing = abs(high_fit - low_fit)
             if swing < 1e-6:
                 continue
@@ -381,20 +393,25 @@ def tornado_analysis(
             unit_str = f" {pert.unit}" if pert.unit else ""
             desc = f"-{pert.delta_low}{unit_str} / +{pert.delta_high}{unit_str}"
 
-            entries.append(TornadoEntry(
-                name=f"{pert.param_name} ({n_affected} comps)",
-                base_value=base_fit,
-                low_value=low_fit, high_value=high_fit,
-                delta_low=base_fit - low_fit,
-                delta_high=high_fit - base_fit,
-                swing=swing,
-                perturbation_desc=desc,
-            ))
+            entries.append(
+                TornadoEntry(
+                    name=f"{pert.param_name} ({n_affected} comps)",
+                    base_value=base_fit,
+                    low_value=low_fit,
+                    high_value=high_fit,
+                    delta_low=base_fit - low_fit,
+                    delta_high=high_fit - base_fit,
+                    swing=swing,
+                    perturbation_desc=desc,
+                )
+            )
 
     entries.sort(key=lambda e: -e.swing)
     return TornadoResult(
-        entries=entries, base_lambda_fit=base_fit,
-        base_reliability=base_r, mission_hours=mission_hours,
+        entries=entries,
+        base_lambda_fit=base_fit,
+        base_reliability=base_r,
+        mission_hours=mission_hours,
     )
 
 
@@ -407,52 +424,76 @@ def tornado_analysis(
 # ENVIRONMENTAL CONTEXT (things the environment imposes).
 PREDEFINED_SCENARIOS = [
     # ---- Design-actionable scenarios (engineer CAN change these) ----
-    ("Derate power 20%",
-     "Reduce operating power by 20% on all components (better thermal design)",
-     {"operating_power": lambda v: v * 0.80}),
-    ("Derate power 50%",
-     "Reduce operating power by 50% (aggressive derating for space)",
-     {"operating_power": lambda v: v * 0.50}),
-    ("Better packages (-15C Tj)",
-     "Upgrade packages to reduce junction temperature by 15 degC",
-     {"t_junction": lambda v: v - 15}),
-    ("Better packages (-30C Tj)",
-     "Premium thermal packages: junction temperature reduced 30 degC",
-     {"t_junction": lambda v: v - 30}),
-    ("Hi-rel parts (-30% base FIT)",
-     "Use mil-spec / space-grade parts with 30% lower base failure rates",
-     {"_scale_lambda": lambda v: v * 0.70}),
-    ("Hi-rel parts (-50% base FIT)",
-     "Use highest-reliability screened parts with 50% lower base failure rates",
-     {"_scale_lambda": lambda v: v * 0.50}),
-    ("Voltage derating 20%",
-     "Reduce all voltage stress ratios by 20% (conservative design)",
-     {"voltage_stress_vds": lambda v: v * 0.80,
-      "voltage_stress_vgs": lambda v: v * 0.80,
-      "voltage_stress_vce": lambda v: v * 0.80,
-      "ripple_ratio": lambda v: v * 0.80}),
-    ("Voltage derating 50%",
-     "Aggressive voltage derating for high-reliability (50% reduction)",
-     {"voltage_stress_vds": lambda v: v * 0.50,
-      "voltage_stress_vgs": lambda v: v * 0.50,
-      "voltage_stress_vce": lambda v: v * 0.50,
-      "ripple_ratio": lambda v: v * 0.50}),
+    (
+        "Derate power 20%",
+        "Reduce operating power by 20% on all components (better thermal design)",
+        {"operating_power": lambda v: v * 0.80},
+    ),
+    (
+        "Derate power 50%",
+        "Reduce operating power by 50% (aggressive derating for space)",
+        {"operating_power": lambda v: v * 0.50},
+    ),
+    (
+        "Better packages (-15C Tj)",
+        "Upgrade packages to reduce junction temperature by 15 degC",
+        {"t_junction": lambda v: v - 15},
+    ),
+    (
+        "Better packages (-30C Tj)",
+        "Premium thermal packages: junction temperature reduced 30 degC",
+        {"t_junction": lambda v: v - 30},
+    ),
+    (
+        "Hi-rel parts (-30% base FIT)",
+        "Use mil-spec / space-grade parts with 30% lower base failure rates",
+        {"_scale_lambda": lambda v: v * 0.70},
+    ),
+    (
+        "Hi-rel parts (-50% base FIT)",
+        "Use highest-reliability screened parts with 50% lower base failure rates",
+        {"_scale_lambda": lambda v: v * 0.50},
+    ),
+    (
+        "Voltage derating 20%",
+        "Reduce all voltage stress ratios by 20% (conservative design)",
+        {
+            "voltage_stress_vds": lambda v: v * 0.80,
+            "voltage_stress_vgs": lambda v: v * 0.80,
+            "voltage_stress_vce": lambda v: v * 0.80,
+            "ripple_ratio": lambda v: v * 0.80,
+        },
+    ),
+    (
+        "Voltage derating 50%",
+        "Aggressive voltage derating for high-reliability (50% reduction)",
+        {
+            "voltage_stress_vds": lambda v: v * 0.50,
+            "voltage_stress_vgs": lambda v: v * 0.50,
+            "voltage_stress_vce": lambda v: v * 0.50,
+            "ripple_ratio": lambda v: v * 0.50,
+        },
+    ),
     # ---- Thermal design scenarios ----
-    ("Temp +10 degC",
-     "Environment: all temperatures +10 degC",
-     {"t_ambient": lambda v: v + 10, "t_junction": lambda v: v + 10}),
-    ("Temp -10 degC",
-     "Improved cooling: all temperatures -10 degC",
-     {"t_ambient": lambda v: v - 10, "t_junction": lambda v: v - 10}),
+    (
+        "Temp +10 degC",
+        "Environment: all temperatures +10 degC",
+        {"t_ambient": lambda v: v + 10, "t_junction": lambda v: v + 10},
+    ),
+    (
+        "Temp -10 degC",
+        "Improved cooling: all temperatures -10 degC",
+        {"t_ambient": lambda v: v - 10, "t_junction": lambda v: v - 10},
+    ),
 ]
 
 
-def scenario_analysis(
-    sheet_data: Dict[str, Dict],
+def scenario_analysis(  # noqa: C901
+    sheet_data: dict[str, dict],
     mission_hours: float,
-    active_sheets: Optional[List[str]] = None,
-    excluded_types: Optional[set] = None,
-    custom_scenarios: Optional[List[Tuple[str, str, Dict]]] = None,
+    active_sheets: list[str] | None = None,
+    excluded_types: set | None = None,
+    custom_scenarios: list[tuple[str, str, dict]] | None = None,
 ) -> ScenarioResult:
     """Run predefined + custom what-if scenarios.
 
@@ -470,15 +511,10 @@ def scenario_analysis(
     calc_lambda, rel_from_lambda = _import_math()
     excluded = excluded_types or set()
 
-    if active_sheets:
-        filtered = {k: v for k, v in sheet_data.items() if k in active_sheets}
-    else:
-        filtered = sheet_data
+    filtered = {k: v for k, v in sheet_data.items() if k in active_sheets} if active_sheets else sheet_data
 
-    base_lambda = sum(
-        float(d.get("lambda", 0) or 0) for d in filtered.values()
-    )
-    base_fit = base_lambda * 1e9
+    base_lambda = sum(float(d.get("lambda", 0) or 0) for d in filtered.values())
+    base_fit = base_lambda * FIT_PER_LAMBDA
     base_r = rel_from_lambda(base_lambda, mission_hours)
 
     def _run_scenario(mods):
@@ -503,13 +539,11 @@ def scenario_analysis(
                     if pn == "_scale_lambda":
                         continue
                     if pn in p:
-                        try:
+                        with contextlib.suppress(TypeError, ValueError):
                             p[pn] = fn(float(p[pn]))
-                        except (TypeError, ValueError):
-                            pass
                 try:
                     lam = calc_lambda(ctype, p).get("lambda_total", 0)
-                except Exception:
+                except Exception:  # noqa: BLE001
                     lam = float(comp.get("lambda", 0) or 0)
                 if scale_fn is not None:
                     lam = scale_fn(lam)
@@ -519,39 +553,47 @@ def scenario_analysis(
     results = []
 
     # Predefined
-    for name, desc, mods in PREDEFINED_SCENARIOS:
-        try:
+    try:
+        for name, desc, mods in PREDEFINED_SCENARIOS:
             sl = _run_scenario(mods)
-            sf = sl * 1e9
+            sf = sl * FIT_PER_LAMBDA
             sr = rel_from_lambda(sl, mission_hours)
             dp = ((sf - base_fit) / base_fit * 100) if base_fit > 0 else 0
-            results.append(ScenarioEntry(
-                name=name, description=desc,
-                lambda_fit=sf, reliability=sr,
-                delta_lambda_pct=dp,
-                delta_reliability=sr - base_r,
-                is_custom=False,
-            ))
-        except Exception:
-            continue
+            results.append(
+                ScenarioEntry(
+                    name=name,
+                    description=desc,
+                    lambda_fit=sf,
+                    reliability=sr,
+                    delta_lambda_pct=dp,
+                    delta_reliability=sr - base_r,
+                    is_custom=False,
+                )
+            )
+    except Exception:  # noqa: BLE001
+        pass
 
     # Custom
     if custom_scenarios:
-        for name, desc, mods in custom_scenarios:
-            try:
+        try:
+            for name, desc, mods in custom_scenarios:
                 sl = _run_scenario(mods)
-                sf = sl * 1e9
+                sf = sl * FIT_PER_LAMBDA
                 sr = rel_from_lambda(sl, mission_hours)
                 dp = ((sf - base_fit) / base_fit * 100) if base_fit > 0 else 0
-                results.append(ScenarioEntry(
-                    name=name, description=desc,
-                    lambda_fit=sf, reliability=sr,
-                    delta_lambda_pct=dp,
-                    delta_reliability=sr - base_r,
-                    is_custom=True,
-                ))
-            except Exception:
-                continue
+                results.append(
+                    ScenarioEntry(
+                        name=name,
+                        description=desc,
+                        lambda_fit=sf,
+                        reliability=sr,
+                        delta_lambda_pct=dp,
+                        delta_reliability=sr - base_r,
+                        is_custom=True,
+                    )
+                )
+        except Exception:  # noqa: BLE001
+            pass
 
     return ScenarioResult(base_fit, base_r, mission_hours, results)
 
@@ -560,15 +602,16 @@ def scenario_analysis(
 # Component-Level Criticality
 # =====================================================================
 
-def component_criticality(
-    sheet_data: Dict[str, Dict],
+
+def component_criticality(  # noqa: C901
+    sheet_data: dict[str, dict],
     mission_hours: float = 8760.0,
     perturbation: float = 0.10,
-    active_sheets: Optional[List[str]] = None,
-    excluded_types: Optional[set] = None,
-    target_fields: Optional[Dict[str, List[str]]] = None,
+    active_sheets: list[str] | None = None,
+    excluded_types: set | None = None,
+    target_fields: dict[str, list[str]] | None = None,
     max_components: int = 0,
-) -> List[CriticalityEntry]:
+) -> list[CriticalityEntry]:
     """Per-component OAT elasticity ranking.
 
     For each component, perturbs each numeric parameter by +/- perturbation
@@ -590,7 +633,8 @@ def component_criticality(
     """
     mission_hours = _validate_mission_hours(mission_hours)
     if not (0 < perturbation <= 1.0):
-        raise ValueError(f"perturbation must be in (0, 1], got {perturbation}")
+        msg = f"perturbation must be in (0, 1], got {perturbation}"
+        raise ValueError(msg)
 
     try:
         from .reliability_math import analyze_component_criticality
@@ -599,10 +643,7 @@ def component_criticality(
 
     excluded = excluded_types or set()
 
-    if active_sheets:
-        filtered = {k: v for k, v in sheet_data.items() if k in active_sheets}
-    else:
-        filtered = sheet_data
+    filtered = {k: v for k, v in sheet_data.items() if k in active_sheets} if active_sheets else sheet_data
 
     # Gather and sort all components (deduplicate by reference)
     all_comps = []
@@ -633,10 +674,8 @@ def component_criticality(
             continue
 
         try:
-            raw = analyze_component_criticality(
-                comp_type, params, mission_hours, perturbation
-            )
-        except Exception:
+            raw = analyze_component_criticality(comp_type, params, mission_hours, perturbation)
+        except Exception:  # noqa: BLE001
             continue
         if not raw:
             continue
@@ -658,12 +697,14 @@ def component_criticality(
             }
             for r in raw
         ]
-        results.append(CriticalityEntry(
-            reference=ref,
-            component_type=comp_type,
-            base_lambda_fit=base_fit,
-            fields=fields,
-        ))
+        results.append(
+            CriticalityEntry(
+                reference=ref,
+                component_type=comp_type,
+                base_lambda_fit=base_fit,
+                fields=fields,
+            )
+        )
 
     return results
 
@@ -672,13 +713,14 @@ def component_criticality(
 # Single-parameter what-if (bidirectional tool)
 # =====================================================================
 
+
 def single_param_whatif(
-    component: Dict,
+    component: dict,
     param_name: str,
     new_value: Any,
     system_lambda: float,
     mission_hours: float,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Compute the system impact of changing one parameter on one component.
 
     Returns dict with before/after lambda, R(t), delta.
@@ -696,12 +738,12 @@ def single_param_whatif(
     p_new[param_name] = new_value
     try:
         new_lam = calc_lambda(ct, p_new).get("lambda_total", 0)
-    except Exception:
+    except Exception:  # noqa: BLE001
         new_lam = old_lam
 
     delta_lam = new_lam - old_lam
     new_sys_lambda = system_lambda + delta_lam
-    new_sys_fit = new_sys_lambda * 1e9
+    new_sys_fit = new_sys_lambda * FIT_PER_LAMBDA
     new_r = rel_from_lambda(new_sys_lambda, mission_hours)
     old_r = rel_from_lambda(system_lambda, mission_hours)
 
@@ -710,12 +752,12 @@ def single_param_whatif(
         "param_name": param_name,
         "old_value": params.get(param_name),
         "new_value": new_value,
-        "comp_fit_before": old_lam * 1e9,
-        "comp_fit_after": new_lam * 1e9,
-        "comp_delta_fit": delta_lam * 1e9,
-        "sys_fit_before": system_lambda * 1e9,
+        "comp_fit_before": old_lam * FIT_PER_LAMBDA,
+        "comp_fit_after": new_lam * FIT_PER_LAMBDA,
+        "comp_delta_fit": delta_lam * FIT_PER_LAMBDA,
+        "sys_fit_before": system_lambda * FIT_PER_LAMBDA,
         "sys_fit_after": new_sys_fit,
-        "sys_delta_fit": delta_lam * 1e9,
+        "sys_delta_fit": delta_lam * FIT_PER_LAMBDA,
         "r_before": old_r,
         "r_after": new_r,
         "delta_r": new_r - old_r,
@@ -725,6 +767,7 @@ def single_param_whatif(
 # =====================================================================
 # Smart Design Actions -- unified parameter importance ranking
 # =====================================================================
+
 
 @dataclass
 class SmartAction:
@@ -741,26 +784,27 @@ class SmartAction:
     where weights are proportional to available evidence.  This is the
     heuristic combination of independent sensitivity measures.
     """
+
     parameter: str
-    component_refs: List[str]
+    component_refs: list[str]
     current_value_desc: str
     suggested_change: str
-    fit_improvement: float       # Estimated FIT reduction (from Tornado swing)
-    score: float                 # Composite importance score [0, 1]
-    source: str                  # Which analyses contributed
-    reasoning: str               # Human-readable explanation
+    fit_improvement: float  # Estimated FIT reduction (from Tornado swing)
+    score: float  # Composite importance score [0, 1]
+    source: str  # Which analyses contributed
+    reasoning: str  # Human-readable explanation
 
 
-def identify_smart_actions(
-    sheet_data: Dict[str, Dict],
+def identify_smart_actions(  # noqa: C901
+    sheet_data: dict[str, dict],
     mission_hours: float,
-    tornado_result: Optional[TornadoResult] = None,
-    criticality_results: Optional[List[CriticalityEntry]] = None,
-    mc_importance: Optional[List[Dict]] = None,
-    active_sheets: Optional[List[str]] = None,
-    excluded_types: Optional[set] = None,
+    tornado_result: TornadoResult | None = None,
+    criticality_results: list[CriticalityEntry] | None = None,
+    mc_importance: list[dict] | None = None,
+    active_sheets: list[str] | None = None,
+    excluded_types: set | None = None,
     top_n: int = 10,
-) -> List[SmartAction]:
+) -> list[SmartAction]:
     """Identify the most impactful parameter changes across all analyses.
 
     Mathematical approach:
@@ -784,23 +828,21 @@ def identify_smart_actions(
     List of SmartAction, sorted by descending composite score.
     """
     mission_hours = _validate_mission_hours(mission_hours)
-    calc_lambda, rel_from_lambda = _import_math()
+    _calc_lambda, _rel_from_lambda = _import_math()
     excluded = excluded_types or set()
 
-    if active_sheets:
-        filtered = {k: v for k, v in sheet_data.items() if k in active_sheets}
-    else:
-        filtered = sheet_data
+    filtered = {k: v for k, v in sheet_data.items() if k in active_sheets} if active_sheets else sheet_data
 
     # Gather all components for reference lookup
-    all_comps = []
-    for data in filtered.values():
-        for comp in data.get("components", []):
-            if comp.get("class", "Unknown") not in excluded:
-                all_comps.append(comp)
+    all_comps = [
+        comp
+        for data in filtered.values()
+        for comp in data.get("components", [])
+        if comp.get("class", "Unknown") not in excluded
+    ]
 
     base_lambda = sum(float(d.get("lambda", 0) or 0) for d in filtered.values())
-    base_fit = base_lambda * 1e9
+    base_fit = base_lambda * FIT_PER_LAMBDA
 
     # --- Score from Tornado ---
     tornado_scores = {}  # param_name -> (normalised_score, swing_fit, n_comps)
@@ -872,8 +914,7 @@ def identify_smart_actions(
         refs = crit_comp_map.get(pname, [])
         if not refs:
             # Count from all_comps which have this parameter
-            refs = [c.get("ref", "?") for c in all_comps
-                    if pname in c.get("params", {})]
+            refs = [c.get("ref", "?") for c in all_comps if pname in c.get("params", {})]
 
         # Generate actionable suggestion based on parameter type
         suggestion, reasoning = _suggest_change(pname, all_comps, swing_fit, base_fit)
@@ -883,35 +924,28 @@ def identify_smart_actions(
         for c in all_comps:
             v = c.get("params", {}).get(pname)
             if v is not None:
-                try:
+                with contextlib.suppress(TypeError, ValueError):
                     vals.append(float(v))
-                except (TypeError, ValueError):
-                    pass
-        if vals:
-            if len(vals) == 1:
-                cur_desc = f"{vals[0]:.2f}"
-            else:
-                cur_desc = f"{min(vals):.2f} to {max(vals):.2f}"
-        else:
-            cur_desc = "N/A"
+        cur_desc = (f"{vals[0]:.2f}" if len(vals) == 1 else f"{min(vals):.2f} to {max(vals):.2f}") if vals else "N/A"
 
-        actions.append(SmartAction(
-            parameter=pname,
-            component_refs=refs[:10],
-            current_value_desc=cur_desc,
-            suggested_change=suggestion,
-            fit_improvement=swing_fit / 2,  # Half the tornado swing = expected improvement
-            score=composite,
-            source=" + ".join(sources),
-            reasoning=reasoning,
-        ))
+        actions.append(
+            SmartAction(
+                parameter=pname,
+                component_refs=refs[:10],
+                current_value_desc=cur_desc,
+                suggested_change=suggestion,
+                fit_improvement=swing_fit / 2,  # Half the tornado swing = expected improvement
+                score=composite,
+                source=" + ".join(sources),
+                reasoning=reasoning,
+            )
+        )
 
     actions.sort(key=lambda a: -a.score)
     return actions[:top_n]
 
 
-def _suggest_change(param_name: str, all_comps: list, swing_fit: float,
-                    base_fit: float) -> tuple:
+def _suggest_change(param_name: str, all_comps: list, swing_fit: float, base_fit: float) -> tuple:  # noqa: ARG001
     """Generate an actionable suggestion for a given parameter.
 
     Returns (suggestion_text, reasoning_text).
@@ -919,37 +953,46 @@ def _suggest_change(param_name: str, all_comps: list, swing_fit: float,
     pn = param_name.lower()
 
     if "t_junction" in pn or "junction" in pn:
-        return ("Reduce junction temperature via better packages or heatsinking",
-                "Junction temperature drives the Arrhenius acceleration factor "
-                "exponentially -- small Tj reductions yield large FIT improvements.")
-    elif "t_ambient" in pn or "ambient" in pn:
-        return ("Improve thermal design to lower ambient temperature",
-                "Ambient temperature affects all components. "
-                "Consider better airflow, heatsinks, or thermal interface materials.")
-    elif "operating_power" in pn or "power" in pn:
-        return ("Derate operating power (use components at lower % of rated power)",
-                "Power derating reduces internal temperature rise and electrical "
-                "stress, both of which reduce failure rate per IEC TR 62380.")
-    elif "voltage" in pn or "vds" in pn or "vgs" in pn or "vce" in pn:
-        return ("Reduce voltage stress ratio (use higher-rated components)",
-                "Voltage derating reduces electrical overstress and dielectric "
-                "wear-out failure rates.")
-    elif "ripple" in pn:
-        return ("Reduce capacitor ripple ratio (better filtering or higher-rated caps)",
-                "Ripple ratio affects capacitor ageing per the electrolytic "
-                "capacitor model in IEC TR 62380.")
-    else:
-        pct = (swing_fit / base_fit * 100) if base_fit > 0 else 0
-        return (f"Reduce {param_name} to lower system FIT by up to {pct:.1f}%",
-                f"This parameter has a {pct:.1f}% impact on system FIT "
-                "based on OAT sensitivity analysis.")
+        return (
+            "Reduce junction temperature via better packages or heatsinking",
+            "Junction temperature drives the Arrhenius acceleration factor "
+            "exponentially -- small Tj reductions yield large FIT improvements.",
+        )
+    if "t_ambient" in pn or "ambient" in pn:
+        return (
+            "Improve thermal design to lower ambient temperature",
+            "Ambient temperature affects all components. "
+            "Consider better airflow, heatsinks, or thermal interface materials.",
+        )
+    if "operating_power" in pn or "power" in pn:
+        return (
+            "Derate operating power (use components at lower % of rated power)",
+            "Power derating reduces internal temperature rise and electrical "
+            "stress, both of which reduce failure rate per IEC TR 62380.",
+        )
+    if "voltage" in pn or "vds" in pn or "vgs" in pn or "vce" in pn:
+        return (
+            "Reduce voltage stress ratio (use higher-rated components)",
+            "Voltage derating reduces electrical overstress and dielectric wear-out failure rates.",
+        )
+    if "ripple" in pn:
+        return (
+            "Reduce capacitor ripple ratio (better filtering or higher-rated caps)",
+            "Ripple ratio affects capacitor ageing per the electrolytic capacitor model in IEC TR 62380.",
+        )
+    pct = (swing_fit / base_fit * 100) if base_fit > 0 else 0
+    return (
+        f"Reduce {param_name} to lower system FIT by up to {pct:.1f}%",
+        f"This parameter has a {pct:.1f}% impact on system FIT based on OAT sensitivity analysis.",
+    )
 
 
 # =====================================================================
 # Helper: active sheet paths from blocks
 # =====================================================================
 
-def get_active_sheet_paths(blocks) -> Optional[List[str]]:
+
+def get_active_sheet_paths(blocks) -> list[str] | None:
     """Extract sheet paths from block editor blocks dict."""
     if not blocks:
         return None
@@ -957,11 +1000,12 @@ def get_active_sheet_paths(blocks) -> Optional[List[str]]:
     for bid, block in blocks.items():
         if bid.startswith("__"):
             continue
-        if not getattr(block, 'is_group', False):
-            name = getattr(block, 'name', '')
+        if not getattr(block, "is_group", False):
+            name = getattr(block, "name", "")
             if name:
                 active.append(name)
-    return active if active else None
+    return active or None
+
 
 # =====================================================================
 # Backward-compatible aliases for __init__.py imports
@@ -969,14 +1013,18 @@ def get_active_sheet_paths(blocks) -> Optional[List[str]]:
 
 DesignMarginResult = ScenarioResult
 
+
 def tornado_sheet_sensitivity(sheet_data, mission_hours, **kw):
     return tornado_analysis(sheet_data, mission_hours, mode="sheet", **kw)
+
 
 def tornado_parameter_sensitivity(sheet_data, mission_hours, **kw):
     return tornado_analysis(sheet_data, mission_hours, mode="parameter", **kw)
 
+
 def design_margin_analysis(sheet_data, mission_hours, **kw):
     return scenario_analysis(sheet_data, mission_hours, **kw)
+
 
 def analyze_board_criticality(sheet_data, mission_hours=8760.0, **kw):
     return component_criticality(sheet_data, mission_hours, **kw)

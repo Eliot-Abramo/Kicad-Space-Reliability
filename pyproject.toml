@@ -1,0 +1,153 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["plugins*", "tests*"]
+
+[project]
+name = "kicad-space-reliability"
+version = "3.3.0"
+description = "IEC TR 62380 reliability analysis plugin for KiCad"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Eliot Abramo"},
+]
+requires-python = ">=3.9"
+dependencies = [
+    "numpy>=1.20",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "hypothesis>=6.0",
+    "ruff>=0.3.0",
+    "pre-commit>=3.0",
+    "ty>=0.0",
+]
+
+[project.urls]
+homepage = "https://github.com/Eliot-Abramo/Kicad-Space-Reliability"
+repository = "https://github.com/Eliot-Abramo/Kicad-Space-Reliability"
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.141.1",
+    "mutmut>=3.3.1",
+    "wxpython",
+]
+
+[tool.ruff]
+target-version = "py39"
+line-length = 120
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "A",   # flake8-builtins
+    "C4",  # flake8-comprehensions
+    "T20", # flake8-print
+    "RET", # return
+    "FLY", # flynt (f-strings)
+    "PERF", # performance
+    "FURB", # refurb
+    "SIM", # simplify
+    "TRY", # try/except
+    "PTH", # pathlib
+    "DTZ", # datetime timezone
+    "EM",  # exception messages
+    "PGH", # pygrep-hooks
+    "PIE", # pie misc
+    "T10", # flake8-debugger
+    "SLF", # self/private
+    "TD",  # todos
+    "LOG", # logging
+    "C90", # mccabe complexity
+    "PLC", # pylint convention
+    "PLE", # pylint error
+    "NPY", # numpy
+    "RSE", # raise
+    "ISC", # implicit string concat
+    "ARG", # unused arguments
+    "N",   # naming
+    "S",   # security
+    "BLE", # blind except
+    "PLW", # pylint warning
+    "ICN", # import conventions
+    "INP", # in-package
+    "INT", # int conversion
+    "G",   # logging
+    "ERA", # commented out code
+    "EXE", # executable files
+    "YTT", # 2020
+    "RUF", # ruff-specific
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/__init__.py" = ["F401", "F403"]
+"tests/*" = ["T20", "PLC0415"]
+"plugins/*" = ["PLC0415"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "lf"
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["*Tests"]
+python_functions = ["test_*"]
+markers = [
+    "wx: tests requiring wxPython and a display (xvfb in CI)",
+]
+norecursedirs = [".git", ".ruff_cache", ".pytest_cache", ".hypothesis", "__pycache__"]
+
+[tool.coverage.run]
+source = ["plugins"]
+omit = ["*/tests/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if __name__ == .__main__.:",
+]
+
+[tool.ty]
+src = {include = ["plugins"], exclude = ["plugins/analysis/engine.py"]}
+
+[tool.ty.analysis]
+allowed-unresolved-imports = ["wx.**", "pcbnew.**", "numpy.**"]
+replace-imports-with-any = ["wx.**", "pcbnew.**"]
+
+[tool.ty.environment]
+python-version = "3.9"
+
+[tool.ty.rules]
+unresolved-import = "ignore"
+invalid-type-form = "warn"
+invalid-argument-type = "error"
+unsupported-operator = "error"
+no-matching-overload = "warn"
+invalid-assignment = "error"
+invalid-return-type = "error"
+possibly-unresolved-reference = "warn"
+unknown-argument = "error"
+unresolved-attribute = "error"
+
+

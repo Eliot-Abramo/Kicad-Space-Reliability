@@ -14,25 +14,32 @@ Supports:
 Author:  Eliot Abramo
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple, Any
-from copy import deepcopy
+from typing import Any
+
+try:
+    from .reliability_math import FIT_PER_LAMBDA
+except ImportError:
+    from reliability_math import FIT_PER_LAMBDA
 
 
 @dataclass
 class SwapCandidate:
     """A potential component swap option."""
-    name: str               # Human-readable description
-    parameter: str          # Which parameter changes
-    old_value: Any          # Current value
-    new_value: Any          # Proposed value
-    lambda_before: float    # FIT before swap
-    lambda_after: float     # FIT after swap
-    delta_fit: float        # Change in FIT (negative = improvement)
-    delta_percent: float    # Percentage change
-    improvement: bool       # True if reliability improves
 
-    def to_dict(self) -> Dict[str, Any]:
+    name: str  # Human-readable description
+    parameter: str  # Which parameter changes
+    old_value: Any  # Current value
+    new_value: Any  # Proposed value
+    lambda_before: float  # FIT before swap
+    lambda_after: float  # FIT after swap
+    delta_fit: float  # Change in FIT (negative = improvement)
+    delta_percent: float  # Percentage change
+    improvement: bool  # True if reliability improves
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "parameter": self.parameter,
@@ -49,15 +56,16 @@ class SwapCandidate:
 @dataclass
 class SwapAnalysisResult:
     """Result of component swap analysis."""
+
     reference: str
     component_type: str
     current_fit: float
-    candidates: List[SwapCandidate] = field(default_factory=list)
-    best_candidate: Optional[SwapCandidate] = None
+    candidates: list[SwapCandidate] = field(default_factory=list)
+    best_candidate: SwapCandidate | None = None
     system_fit_before: float = 0.0
     system_fit_after_best: float = 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "reference": self.reference,
             "component_type": self.component_type,
@@ -84,28 +92,36 @@ def _calc_lambda(component_type, params):
         from reliability_math import calculate_component_lambda
     try:
         result = calculate_component_lambda(component_type, params)
-        return result.get("lambda_total", 0.0) * 1e9  # Return FIT
-    except Exception:
+        return result.get("lambda_total", 0.0) * FIT_PER_LAMBDA  # Return FIT
+    except Exception:  # noqa: BLE001
         return 0.0
 
 
-def _get_swap_options(component_type, params):
+def _get_swap_options(component_type, params):  # noqa: ARG001
     """Get available swap options for a component type."""
     try:
         from .reliability_math import (
-            IC_PACKAGE_CHOICES, IC_TYPE_CHOICES,
-            DIODE_BASE_RATES, TRANSISTOR_BASE_RATES,
-            DISCRETE_PACKAGE_TABLE, CAPACITOR_PARAMS,
-            RESISTOR_PARAMS, INDUCTOR_PARAMS,
+            CAPACITOR_PARAMS,
+            DIODE_BASE_RATES,
+            DISCRETE_PACKAGE_TABLE,
+            IC_PACKAGE_CHOICES,
+            IC_TYPE_CHOICES,
+            INDUCTOR_PARAMS,
+            RESISTOR_PARAMS,
             THERMAL_EXPANSION_SUBSTRATE,
+            TRANSISTOR_BASE_RATES,
         )
     except ImportError:
         from reliability_math import (
-            IC_PACKAGE_CHOICES, IC_TYPE_CHOICES,
-            DIODE_BASE_RATES, TRANSISTOR_BASE_RATES,
-            DISCRETE_PACKAGE_TABLE, CAPACITOR_PARAMS,
-            RESISTOR_PARAMS, INDUCTOR_PARAMS,
+            CAPACITOR_PARAMS,
+            DIODE_BASE_RATES,
+            DISCRETE_PACKAGE_TABLE,
+            IC_PACKAGE_CHOICES,
+            IC_TYPE_CHOICES,
+            INDUCTOR_PARAMS,
+            RESISTOR_PARAMS,
             THERMAL_EXPANSION_SUBSTRATE,
+            TRANSISTOR_BASE_RATES,
         )
 
     options = {}
@@ -132,7 +148,7 @@ def _get_swap_options(component_type, params):
 
 def analyze_package_swaps(
     component_type: str,
-    base_params: Dict[str, Any],
+    base_params: dict[str, Any],
     reference: str = "?",
     system_total_fit: float = 0.0,
 ) -> SwapAnalysisResult:
@@ -158,17 +174,19 @@ def analyze_package_swaps(
             delta = new_fit - current_fit
             delta_pct = (delta / current_fit * 100) if current_fit > 0 else 0
 
-            candidates.append(SwapCandidate(
-                name=f"Package: {pkg}",
-                parameter="package",
-                old_value=current_pkg,
-                new_value=pkg,
-                lambda_before=current_fit,
-                lambda_after=new_fit,
-                delta_fit=delta,
-                delta_percent=delta_pct,
-                improvement=delta < 0,
-            ))
+            candidates.append(
+                SwapCandidate(
+                    name=f"Package: {pkg}",
+                    parameter="package",
+                    old_value=current_pkg,
+                    new_value=pkg,
+                    lambda_before=current_fit,
+                    lambda_after=new_fit,
+                    delta_fit=delta,
+                    delta_percent=delta_pct,
+                    improvement=delta < 0,
+                )
+            )
 
     # Sort by improvement (best first)
     candidates.sort(key=lambda c: c.delta_fit)
@@ -188,7 +206,7 @@ def analyze_package_swaps(
 
 def analyze_type_swaps(
     component_type: str,
-    base_params: Dict[str, Any],
+    base_params: dict[str, Any],
     reference: str = "?",
     system_total_fit: float = 0.0,
 ) -> SwapAnalysisResult:
@@ -220,17 +238,19 @@ def analyze_type_swaps(
             delta = new_fit - current_fit
             delta_pct = (delta / current_fit * 100) if current_fit > 0 else 0
 
-            candidates.append(SwapCandidate(
-                name=f"{param_name}: {new_type}",
-                parameter=param_name,
-                old_value=current_type,
-                new_value=new_type,
-                lambda_before=current_fit,
-                lambda_after=new_fit,
-                delta_fit=delta,
-                delta_percent=delta_pct,
-                improvement=delta < 0,
-            ))
+            candidates.append(
+                SwapCandidate(
+                    name=f"{param_name}: {new_type}",
+                    parameter=param_name,
+                    old_value=current_type,
+                    new_value=new_type,
+                    lambda_before=current_fit,
+                    lambda_after=new_fit,
+                    delta_fit=delta,
+                    delta_percent=delta_pct,
+                    improvement=delta < 0,
+                )
+            )
 
     candidates.sort(key=lambda c: c.delta_fit)
     best = candidates[0] if candidates and candidates[0].improvement else None
@@ -248,8 +268,8 @@ def analyze_type_swaps(
 
 def analyze_custom_swap(
     component_type: str,
-    base_params: Dict[str, Any],
-    swap_params: Dict[str, Any],
+    base_params: dict[str, Any],
+    swap_params: dict[str, Any],
     reference: str = "?",
     system_total_fit: float = 0.0,
     swap_name: str = "Custom swap",
@@ -271,7 +291,7 @@ def analyze_custom_swap(
 
     candidate = SwapCandidate(
         name=swap_name,
-        parameter="multiple" if len(swap_params) > 1 else list(swap_params.keys())[0],
+        parameter="multiple" if len(swap_params) > 1 else next(iter(swap_params.keys())),
         old_value=changes_desc,
         new_value=changes_desc,
         lambda_before=current_fit,
@@ -294,11 +314,11 @@ def analyze_custom_swap(
 
 def quick_swap_comparison(
     component_type: str,
-    base_params: Dict[str, Any],
+    base_params: dict[str, Any],
     parameter: str,
     new_value: Any,
     reference: str = "?",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Quick single-parameter swap comparison.
 
     Returns a simple dict with before/after/delta for immediate display.
@@ -327,10 +347,10 @@ def quick_swap_comparison(
 
 
 def rank_all_swaps(
-    components: List[Dict],
+    components: list[dict],
     system_total_fit: float = 0.0,
     max_per_component: int = 5,
-) -> List[Dict]:
+) -> list[dict]:
     """Rank ALL possible single-parameter swaps across all components.
 
     Returns a flat list sorted by system-level FIT improvement.
@@ -348,31 +368,35 @@ def rank_all_swaps(
 
         # Package swaps
         pkg_result = analyze_package_swaps(comp_type, params, ref, system_total_fit)
-        for c in pkg_result.candidates[:max_per_component]:
-            if c.improvement:
-                all_improvements.append({
-                    "reference": ref,
-                    "component_type": comp_type,
-                    "swap_type": "package",
-                    "description": c.name,
-                    "delta_fit": c.delta_fit,
-                    "delta_percent": c.delta_percent,
-                    "new_system_fit": system_total_fit + c.delta_fit,
-                })
+        all_improvements.extend(
+            {
+                "reference": ref,
+                "component_type": comp_type,
+                "swap_type": "package",
+                "description": c.name,
+                "delta_fit": c.delta_fit,
+                "delta_percent": c.delta_percent,
+                "new_system_fit": system_total_fit + c.delta_fit,
+            }
+            for c in pkg_result.candidates[:max_per_component]
+            if c.improvement
+        )
 
         # Type swaps
         type_result = analyze_type_swaps(comp_type, params, ref, system_total_fit)
-        for c in type_result.candidates[:max_per_component]:
-            if c.improvement:
-                all_improvements.append({
-                    "reference": ref,
-                    "component_type": comp_type,
-                    "swap_type": "type",
-                    "description": c.name,
-                    "delta_fit": c.delta_fit,
-                    "delta_percent": c.delta_percent,
-                    "new_system_fit": system_total_fit + c.delta_fit,
-                })
+        all_improvements.extend(
+            {
+                "reference": ref,
+                "component_type": comp_type,
+                "swap_type": "type",
+                "description": c.name,
+                "delta_fit": c.delta_fit,
+                "delta_percent": c.delta_percent,
+                "new_system_fit": system_total_fit + c.delta_fit,
+            }
+            for c in type_result.candidates[:max_per_component]
+            if c.improvement
+        )
 
     # Sort by FIT improvement (most negative delta first)
     all_improvements.sort(key=lambda x: x["delta_fit"])

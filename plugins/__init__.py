@@ -27,93 +27,90 @@ try:
     from .plugin import ReliabilityPlugin
 
     ReliabilityPlugin().register()
-except Exception as e:
+except Exception as e:  # noqa: BLE001
     import logging
 
-    logging.warning(f"Could not register ReliabilityPlugin: {e}")
+    logging.getLogger(__name__).warning("Could not register ReliabilityPlugin: %s", e)
 
 # Expose main classes for external use
-from .reliability_math import (
-    calculate_lambda,
-    calculate_component_lambda,
-    reliability_from_lambda,
-    lambda_from_reliability,
-    mttf_from_lambda,
-    r_series,
-    r_parallel,
-    r_k_of_n,
-    lambda_series,
-    get_component_types,
-    get_field_definitions,
-    analyze_component_criticality,
-    fit_to_lambda,
-    lambda_to_fit,
-    format_lambda,
-    format_reliability,
-    INTERFACE_EOS_VALUES,
-    THERMAL_EXPANSION_SUBSTRATE,
-    THERMAL_EXPANSION_PACKAGE,
-    IC_DIE_TABLE,
-    IC_PACKAGE_TABLE,
-    DISCRETE_PACKAGE_TABLE,
-)
-
-from .sensitivity_analysis import (
-    TornadoResult,
-    DesignMarginResult,
-    tornado_sheet_sensitivity,
-    tornado_parameter_sensitivity,
-    design_margin_analysis,
-    analyze_board_criticality,
-)
-
-# Co-Design modules
-from .mission_profile import (
-    MissionPhase,
-    MissionProfile,
-    MISSION_TEMPLATES,
-    compute_phased_lambda,
-    estimate_phasing_impact,
-)
+import contextlib
 
 from .budget_allocation import (
-    allocate_budget,
-    BudgetAllocationResult,
     AllocationStrategy,
+    BudgetAllocationResult,
+    allocate_budget,
     compute_max_fit_for_target,
 )
-
-from .derating_engine import (
-    compute_derating_guidance,
-    DeratingResult,
-    DeratingRecommendation,
-)
-
 from .component_swap import (
+    SwapAnalysisResult,
     analyze_package_swaps,
     analyze_type_swaps,
     quick_swap_comparison,
     rank_all_swaps,
-    SwapAnalysisResult,
 )
-
-from .growth_tracking import (
-    create_snapshot,
-    save_snapshot,
-    load_snapshots,
-    compare_revisions,
-    build_growth_timeline,
-    ReliabilitySnapshot,
-    RevisionComparison,
-    GrowthTimeline,
-)
-
 from .correlated_mc import (
-    correlated_monte_carlo,
-    CorrelationGroup,
     CorrelatedMCResult,
+    CorrelationGroup,
     auto_group_by_sheet,
     auto_group_by_type,
+    correlated_monte_carlo,
+)
+from .derating_engine import (
+    DeratingRecommendation,
+    DeratingResult,
+    compute_derating_guidance,
+)
+from .growth_tracking import (
+    GrowthTimeline,
+    ReliabilitySnapshot,
+    RevisionComparison,
+    build_growth_timeline,
+    compare_revisions,
+    create_snapshot,
+    load_snapshots,
+    save_snapshot,
 )
 
-from .reliability_dialog import ReliabilityMainDialog
+# Co-Design modules
+from .mission_profile import (
+    MISSION_TEMPLATES,
+    MissionPhase,
+    MissionProfile,
+    compute_phased_lambda,
+    estimate_phasing_impact,
+)
+
+with contextlib.suppress(Exception):
+    from .reliability_dialog import ReliabilityMainDialog
+from .reliability_math import (
+    DISCRETE_PACKAGE_TABLE,
+    IC_DIE_TABLE,
+    IC_PACKAGE_TABLE,
+    INTERFACE_EOS_VALUES,
+    THERMAL_EXPANSION_PACKAGE,
+    THERMAL_EXPANSION_SUBSTRATE,
+    analyze_component_criticality,
+    calculate_component_lambda,
+    calculate_lambda,
+    fit_to_lambda,
+    format_lambda,
+    format_reliability,
+    get_component_types,
+    get_field_definitions,
+    lambda_from_reliability,
+    lambda_series,
+    lambda_to_fit,
+    mttf_from_lambda,
+    r_k_of_n,
+    r_parallel,
+    r_series,
+    reliability_from_lambda,
+)
+from .sensitivity_analysis import (
+    DesignMarginResult,
+    TornadoResult,
+    analyze_board_criticality,
+    design_margin_analysis,
+    tornado_parameter_sensitivity,
+    tornado_sheet_sensitivity,
+)

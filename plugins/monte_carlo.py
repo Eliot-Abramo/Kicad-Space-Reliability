@@ -54,16 +54,24 @@ Limitations
 Author:  Eliot Abramo
 """
 
-import numpy as np
+from __future__ import annotations
+
 import math
 import time
 from dataclasses import dataclass
-from typing import Dict, List, Tuple, Optional, Callable, Any
+from typing import Any, Callable
 
+import numpy as np
+
+try:
+    from .reliability_math import FIT_PER_LAMBDA, LAMBDA_PER_FIT
+except ImportError:
+    from reliability_math import FIT_PER_LAMBDA, LAMBDA_PER_FIT
 
 # =====================================================================
 # Data Structures
 # =====================================================================
+
 
 @dataclass
 class ParameterSpec:
@@ -73,14 +81,15 @@ class ParameterSpec:
     component that uses this parameter (additive delta for shared,
     per-component PERT for independent).
     """
-    name: str                           # IEC field name
-    nominal_by_ref: Dict[str, float]    # {component_ref: nominal_value}
-    delta_low: float = 0.0             # Shared mode: low delta (negative)
-    delta_high: float = 0.0            # Shared mode: high delta (positive)
-    rel_low: float = 0.0              # Independent mode: relative % low
-    rel_high: float = 0.0             # Independent mode: relative % high
-    distribution: str = "pert"          # "pert" or "uniform"
-    shared: bool = True                 # One draw for all components?
+
+    name: str  # IEC field name
+    nominal_by_ref: dict[str, float]  # {component_ref: nominal_value}
+    delta_low: float = 0.0  # Shared mode: low delta (negative)
+    delta_high: float = 0.0  # Shared mode: high delta (positive)
+    rel_low: float = 0.0  # Independent mode: relative % low
+    rel_high: float = 0.0  # Independent mode: relative % high
+    distribution: str = "pert"  # "pert" or "uniform"
+    shared: bool = True  # One draw for all components?
 
     @property
     def is_uncertain(self) -> bool:
@@ -97,20 +106,22 @@ class ParameterSpec:
 @dataclass
 class ComponentInput:
     """Component ready for MC analysis."""
+
     reference: str
     component_type: str
-    base_params: Dict[str, Any]        # Full parameter dict (nominal)
-    nominal_lambda: float               # Pre-computed nominal lambda (/h)
-    override_lambda: Optional[float]    # If set, lambda is fixed
-    uncertain_field_names: List[str]    # Which fields are uncertain
+    base_params: dict[str, Any]  # Full parameter dict (nominal)
+    nominal_lambda: float  # Pre-computed nominal lambda (/h)
+    override_lambda: float | None  # If set, lambda is fixed
+    uncertain_field_names: list[str]  # Which fields are uncertain
 
 
 @dataclass
 class UncertaintyResult:
     """Complete uncertainty analysis results."""
+
     # Nominal
-    nominal_lambda: float              # System lambda at nominal parameters
-    nominal_reliability: float          # R(t) at nominal parameters
+    nominal_lambda: float  # System lambda at nominal parameters
+    nominal_reliability: float  # R(t) at nominal parameters
     nominal_mttf_hours: float
 
     # MC statistics on R(t)
@@ -131,14 +142,14 @@ class UncertaintyResult:
     mean_ci_halfwidth: float
 
     # Samples
-    lambda_samples: np.ndarray          # (N,) system lambda per sample
-    reliability_samples: np.ndarray     # (N,) system R(t) per sample
+    lambda_samples: np.ndarray  # (N,) system lambda per sample
+    reliability_samples: np.ndarray  # (N,) system R(t) per sample
 
     # SRRC importance ranking
-    parameter_importance: List[Dict]    # [{name, srrc, srrc_sq, rank}]
+    parameter_importance: list[dict]  # [{name, srrc, srrc_sq, rank}]
 
     # Convergence
-    convergence_history: List[Tuple[int, float]]  # [(n_samples, running_mean)]
+    convergence_history: list[tuple[int, float]]  # [(n_samples, running_mean)]
 
     # Meta
     n_simulations: int
@@ -151,7 +162,7 @@ class UncertaintyResult:
     # Jensen diagnostic note
     jensen_note: str
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Serialise for report generation (no numpy arrays).
 
         Includes backward-compatible keys for existing report generator:
@@ -191,7 +202,7 @@ class UncertaintyResult:
             "runtime_seconds": self.runtime_seconds,
             "jensen_note": self.jensen_note,
             "samples": samples_list,
-            "lambda_samples_fit": (self.lambda_samples * 1e9).tolist(),
+            "lambda_samples_fit": (self.lambda_samples * FIT_PER_LAMBDA).tolist(),
             "convergence_history": self.convergence_history,
             # Backward-compatible keys for report generator
             "mean": self.mean_reliability,
@@ -206,6 +217,7 @@ class UncertaintyResult:
 # =====================================================================
 # Sampling Functions
 # =====================================================================
+
 
 def _pert_sample(rng, min_val, mode, max_val, size, gamma=4.0):
     """Sample from PERT (scaled Beta) distribution.
@@ -254,13 +266,13 @@ def _sample_parameter(rng, min_val, mode, max_val, distribution, size):
     """Draw samples from the specified distribution."""
     if distribution == "uniform":
         return _uniform_sample(rng, min_val, max_val, size)
-    else:
-        return _pert_sample(rng, min_val, mode, max_val, size)
+    return _pert_sample(rng, min_val, mode, max_val, size)
 
 
 # =====================================================================
 # Rank Data (without scipy dependency)
 # =====================================================================
+
 
 def _rankdata(x):
     """Rank data using average method for ties.
@@ -268,7 +280,7 @@ def _rankdata(x):
     Equivalent to scipy.stats.rankdata(x, method='average').
     """
     n = len(x)
-    sorter = np.argsort(x, kind='mergesort')
+    sorter = np.argsort(x, kind="mergesort")
     ranks = np.empty(n, dtype=np.float64)
     ranks[sorter] = np.arange(1, n + 1, dtype=np.float64)
     # Handle ties: assign average rank
@@ -279,8 +291,8 @@ def _rankdata(x):
         while j < n - 1 and abs(sorted_x[j + 1] - sorted_x[j]) < 1e-15:
             j += 1
         if j > i:
-            avg_rank = np.mean(ranks[sorter[i:j + 1]])
-            ranks[sorter[i:j + 1]] = avg_rank
+            avg_rank = np.mean(ranks[sorter[i : j + 1]])
+            ranks[sorter[i : j + 1]] = avg_rank
         i = j + 1
     return ranks
 
@@ -305,27 +317,27 @@ def _compute_srrc(input_matrix, output_vector):
         3. OLS regression: Y_ranked = X_ranked @ beta
         4. beta values are the SRRCs.
     """
-    N, k = input_matrix.shape
-    if N < k + 2 or k == 0:
+    N, k = input_matrix.shape  # noqa: N806
+    if k + 2 > N or k == 0:
         return np.zeros(k)
 
     # Rank-transform
-    ranked_X = np.empty_like(input_matrix, dtype=np.float64)
+    ranked_X = np.empty_like(input_matrix, dtype=np.float64)  # noqa: N806
     for j in range(k):
         ranked_X[:, j] = _rankdata(input_matrix[:, j])
-    ranked_Y = _rankdata(output_vector)
+    ranked_Y = _rankdata(output_vector)  # noqa: N806
 
     # Standardise
-    X_mean = ranked_X.mean(axis=0)
-    X_std = ranked_X.std(axis=0)
+    X_mean = ranked_X.mean(axis=0)  # noqa: N806
+    X_std = ranked_X.std(axis=0)  # noqa: N806
     X_std[X_std < 1e-15] = 1.0  # Prevent division by zero (constant col)
-    Y_mean = ranked_Y.mean()
-    Y_std = ranked_Y.std()
+    Y_mean = ranked_Y.mean()  # noqa: N806
+    Y_std = ranked_Y.std()  # noqa: N806
     if Y_std < 1e-15:
         return np.zeros(k)
 
-    X_s = (ranked_X - X_mean) / X_std
-    Y_s = (ranked_Y - Y_mean) / Y_std
+    X_s = (ranked_X - X_mean) / X_std  # noqa: N806
+    Y_s = (ranked_Y - Y_mean) / Y_std  # noqa: N806
 
     # OLS via normal equations: beta = (X^T X)^{-1} X^T Y
     try:
@@ -340,26 +352,23 @@ def _compute_srrc(input_matrix, output_vector):
 # Core Monte Carlo Engine
 # =====================================================================
 
+
 def _import_reliability_math():
     try:
-        from .reliability_math import (
-            calculate_component_lambda, reliability_from_lambda
-        )
+        from .reliability_math import calculate_component_lambda, reliability_from_lambda
     except ImportError:
-        from reliability_math import (
-            calculate_component_lambda, reliability_from_lambda
-        )
+        from reliability_math import calculate_component_lambda, reliability_from_lambda
     return calculate_component_lambda, reliability_from_lambda
 
 
-def run_uncertainty_analysis(
-    components: List[ComponentInput],
-    param_specs: List[ParameterSpec],
+def run_uncertainty_analysis(  # noqa: C901
+    components: list[ComponentInput],
+    param_specs: list[ParameterSpec],
     mission_hours: float,
     n_simulations: int = 3000,
     confidence_level: float = 0.90,
-    seed: Optional[int] = None,
-    progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    seed: int | None = None,
+    progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> UncertaintyResult:
     """Run parameter-level Monte Carlo uncertainty analysis.
 
@@ -401,16 +410,21 @@ def run_uncertainty_analysis(
     # ---- Input validation ----
     try:
         mission_hours = float(mission_hours)
-    except (TypeError, ValueError):
-        raise ValueError(f"mission_hours must be a number, got {type(mission_hours).__name__}")
+    except (TypeError, ValueError) as e:
+        msg = f"mission_hours must be a number, got {type(mission_hours).__name__}"
+        raise ValueError(msg) from e
     if mission_hours <= 0 or mission_hours != mission_hours:
-        raise ValueError(f"mission_hours must be positive, got {mission_hours}")
+        msg = f"mission_hours must be positive, got {mission_hours}"
+        raise ValueError(msg)
     if not isinstance(n_simulations, int) or n_simulations < 10:
-        raise ValueError(f"n_simulations must be an integer >= 10, got {n_simulations}")
+        msg = f"n_simulations must be an integer >= 10, got {n_simulations}"
+        raise ValueError(msg)
     if not (0 < confidence_level < 1):
-        raise ValueError(f"confidence_level must be in (0, 1), got {confidence_level}")
+        msg = f"confidence_level must be in (0, 1), got {confidence_level}"
+        raise ValueError(msg)
     if not components:
-        raise ValueError("components list is empty -- nothing to analyse")
+        msg = "components list is empty -- nothing to analyse"
+        raise ValueError(msg)
 
     calc_lambda, rel_from_lambda = _import_reliability_math()
     rng = np.random.default_rng(seed)
@@ -433,7 +447,7 @@ def run_uncertainty_analysis(
     for comp in components:
         if comp.override_lambda is not None:
             # Override lambdas are stored as FIT, convert to /h
-            computed_nominal_lambdas.append(float(comp.override_lambda) * 1e-9)
+            computed_nominal_lambdas.append(float(comp.override_lambda) * LAMBDA_PER_FIT)
         else:
             try:
                 # Recompute lambda using current IEC formula with base_params
@@ -441,16 +455,16 @@ def run_uncertainty_analysis(
                 lam = result.get("lambda_total", 0.0)
                 if lam < 0.0:
                     lam = 0.0
-            except Exception:
+            except Exception:  # noqa: BLE001
                 # Fallback to original nominal if calculation fails
                 lam = comp.nominal_lambda
             computed_nominal_lambdas.append(lam)
-    
+
     # Use freshly computed values instead of sheet_data values
     computed_nominal_lambdas = np.array(computed_nominal_lambdas)
     nominal_sys_lambda = computed_nominal_lambdas.sum()
-    nominal_R = rel_from_lambda(nominal_sys_lambda, mission_hours)
-    nominal_mttf = 1.0 / nominal_sys_lambda if nominal_sys_lambda > 0 else float('inf')
+    nominal_R = rel_from_lambda(nominal_sys_lambda, mission_hours)  # noqa: N806
+    nominal_mttf = 1.0 / nominal_sys_lambda if nominal_sys_lambda > 0 else float("inf")
 
     # ---- Identify which components need re-evaluation per sample ----
     # A component needs re-evaluation if ANY of its fields is uncertain.
@@ -485,17 +499,15 @@ def run_uncertainty_analysis(
     # ---- Pre-generate all parameter samples ----
     # Shared: one sample vector per parameter (N,)
     # Independent: one sample per parameter per component (N, n_uses)
-    shared_samples = {}    # {param_name: np.ndarray(N,)}  deltas
-    indep_samples = {}     # {param_name: {ref: np.ndarray(N,)}}  absolute values
+    shared_samples = {}  # {param_name: np.ndarray(N,)}  deltas
+    indep_samples = {}  # {param_name: {ref: np.ndarray(N,)}}  absolute values
 
     for spec in shared_specs:
         # Shared: draw a delta from PERT(delta_low, 0, delta_high) or Uniform
-        d_lo = spec.delta_low   # typically negative
+        d_lo = spec.delta_low  # typically negative
         d_hi = spec.delta_high  # typically positive
         mode = 0.0  # The mode of the delta is 0 (= nominal)
-        shared_samples[spec.name] = _sample_parameter(
-            rng, d_lo, mode, d_hi, spec.distribution, n_simulations
-        )
+        shared_samples[spec.name] = _sample_parameter(rng, d_lo, mode, d_hi, spec.distribution, n_simulations)
 
     for spec in indep_specs:
         indep_samples[spec.name] = {}
@@ -507,9 +519,7 @@ def run_uncertainty_analysis(
             # Ensure lo <= nom <= hi
             lo = min(lo, nom)
             hi = max(hi, nom)
-            indep_samples[spec.name][ref] = _sample_parameter(
-                rng, lo, nom, hi, spec.distribution, n_simulations
-            )
+            indep_samples[spec.name][ref] = _sample_parameter(rng, lo, nom, hi, spec.distribution, n_simulations)
 
     # ---- SRRC tracking: build input sample matrix ----
     # Columns: one per uncertain spec.
@@ -525,9 +535,7 @@ def run_uncertainty_analysis(
             # Average the independent samples across components
             refs = list(indep_samples.get(spec.name, {}).keys())
             if refs:
-                stacked = np.column_stack([
-                    indep_samples[spec.name][r] for r in refs
-                ])
+                stacked = np.column_stack([indep_samples[spec.name][r] for r in refs])
                 srrc_input[:, col_idx] = stacked.mean(axis=1)
 
     # ---- Run MC loop (optimised) ----
@@ -543,8 +551,7 @@ def run_uncertainty_analysis(
     for ci, comp in enumerate(components):
         if comp.override_lambda is not None:
             # Override components: lambda is fixed and in FIT units
-            _comp_infos.append(("override", ci, comp.override_lambda * 1e-9,
-                                None, None, None, None))
+            _comp_infos.append(("override", ci, comp.override_lambda * LAMBDA_PER_FIT, None, None, None, None))
         elif ci in uncertain_comp_indices:
             # Uncertain components: will be re-evaluated each sample
             # Shared: list of (param_name, nominal_for_this_comp, shared_samples_array)
@@ -560,9 +567,7 @@ def run_uncertainty_analysis(
                 arr = ref_samps.get(comp.reference)
                 if arr is not None:
                     ind_list.append((spec.name, arr))
-            _comp_infos.append(("eval", ci, 0.0,
-                                comp.base_params, comp.component_type,
-                                sh_list, ind_list))
+            _comp_infos.append(("eval", ci, 0.0, comp.base_params, comp.component_type, sh_list, ind_list))
 
     # Pre-allocate a reusable params dict per component (avoids dict() copy each iter)
     _param_buffers = []
@@ -600,7 +605,7 @@ def run_uncertainty_analysis(
                 lam_i = result.get("lambda_total", 0.0)
                 if lam_i < 0.0:
                     lam_i = 0.0
-            except Exception:
+            except Exception:  # noqa: BLE001
                 lam_i = components[ci].nominal_lambda
             sys_lam += lam_i
 
@@ -608,9 +613,7 @@ def run_uncertainty_analysis(
 
         # Convergence tracking (reduced frequency)
         if (sim + 1) % report_interval == 0 or sim == n_simulations - 1:
-            running_mean = float(np.mean(
-                np.exp(-sys_lambda_samples[:sim + 1] * mission_hours)
-            ))
+            running_mean = float(np.mean(np.exp(-sys_lambda_samples[: sim + 1] * mission_hours)))
             convergence_history.append((sim + 1, running_mean))
             if progress_callback:
                 progress_callback(sim + 1, n_simulations, "Sampling...")
@@ -626,7 +629,7 @@ def run_uncertainty_analysis(
     ci_lo_r = float(np.percentile(reliability_samples, alpha * 100))
     ci_hi_r = float(np.percentile(reliability_samples, (1 - alpha) * 100))
 
-    lambda_fit = sys_lambda_samples * 1e9
+    lambda_fit = sys_lambda_samples * FIT_PER_LAMBDA
     mean_lfit = float(np.mean(lambda_fit))
     std_lfit = float(np.std(lambda_fit, ddof=1))
     ci_lo_lfit = float(np.percentile(lambda_fit, alpha * 100))
@@ -643,13 +646,15 @@ def run_uncertainty_analysis(
     if n_uncertain > 0 and n_simulations > n_uncertain + 2:
         srrc_values = _compute_srrc(srrc_input, sys_lambda_samples)
         for i, name in enumerate(srrc_names):
-            importance.append({
-                "name": name,
-                "srrc": float(srrc_values[i]),
-                "srrc_sq": float(srrc_values[i] ** 2),
-                "n_components": uncertain_specs[i].n_components,
-                "shared": uncertain_specs[i].shared,
-            })
+            importance.append(
+                {
+                    "name": name,
+                    "srrc": float(srrc_values[i]),
+                    "srrc_sq": float(srrc_values[i] ** 2),
+                    "n_components": uncertain_specs[i].n_components,
+                    "shared": uncertain_specs[i].shared,
+                }
+            )
         # Sort by |SRRC| descending
         importance.sort(key=lambda x: -abs(x["srrc"]))
         # Assign ranks
@@ -724,11 +729,12 @@ def run_uncertainty_analysis(
 # Helper: Build ComponentInput list from sheet_data
 # =====================================================================
 
+
 def build_component_inputs(
-    sheet_data: Dict[str, Dict],
-    active_sheets: Optional[List[str]] = None,
-    excluded_types: Optional[set] = None,
-) -> List[ComponentInput]:
+    sheet_data: dict[str, dict],
+    active_sheets: list[str] | None = None,
+    excluded_types: set | None = None,
+) -> list[ComponentInput]:
     """Extract ComponentInput list from the standard sheet_data dict.
 
     Parameters
@@ -744,17 +750,14 @@ def build_component_inputs(
     -------
     List of ComponentInput, one per component.
     """
-    calc_lambda, _ = _import_reliability_math()
+    _calc_lambda, _ = _import_reliability_math()
     excluded = excluded_types or set()
 
-    if active_sheets:
-        filtered = {k: v for k, v in sheet_data.items() if k in active_sheets}
-    else:
-        filtered = sheet_data
+    filtered = {k: v for k, v in sheet_data.items() if k in active_sheets} if active_sheets else sheet_data
 
     inputs = []
     seen_refs = set()
-    for path, data in filtered.items():
+    for data in filtered.values():
         for comp in data.get("components", []):
             ctype = comp.get("class", "Unknown")
             if ctype in excluded:
@@ -766,19 +769,18 @@ def build_component_inputs(
             params = comp.get("params", {})
             override = comp.get("override_lambda")
 
-            if override is not None:
-                nom_lam = float(override) * 1e-9
-            else:
-                nom_lam = float(comp.get("lambda", 0) or 0)
+            nom_lam = float(override) * 1e-09 if override is not None else float(comp.get("lambda", 0) or 0)
 
-            inputs.append(ComponentInput(
-                reference=ref,
-                component_type=ctype,
-                base_params=dict(params),
-                nominal_lambda=nom_lam,
-                override_lambda=override,
-                uncertain_field_names=[],
-            ))
+            inputs.append(
+                ComponentInput(
+                    reference=ref,
+                    component_type=ctype,
+                    base_params=dict(params),
+                    nominal_lambda=nom_lam,
+                    override_lambda=override,
+                    uncertain_field_names=[],
+                )
+            )
 
     return inputs
 
@@ -791,11 +793,11 @@ ORBIT_PARAMS = {"delta_t", "tau_on"}
 
 
 def build_default_param_specs(
-    components: List[ComponentInput],
+    components: list[ComponentInput],
     global_uncertainty_pct: float = 0.0,
     distribution: str = "pert",
-    shared_params: Optional[set] = None,
-) -> List[ParameterSpec]:
+    shared_params: set | None = None,
+) -> list[ParameterSpec]:
     """Build ParameterSpec list by scanning components for numeric fields.
 
     Default shared parameters (environmental, board-level):

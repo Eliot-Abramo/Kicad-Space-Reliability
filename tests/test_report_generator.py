@@ -1,19 +1,11 @@
-import pathlib
-import sys
 import tempfile
-import unittest
 from unittest import mock
 
-
-REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
-PLUGIN_ROOT = REPO_ROOT / "plugins"
-if str(PLUGIN_ROOT) not in sys.path:
-    sys.path.insert(0, str(PLUGIN_ROOT))
-
+import pytest
 import report_generator
 
 
-class ReportGeneratorTests(unittest.TestCase):
+class ReportGeneratorTests:
     def _sample_report_data(self):
         return report_generator.ReportData(
             project_name="Smoke",
@@ -153,30 +145,30 @@ class ReportGeneratorTests(unittest.TestCase):
         csv_data = generator.generate_csv(data)
         json_data = generator.generate_json(data)
 
-        self.assertIn("Reliability Analysis Report", html)
-        self.assertIn("What This Tool Does And What This Report Communicates", html)
-        self.assertIn("Component classification provenance", html)
-        self.assertIn("Methodology", html)
-        self.assertIn("Tornado Sensitivity", markdown)
-        self.assertIn("What This Report Means", markdown)
-        self.assertIn("Gap To Close", markdown)
-        self.assertIn("Sheet,Reference,Value,Type", csv_data)
-        self.assertIn('"project": "Smoke"', json_data)
+        assert "Reliability Analysis Report" in html
+        assert "What This Tool Does And What This Report Communicates" in html
+        assert "Component classification provenance" in html
+        assert "Methodology" in html
+        assert "Tornado Sensitivity" in markdown
+        assert "What This Report Means" in markdown
+        assert "Gap To Close" in markdown
+        assert "Sheet,Reference,Value,Type" in csv_data
+        assert '"project": "Smoke"' in json_data
 
     def test_pdf_export_without_optional_dependencies_raises_clear_error(self):
         real_import = __import__
 
-        def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        def fake_import(name, global_vars=None, local_vars=None, fromlist=(), level=0):
             if name == "weasyprint" or name.startswith("reportlab"):
                 raise ImportError(name)
-            return real_import(name, globals, locals, fromlist, level)
+            return real_import(name, global_vars, local_vars, fromlist, level)
 
-        with tempfile.NamedTemporaryFile(suffix=".pdf") as tmp:
-            with mock.patch("builtins.__import__", side_effect=fake_import):
-                with self.assertRaisesRegex(RuntimeError, "optional dependency"):
-                    report_generator.ReportGenerator.html_to_pdf(
-                        "<html></html>", tmp.name
-                    )
+        with (
+            tempfile.NamedTemporaryFile(suffix=".pdf") as tmp,
+            mock.patch("builtins.__import__", side_effect=fake_import),
+            pytest.raises(RuntimeError, match="optional dependency"),
+        ):
+            report_generator.ReportGenerator.html_to_pdf("<html></html>", tmp.name)
 
     def test_empty_mc_samples_still_generate_html(self):
         data = self._sample_report_data()
@@ -195,9 +187,5 @@ class ReportGeneratorTests(unittest.TestCase):
 
         html = report_generator.ReportGenerator().generate_html(data)
 
-        self.assertIn("Monte Carlo Uncertainty Analysis", html)
-        self.assertIn("0 simulations", html)
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert "Monte Carlo Uncertainty Analysis" in html
+        assert "0 simulations" in html

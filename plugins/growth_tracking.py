@@ -15,23 +15,30 @@ Snapshots are stored as JSON in the project's Reliability/ folder.
 Author:  Eliot Abramo
 """
 
+from __future__ import annotations
+
 import json
-import math
-from datetime import datetime
-from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple, Any
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+try:
+    from .reliability_math import FIT_PER_LAMBDA
+except ImportError:
+    from reliability_math import FIT_PER_LAMBDA
 
 
 @dataclass
 class ReliabilitySnapshot:
     """A point-in-time snapshot of system reliability state."""
+
     timestamp: str
     version_label: str
     notes: str
 
-    system_lambda: float          # /h
-    system_fit: float             # FIT
+    system_lambda: float  # /h
+    system_fit: float  # FIT
     system_reliability: float
     mission_hours: float
 
@@ -39,18 +46,18 @@ class ReliabilitySnapshot:
     n_sheets: int
 
     # Per-sheet summary
-    sheet_summary: Dict[str, Dict] = field(default_factory=dict)
+    sheet_summary: dict[str, dict] = field(default_factory=dict)
     # {sheet_path: {lambda, fit, r, n_components}}
 
     # Per-component lambda (for diff attribution)
-    component_lambdas: Dict[str, float] = field(default_factory=dict)
-    # {reference: lambda_per_hour}
+    component_lambdas: dict[str, float] = field(default_factory=dict)
+    # reference -> lambda_per_hour
 
     # Component details for diff
-    component_details: Dict[str, Dict] = field(default_factory=dict)
-    # {reference: {class, params, fit, ...}}
+    component_details: dict[str, dict] = field(default_factory=dict)
+    # reference -> {class, params, fit, ...}
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "timestamp": self.timestamp,
             "version_label": self.version_label,
@@ -67,7 +74,7 @@ class ReliabilitySnapshot:
         }
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "ReliabilitySnapshot":
+    def from_dict(cls, d: dict[str, Any]) -> ReliabilitySnapshot:
         return cls(
             timestamp=d.get("timestamp", ""),
             version_label=d.get("version_label", ""),
@@ -87,17 +94,18 @@ class ReliabilitySnapshot:
 @dataclass
 class ComponentChange:
     """A single component-level change between revisions."""
+
     reference: str
     component_type: str
-    change_type: str      # "modified", "added", "removed"
+    change_type: str  # "modified", "added", "removed"
     fit_before: float
     fit_after: float
     delta_fit: float
     delta_percent: float
-    parameter_changes: Dict[str, Tuple[Any, Any]] = field(default_factory=dict)
-    # {param_name: (old_value, new_value)}
+    parameter_changes: dict[str, tuple[Any, Any]] = field(default_factory=dict)
+    # param_name -> (old_value, new_value)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "reference": self.reference,
             "component_type": self.component_type,
@@ -106,16 +114,14 @@ class ComponentChange:
             "fit_after": self.fit_after,
             "delta_fit": self.delta_fit,
             "delta_percent": self.delta_percent,
-            "parameter_changes": {
-                k: {"old": v[0], "new": v[1]}
-                for k, v in self.parameter_changes.items()
-            },
+            "parameter_changes": {k: {"old": v[0], "new": v[1]} for k, v in self.parameter_changes.items()},
         }
 
 
 @dataclass
 class RevisionComparison:
     """Comparison between two design revisions."""
+
     from_version: str
     to_version: str
     from_timestamp: str
@@ -130,7 +136,7 @@ class RevisionComparison:
     reliability_after: float
     reliability_improvement: float
 
-    component_changes: List[ComponentChange] = field(default_factory=list)
+    component_changes: list[ComponentChange] = field(default_factory=list)
     components_improved: int = 0
     components_degraded: int = 0
     components_added: int = 0
@@ -138,10 +144,10 @@ class RevisionComparison:
     components_unchanged: int = 0
 
     # Top attributions
-    top_improvements: List[ComponentChange] = field(default_factory=list)
-    top_degradations: List[ComponentChange] = field(default_factory=list)
+    top_improvements: list[ComponentChange] = field(default_factory=list)
+    top_degradations: list[ComponentChange] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "from_version": self.from_version,
             "to_version": self.to_version,
@@ -168,11 +174,12 @@ class RevisionComparison:
 @dataclass
 class GrowthTimeline:
     """Timeline of reliability growth across all snapshots."""
-    snapshots: List[ReliabilitySnapshot] = field(default_factory=list)
-    target_reliability: Optional[float] = None
-    target_fit: Optional[float] = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    snapshots: list[ReliabilitySnapshot] = field(default_factory=list)
+    target_reliability: float | None = None
+    target_fit: float | None = None
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "target_reliability": self.target_reliability,
             "target_fit": self.target_fit,
@@ -193,8 +200,9 @@ class GrowthTimeline:
 # Snapshot creation from current design state
 # =========================================================================
 
+
 def create_snapshot(
-    sheet_data: Dict[str, Dict],
+    sheet_data: dict[str, dict],
     system_lambda: float,
     mission_hours: float,
     version_label: str = "",
@@ -206,7 +214,7 @@ def create_snapshot(
     except ImportError:
         from reliability_math import reliability_from_lambda
 
-    system_fit = system_lambda * 1e9
+    system_fit = system_lambda * FIT_PER_LAMBDA
     system_r = reliability_from_lambda(system_lambda, mission_hours)
 
     sheet_summary = {}
@@ -218,7 +226,7 @@ def create_snapshot(
         comps = data.get("components", [])
         sheet_summary[path] = {
             "lambda": float(data.get("lambda", 0)),
-            "fit": float(data.get("lambda", 0)) * 1e9,
+            "fit": float(data.get("lambda", 0)) * FIT_PER_LAMBDA,
             "r": float(data.get("r", 1)),
             "n_components": len(comps),
         }
@@ -230,7 +238,7 @@ def create_snapshot(
             component_details[ref] = {
                 "class": comp.get("class", "Unknown"),
                 "value": comp.get("value", ""),
-                "fit": lam * 1e9,
+                "fit": lam * FIT_PER_LAMBDA,
                 "params": comp.get("params", {}),
                 "sheet": path,
                 "override_lambda": comp.get("override_lambda"),
@@ -238,10 +246,10 @@ def create_snapshot(
             n_total += 1
 
     if not version_label:
-        version_label = f"v{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        version_label = f"v{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
 
     return ReliabilitySnapshot(
-        timestamp=datetime.now().isoformat(),
+        timestamp=datetime.now(timezone.utc).isoformat(),
         version_label=version_label,
         notes=notes,
         system_lambda=system_lambda,
@@ -259,6 +267,7 @@ def create_snapshot(
 # =========================================================================
 # Revision comparison
 # =========================================================================
+
 
 def compare_revisions(
     before: ReliabilitySnapshot,
@@ -286,8 +295,8 @@ def compare_revisions(
     for ref in common:
         lam_b = before.component_lambdas.get(ref, 0)
         lam_a = after.component_lambdas.get(ref, 0)
-        fit_b = lam_b * 1e9
-        fit_a = lam_a * 1e9
+        fit_b = lam_b * FIT_PER_LAMBDA
+        fit_a = lam_a * FIT_PER_LAMBDA
         delta = fit_a - fit_b
         delta_pct = (delta / fit_b * 100) if fit_b > 0 else 0
 
@@ -330,32 +339,36 @@ def compare_revisions(
     # Added components
     for ref in added:
         lam = after.component_lambdas.get(ref, 0)
-        fit = lam * 1e9
+        fit = lam * FIT_PER_LAMBDA
         details = after.component_details.get(ref, {})
-        changes.append(ComponentChange(
-            reference=ref,
-            component_type=details.get("class", "Unknown"),
-            change_type="added",
-            fit_before=0,
-            fit_after=fit,
-            delta_fit=fit,
-            delta_percent=100.0,
-        ))
+        changes.append(
+            ComponentChange(
+                reference=ref,
+                component_type=details.get("class", "Unknown"),
+                change_type="added",
+                fit_before=0,
+                fit_after=fit,
+                delta_fit=fit,
+                delta_percent=100.0,
+            )
+        )
 
     # Removed components
     for ref in removed:
         lam = before.component_lambdas.get(ref, 0)
-        fit = lam * 1e9
+        fit = lam * FIT_PER_LAMBDA
         details = before.component_details.get(ref, {})
-        changes.append(ComponentChange(
-            reference=ref,
-            component_type=details.get("class", "Unknown"),
-            change_type="removed",
-            fit_before=fit,
-            fit_after=0,
-            delta_fit=-fit,
-            delta_percent=-100.0,
-        ))
+        changes.append(
+            ComponentChange(
+                reference=ref,
+                component_type=details.get("class", "Unknown"),
+                change_type="removed",
+                fit_before=fit,
+                fit_after=0,
+                delta_fit=-fit,
+                delta_percent=-100.0,
+            )
+        )
 
     # Sort all changes by delta (improvements first)
     changes.sort(key=lambda c: c.delta_fit)
@@ -410,43 +423,40 @@ def save_snapshot(snapshot: ReliabilitySnapshot, project_path: str) -> str:
     existing = []
     if snapshots_path.exists():
         try:
-            with open(snapshots_path, "r", encoding="utf-8") as f:
+            with snapshots_path.open(encoding="utf-8") as f:
                 data = json.load(f)
                 existing = data.get("snapshots", [])
-        except Exception:
+        except Exception:  # noqa: BLE001
             existing = []
 
     # Append new snapshot
     existing.append(snapshot.to_dict())
 
     # Save
-    with open(snapshots_path, "w", encoding="utf-8") as f:
+    with snapshots_path.open("w", encoding="utf-8") as f:
         json.dump({"snapshots": existing}, f, indent=2)
 
     return str(snapshots_path)
 
 
-def load_snapshots(project_path: str) -> List[ReliabilitySnapshot]:
+def load_snapshots(project_path: str) -> list[ReliabilitySnapshot]:
     """Load all snapshots from the project's Reliability folder."""
     snapshots_path = Path(project_path) / "Reliability" / SNAPSHOTS_FILENAME
     if not snapshots_path.exists():
         return []
 
     try:
-        with open(snapshots_path, "r", encoding="utf-8") as f:
+        with snapshots_path.open(encoding="utf-8") as f:
             data = json.load(f)
-            return [
-                ReliabilitySnapshot.from_dict(d)
-                for d in data.get("snapshots", [])
-            ]
-    except Exception:
+            return [ReliabilitySnapshot.from_dict(d) for d in data.get("snapshots", [])]
+    except Exception:  # noqa: BLE001
         return []
 
 
 def build_growth_timeline(
     project_path: str,
-    target_reliability: Optional[float] = None,
-    target_fit: Optional[float] = None,
+    target_reliability: float | None = None,
+    target_fit: float | None = None,
 ) -> GrowthTimeline:
     """Build a growth timeline from all stored snapshots."""
     snapshots = load_snapshots(project_path)
@@ -465,15 +475,16 @@ def delete_snapshot(project_path: str, version_label: str) -> bool:
         return False
 
     try:
-        with open(snapshots_path, "r", encoding="utf-8") as f:
+        with snapshots_path.open(encoding="utf-8") as f:
             data = json.load(f)
         snapshots = data.get("snapshots", [])
         filtered = [s for s in snapshots if s.get("version_label") != version_label]
         if len(filtered) == len(snapshots):
             return False  # Not found
 
-        with open(snapshots_path, "w", encoding="utf-8") as f:
+        with snapshots_path.open("w", encoding="utf-8") as f:
             json.dump({"snapshots": filtered}, f, indent=2)
-        return True
-    except Exception:
+    except Exception:  # noqa: BLE001
         return False
+    else:
+        return True

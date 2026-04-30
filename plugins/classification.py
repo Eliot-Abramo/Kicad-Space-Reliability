@@ -5,9 +5,9 @@ Author:  Eliot Abramo
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Dict, Optional
 import re
+from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -19,8 +19,9 @@ class ClassificationResult:
     source: str
 
 
-def _classification(result_type: str, confidence: str, reason: str,
-                    review_required: bool, source: str) -> ClassificationResult:
+def _classification(
+    result_type: str, confidence: str, reason: str, review_required: bool, source: str
+) -> ClassificationResult:
     return ClassificationResult(
         component_type=result_type,
         confidence=confidence,
@@ -34,7 +35,7 @@ def _normalize_text(value: Any) -> str:
     return str(value or "").strip()
 
 
-def _infer_from_field_text(text: str) -> Optional[str]:
+def _infer_from_field_text(text: str) -> str | None:
     lc = text.lower()
     mapping = [
         (("optocoupler", "opto"), "Optocoupler"),
@@ -57,8 +58,9 @@ def _infer_from_field_text(text: str) -> Optional[str]:
     return None
 
 
-def classify_component_info(reference: str, value: str,
-                            existing_fields: Dict[str, Any] | None = None) -> ClassificationResult:
+def classify_component_info(
+    reference: str, value: str, existing_fields: dict[str, Any] | None = None
+) -> ClassificationResult:
     """Classify a component and return confidence + rationale."""
     fields = existing_fields or {}
     ref = _normalize_text(reference).upper()
@@ -70,9 +72,7 @@ def classify_component_info(reference: str, value: str,
 
     explicit = _infer_from_field_text(rel_class)
     if explicit:
-        return _classification(
-            explicit, "high", f"Explicit Reliability_Class='{rel_class}'", False, "explicit field"
-        )
+        return _classification(explicit, "high", f"Explicit Reliability_Class='{rel_class}'", False, "explicit field")
 
     descriptive_text = " ".join(part for part in [value_lc, footprint, symbol] if part)
 
@@ -133,9 +133,11 @@ def classify_component_info(reference: str, value: str,
             break
     if matched_prefix:
         prefix, (label, confidence, reason) = matched_prefix
-        review = label in {"Crystal/Oscillator"} and prefix == "X"
+        review = label == "Crystal/Oscillator" and prefix == "X"
         if "header" in descriptive_text or "conn" in descriptive_text or "terminal" in descriptive_text:
-            return _classification("Connector", "high", "Footprint or symbol looks like a connector/header", False, "descriptive text")
+            return _classification(
+                "Connector", "high", "Footprint or symbol looks like a connector/header", False, "descriptive text"
+            )
         return _classification(label, confidence, reason, review, "reference prefix")
 
     if re.fullmatch(r"\d+(\.\d+)?mhz", value_lc) or re.fullmatch(r"\d+(\.\d+)?khz", value_lc):
@@ -166,7 +168,7 @@ def classify_component_info(reference: str, value: str,
     )
 
 
-def classification_to_fields(result: ClassificationResult) -> Dict[str, Any]:
+def classification_to_fields(result: ClassificationResult) -> dict[str, Any]:
     return {
         "_component_type": result.component_type,
         "_classification_confidence": result.confidence,
@@ -176,5 +178,5 @@ def classification_to_fields(result: ClassificationResult) -> Dict[str, Any]:
     }
 
 
-def classify_component(reference: str, value: str, existing_fields: Dict[str, Any] | None = None) -> str:
+def classify_component(reference: str, value: str, existing_fields: dict[str, Any] | None = None) -> str:
     return classify_component_info(reference, value, existing_fields).component_type

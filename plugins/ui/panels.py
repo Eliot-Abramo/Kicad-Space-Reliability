@@ -5,15 +5,24 @@ Sheet panel, mission settings, component list, and mission phase dialog.
 Author:  Eliot Abramo
 """
 
-from typing import List
+from __future__ import annotations
 
 import wx
 import wx.lib.scrolledpanel as scrolled
 
 try:
-    from ..mission_profile import MissionPhase, MissionProfile, MISSION_TEMPLATES
     from ..component_editor import QuickReferenceDialog
-    from .theme import PALETTE, apply_compact_fonts, apply_theme_recursively, dip_px, dip_size, style_list_ctrl, style_panel, style_text_like
+    from ..mission_profile import MISSION_TEMPLATES, MissionPhase, MissionProfile
+    from ..reliability_math import FIT_PER_LAMBDA
+    from .theme import (
+        PALETTE,
+        apply_compact_fonts,
+        apply_theme_recursively,
+        dip_px,
+        dip_size,
+        style_list_ctrl,
+        style_panel,
+    )
 except ImportError:
     import sys
     from pathlib import Path
@@ -23,13 +32,23 @@ except ImportError:
         text = str(path)
         if text not in sys.path:
             sys.path.insert(0, text)
-    from mission_profile import MissionPhase, MissionProfile, MISSION_TEMPLATES
     from component_editor import QuickReferenceDialog
-    from theme import PALETTE, apply_compact_fonts, apply_theme_recursively, dip_px, dip_size, style_list_ctrl, style_panel, style_text_like
+    from mission_profile import MISSION_TEMPLATES, MissionPhase, MissionProfile
+    from reliability_math import FIT_PER_LAMBDA
+    from theme import (
+        PALETTE,
+        apply_compact_fonts,
+        apply_theme_recursively,
+        dip_px,
+        dip_size,
+        style_list_ctrl,
+        style_panel,
+    )
 
 
 class Colors:
     """Design system colors."""
+
     BACKGROUND = PALETTE.background
     PANEL_BG = PALETTE.panel_bg
     CARD_BG = PALETTE.card_bg
@@ -83,16 +102,16 @@ class SheetPanel(wx.Panel):
 
         self.SetSizer(main)
 
-    def set_sheets(self, sheets: List[str]):
+    def set_sheets(self, sheets: list[str]):
         self.sheets = sheets
         self.list.Set(sheets)
 
-    def _on_add(self, event):
+    def _on_add(self, event):  # noqa: ARG002
         for i in self.list.GetSelections():
             if self.on_add:
                 self.on_add(self.sheets[i])
 
-    def _on_add_all(self, event):
+    def _on_add_all(self, event):  # noqa: ARG002
         for s in self.sheets:
             if self.on_add:
                 self.on_add(s)
@@ -100,7 +119,7 @@ class SheetPanel(wx.Panel):
     def _on_dclick(self, event):
         self._on_add(event)
 
-    def _on_edit(self, event):
+    def _on_edit(self, event):  # noqa: ARG002
         selections = self.list.GetSelections()
         if selections and self.on_edit:
             self.on_edit([self.sheets[i] for i in selections])
@@ -112,8 +131,7 @@ class MissionPhaseDialog(wx.Dialog):
     """Dialog for editing a single mission phase."""
 
     def __init__(self, parent, phase: MissionPhase = None, title="Edit Mission Phase"):
-        super().__init__(parent, title=title,
-                         style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+        super().__init__(parent, title=title, style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         style_panel(self, Colors.PANEL_BG)
         self.SetSize(dip_size(self, 380, 320))
 
@@ -126,37 +144,48 @@ class MissionPhaseDialog(wx.Dialog):
         form.Add(self.name_ctrl, 0, wx.EXPAND)
 
         form.Add(wx.StaticText(self, label="Duration (%):"), 0, wx.ALIGN_CENTER_VERTICAL)
-        self.duration_ctrl = wx.SpinCtrlDouble(self, min=0.1, max=100.0,
-            initial=(phase.duration_frac * 100) if phase else 100.0, inc=1.0, size=dip_size(self, 116, -1))
+        self.duration_ctrl = wx.SpinCtrlDouble(
+            self,
+            min=0.1,
+            max=100.0,
+            initial=(phase.duration_frac * 100) if phase else 100.0,
+            inc=1.0,
+            size=dip_size(self, 116, -1),
+        )
         self.duration_ctrl.SetDigits(1)
         form.Add(self.duration_ctrl, 0)
 
         form.Add(wx.StaticText(self, label="T_ambient (degC):"), 0, wx.ALIGN_CENTER_VERTICAL)
-        self.t_amb_ctrl = wx.SpinCtrlDouble(self, min=-55, max=200,
-            initial=phase.t_ambient if phase else 25.0, inc=5.0, size=dip_size(self, 116, -1))
+        self.t_amb_ctrl = wx.SpinCtrlDouble(
+            self, min=-55, max=200, initial=phase.t_ambient if phase else 25.0, inc=5.0, size=dip_size(self, 116, -1)
+        )
         self.t_amb_ctrl.SetDigits(1)
         form.Add(self.t_amb_ctrl, 0)
 
         form.Add(wx.StaticText(self, label="T_junction (degC):"), 0, wx.ALIGN_CENTER_VERTICAL)
-        self.t_junc_ctrl = wx.SpinCtrlDouble(self, min=-55, max=250,
-            initial=phase.t_junction if phase else 85.0, inc=5.0, size=dip_size(self, 116, -1))
+        self.t_junc_ctrl = wx.SpinCtrlDouble(
+            self, min=-55, max=250, initial=phase.t_junction if phase else 85.0, inc=5.0, size=dip_size(self, 116, -1)
+        )
         self.t_junc_ctrl.SetDigits(1)
         form.Add(self.t_junc_ctrl, 0)
 
         form.Add(wx.StaticText(self, label="Thermal cycles/yr:"), 0, wx.ALIGN_CENTER_VERTICAL)
-        self.cycles_ctrl = wx.SpinCtrl(self, min=0, max=50000,
-            initial=phase.n_cycles if phase else 5256, size=dip_size(self, 116, -1))
+        self.cycles_ctrl = wx.SpinCtrl(
+            self, min=0, max=50000, initial=phase.n_cycles if phase else 5256, size=dip_size(self, 116, -1)
+        )
         form.Add(self.cycles_ctrl, 0)
 
         form.Add(wx.StaticText(self, label="Delta_T (degC):"), 0, wx.ALIGN_CENTER_VERTICAL)
-        self.dt_ctrl = wx.SpinCtrlDouble(self, min=0.0, max=100.0,
-            initial=phase.delta_t if phase else 3.0, inc=0.5, size=dip_size(self, 116, -1))
+        self.dt_ctrl = wx.SpinCtrlDouble(
+            self, min=0.0, max=100.0, initial=phase.delta_t if phase else 3.0, inc=0.5, size=dip_size(self, 116, -1)
+        )
         self.dt_ctrl.SetDigits(1)
         form.Add(self.dt_ctrl, 0)
 
         form.Add(wx.StaticText(self, label="tau_on (0-1):"), 0, wx.ALIGN_CENTER_VERTICAL)
-        self.tau_ctrl = wx.SpinCtrlDouble(self, min=0.0, max=1.0,
-            initial=phase.tau_on if phase else 1.0, inc=0.05, size=dip_size(self, 116, -1))
+        self.tau_ctrl = wx.SpinCtrlDouble(
+            self, min=0.0, max=1.0, initial=phase.tau_on if phase else 1.0, inc=0.05, size=dip_size(self, 116, -1)
+        )
         self.tau_ctrl.SetDigits(2)
         form.Add(self.tau_ctrl, 0)
 
@@ -196,7 +225,7 @@ class SettingsPanel(wx.Panel):
 
         tmpl_row = wx.BoxSizer(wx.HORIZONTAL)
         tmpl_row.Add(wx.StaticText(self, label="Template:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
-        templates = ["(Single-Phase)"] + sorted(MISSION_TEMPLATES.keys())
+        templates = ["(Single-Phase)", *sorted(MISSION_TEMPLATES.keys())]
         self.template_combo = wx.Choice(self, choices=templates, size=dip_size(self, 184, -1))
         self.template_combo.SetSelection(0)
         self.template_combo.Bind(wx.EVT_CHOICE, self._on_template_select)
@@ -240,7 +269,9 @@ class SettingsPanel(wx.Panel):
         self.phase_label.SetFont(self.phase_label.GetFont().MakeItalic())
         main.Add(self.phase_label, 0, wx.LEFT | wx.RIGHT, 10)
 
-        self.phase_list = wx.ListCtrl(self, style=wx.LC_REPORT | wx.LC_SINGLE_SEL | wx.BORDER_SIMPLE, size=wx.Size(-1, dip_px(self, 110)))
+        self.phase_list = wx.ListCtrl(
+            self, style=wx.LC_REPORT | wx.LC_SINGLE_SEL | wx.BORDER_SIMPLE, size=wx.Size(-1, dip_px(self, 110))
+        )
         style_list_ctrl(self.phase_list)
         self.phase_list.InsertColumn(0, "Phase", width=dip_px(self, 96))
         self.phase_list.InsertColumn(1, "Dur%", width=dip_px(self, 54))
@@ -303,7 +334,7 @@ class SettingsPanel(wx.Panel):
             self._show_multi_phase()
             self._refresh_phase_list()
             prof_name = getattr(profile, "name", None)
-            for i, name in enumerate(["(Single-Phase)"] + sorted(MISSION_TEMPLATES.keys())):
+            for i, name in enumerate(["(Single-Phase)", *sorted(MISSION_TEMPLATES.keys())]):
                 if name == prof_name:
                     self.template_combo.SetSelection(i)
                     break
@@ -348,7 +379,7 @@ class SettingsPanel(wx.Panel):
             return
         for i, p in enumerate(self._mission_profile.phases):
             idx = self.phase_list.InsertItem(i, (p.name or "Phase")[:15])
-            self.phase_list.SetItem(idx, 1, f"{(p.duration_frac or 0)*100:.0f}")
+            self.phase_list.SetItem(idx, 1, f"{(p.duration_frac or 0) * 100:.0f}")
             self.phase_list.SetItem(idx, 2, f"{p.t_ambient or 0:.0f}")
             tj = p.t_junction if p.t_junction is not None else p.t_ambient
             self.phase_list.SetItem(idx, 3, f"{tj:.0f}")
@@ -361,8 +392,7 @@ class SettingsPanel(wx.Panel):
         if dlg.ShowModal() == wx.ID_OK:
             phase = dlg.get_phase()
             if self._mission_profile is None:
-                self._mission_profile = MissionProfile(
-                    name="Custom", mission_years=self.years.GetValue(), phases=[])
+                self._mission_profile = MissionProfile(name="Custom", mission_years=self.years.GetValue(), phases=[])
             self._mission_profile.phases.append(phase)
             total = sum(p.duration_frac for p in self._mission_profile.phases)
             if total > 0:
@@ -376,8 +406,7 @@ class SettingsPanel(wx.Panel):
         sel = self.phase_list.GetFirstSelected()
         if sel < 0 or not self._mission_profile:
             return
-        dlg = MissionPhaseDialog(self, phase=self._mission_profile.phases[sel],
-                                 title="Edit Mission Phase")
+        dlg = MissionPhaseDialog(self, phase=self._mission_profile.phases[sel], title="Edit Mission Phase")
         if dlg.ShowModal() == wx.ID_OK:
             self._mission_profile.phases[sel] = dlg.get_phase()
             self._refresh_phase_list()
@@ -401,11 +430,11 @@ class SettingsPanel(wx.Panel):
             self._refresh_phase_list()
         self._on_change(event)
 
-    def _on_change(self, event):
+    def _on_change(self, event):  # noqa: ARG002
         if self.on_change:
             self.on_change()
 
-    def _on_help(self, event):
+    def _on_help(self, event):  # noqa: ARG002
         dlg = QuickReferenceDialog(self)
         dlg.ShowModal()
         dlg.Destroy()
@@ -457,12 +486,12 @@ class ComponentPanel(scrolled.ScrolledPanel):
             self.list.SetItem(idx, 1, (c.get("value", "") or "")[:20])
             self.list.SetItem(idx, 2, (c.get("class", "") or "")[:20])
             lam = float(c.get("lambda", 0) or 0)
-            self.list.SetItem(idx, 3, f"{lam*1e9:.1f}")
+            self.list.SetItem(idx, 3, f"{lam * FIT_PER_LAMBDA:.1f}")
             self.list.SetItem(idx, 4, f"{float(c.get('r', 1) or 1):.5f}")
-        self.summary.SetLabel(f"Sheet: L = {total_lam*1e9:.1f} FIT  R = {r:.5f}")
+        self.summary.SetLabel(f"Sheet: L = {total_lam * FIT_PER_LAMBDA:.1f} FIT  R = {r:.5f}")
         self.Layout()
 
-    def _on_edit(self, event):
+    def _on_edit(self, event):  # noqa: ARG002
         idx = self.list.GetFirstSelected()
         if idx >= 0 and self.on_component_edit:
             ref = self.list.GetItemText(idx, 0)
