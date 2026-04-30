@@ -110,6 +110,9 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["*Tests"]
 python_functions = ["test_*"]
+markers = [
+    "wx: tests requiring wxPython and a display (xvfb in CI)",
+]
 norecursedirs = [".git", ".ruff_cache", ".pytest_cache", ".hypothesis", "__pycache__"]
 
 [tool.coverage.run]

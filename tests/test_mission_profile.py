@@ -1,6 +1,5 @@
-import pytest
-
 import mission_profile as mp
+import pytest
 
 
 class MissionPhaseTests:

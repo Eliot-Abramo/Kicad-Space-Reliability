@@ -1,6 +1,7 @@
+from unittest import mock
+
 import component_swap as cs
 import reliability_math
-from unittest import mock
 
 
 class SwapCandidateTests:

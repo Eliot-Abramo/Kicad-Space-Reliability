@@ -1,8 +1,8 @@
 import tempfile
+from unittest import mock
 
 import pytest
 import report_generator
-from unittest import mock
 
 
 class ReportGeneratorTests:

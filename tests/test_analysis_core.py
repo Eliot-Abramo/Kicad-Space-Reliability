@@ -1,4 +1,5 @@
 import math
+from unittest import mock
 
 import budget_allocation
 import classification
@@ -6,7 +7,6 @@ import monte_carlo
 import numpy as np
 import reliability_math
 import sensitivity_analysis
-from unittest import mock
 
 
 def _exp_reliability(lam, hours):
