@@ -44,3 +44,6 @@ Thumbs.db
 .ruff_cache/
 .pytest_cache/
 .hypothesis/
+*.coverage*
+coverage.xml
+htmlcov/
