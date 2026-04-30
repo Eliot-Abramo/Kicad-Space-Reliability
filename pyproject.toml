@@ -36,6 +36,8 @@ repository = "https://github.com/Eliot-Abramo/Kicad-Space-Reliability"
 
 [dependency-groups]
 dev = [
+    "hypothesis>=6.141.1",
+    "mutmut>=3.3.1",
     "wxpython",
 ]
 
