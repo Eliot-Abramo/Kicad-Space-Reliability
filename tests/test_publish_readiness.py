@@ -1,7 +1,8 @@
 import json
 import pathlib
 
-REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
+_DIR = pathlib.Path(__file__).resolve().parent
+REPO_ROOT = _DIR.parents[1] if _DIR.parent.name == "mutants" else _DIR.parents[0]
 
 
 class PublishReadinessTests:

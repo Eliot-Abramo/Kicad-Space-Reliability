@@ -6,7 +6,12 @@ import sys
 
 import numpy as np
 
-REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
+_TEST_DIR = pathlib.Path(__file__).resolve().parent
+# Handle mutmut's mutants/tests/ directory: walk up past 'mutants' if present
+if _TEST_DIR.parent.name == "mutants":
+    REPO_ROOT = _TEST_DIR.parents[1]
+else:
+    REPO_ROOT = _TEST_DIR.parents[0]
 PLUGIN_ROOT = REPO_ROOT / "plugins"
 
 if str(PLUGIN_ROOT) not in sys.path:
